@@ -69,7 +69,11 @@ class Scout:
             added = self._fetch_rss(con, topics)
         except Exception as e:  # noqa: BLE001
             db.log_run(con, "scout", "error", f"rss failed: {e}")
-        if added == 0:
+        # Bundled sample articles are for first-boot demos ONLY: load them just
+        # when the database has no articles at all. "0 new articles" on a
+        # populated DB simply means the feeds had nothing new — that's normal.
+        if added == 0 and con.execute(
+                "SELECT COUNT(*) c FROM articles").fetchone()["c"] == 0:
             added = self._load_samples(con)
         db.log_run(con, "scout", "ok", f"{added} new articles")
         return added
@@ -147,8 +151,13 @@ class Scout:
 
 # ------------------------------------------------------- Entity extraction
 class EntityTagger:
+    MAX_PER_RUN = 80  # don't let a backlog of untagged articles starve the
+                      # later stages' LLM budget in a single run
+
     def run(self, con):
-        rows = con.execute("SELECT id,title,summary FROM articles WHERE entities=''").fetchall()
+        rows = con.execute(
+            "SELECT id,title,summary FROM articles WHERE entities='' "
+            "ORDER BY fetched_at DESC LIMIT ?", (self.MAX_PER_RUN,)).fetchall()
         for r in rows:
             out = llm.complete_json("entities", prompt("entities", title=r["title"],
                                                        summary=r["summary"]))
