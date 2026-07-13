@@ -6,12 +6,34 @@ Every call asks for JSON and validates it; one retry with the error appended.
 Usage (calls + rough tokens) is accumulated in `usage` for /admin/usage.
 """
 import json
+import logging
 import re
 import time
+from collections import deque
 import httpx
 from . import config
 
 usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "rate_limited": 0, "failed": 0}
+
+# ------------------------------------------------------------ observability
+log = logging.getLogger("newslens.llm")
+if not log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
+                                      "%H:%M:%S"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
+
+recent_errors: deque = deque(maxlen=50)  # exposed at /admin/usage
+
+
+def _note(kind, provider, task, msg):
+    """One short line per failure: what failed, where, and why."""
+    msg = str(msg)[:160]
+    log.warning("%s | provider=%s task=%s | %s", kind, provider, task, msg)
+    recent_errors.appendleft({
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "kind": kind, "provider": provider, "task": task, "detail": msg})
 
 # Pace calls to stay under free-tier requests-per-minute limits.
 _last_call: dict[str, float] = {}
@@ -57,11 +79,18 @@ def complete_json(task: str, prompt: str, retries: int = 1):
             except RateLimited:
                 usage["rate_limited"] += 1
                 _benched_until[p] = time.time() + COOLDOWN_SECONDS
+                _note("rate_limited", p, task, f"429 — benched {COOLDOWN_SECONDS // 60} min")
+                continue
+            except json.JSONDecodeError as e:
+                last_err = str(e)[:200]
+                _note("invalid_json", p, task, last_err)
                 continue
             except Exception as e:  # noqa: BLE001
                 last_err = str(e)[:200]
+                _note("error", p, task, last_err)
                 continue
     usage["failed"] += 1
+    _note("gave_up", "all", task, last_err or "every provider unavailable or benched")
     return None
 
 

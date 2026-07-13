@@ -258,4 +258,6 @@ def admin_usage():
     runs = [dict(r) for r in con.execute(
         "SELECT * FROM runs ORDER BY created_at DESC LIMIT 30").fetchall()]
     con.close()
-    return {"session_llm_usage": llm.usage, "recent_runs": runs}
+    return {"session_llm_usage": llm.usage,
+            "recent_errors": list(llm.recent_errors),
+            "recent_runs": runs}
