@@ -1,0 +1,20 @@
+# Topic -> list of RSS/Atom feeds. Add or remove freely; this is the main tuning knob.
+world:
+  - https://feeds.bbci.co.uk/news/world/rss.xml
+  - https://www.aljazeera.com/xml/rss/all.xml
+business:
+  - https://feeds.bbci.co.uk/news/business/rss.xml
+  - https://www.cnbc.com/id/10001147/device/rss/rss.html
+technology:
+  - https://feeds.bbci.co.uk/news/technology/rss.xml
+  - https://www.theverge.com/rss/index.xml
+  - https://feeds.arstechnica.com/arstechnica/index
+science:
+  - https://www.sciencedaily.com/rss/all.xml
+health:
+  - https://feeds.bbci.co.uk/news/health/rss.xml
+india:
+  - https://feeds.feedburner.com/ndtvnews-top-stories
+  - https://www.thehindu.com/news/national/feeder/default.rss
+energy:
+  - https://www.rechargenews.com/rss

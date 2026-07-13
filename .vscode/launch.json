@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: API server (uvicorn)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+      "cwd": "${workspaceFolder}/backend"
+    },
+    {
+      "name": "Backend: run pipeline once",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/run_pipeline.py",
+      "cwd": "${workspaceFolder}/backend"
+    },
+    {
+      "name": "Backend: run single stage (edit arg)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/run_pipeline.py",
+      "args": ["--stage", "trends"],
+      "cwd": "${workspaceFolder}/backend"
+    }
+  ]
+}

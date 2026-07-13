@@ -1,0 +1,82 @@
+# Every agent prompt lives here. Edit English, not Python.
+# Placeholders in {braces} are filled by the code.
+
+entities: |
+  Extract from this news item. Reply ONLY with JSON:
+  {{"entities": [...], "sectors": [...], "regions": [...]}}
+  Title: {title}
+  Summary: {summary}
+
+trend: |
+  These {n} recent news items appear related:
+  {items}
+  Name the underlying trend and explain it. If it is a global/macro trend, note which
+  local regions or sectors it will reach.
+  The name must read like a sharp magazine section title, 3-6 vivid words.
+  Do NOT prefix it with labels like "Rising focus", "Trend:", or "Focus on".
+  Reply ONLY with JSON:
+  {{"name": "short trend name", "narrative": "2-3 sentences", "sectors": [...], "regions": [...]}}
+
+micro_trend: |
+  In the last 72 hours, coverage of these items is accelerating:
+  {items}
+  This may be an emerging micro-trend. Name it and state what early signal it represents.
+  The name must be 3-6 vivid words. Do NOT include the words "early signal" or any
+  prefix label in the name — the interface already labels the section.
+  Reply ONLY with JSON: {{"name": "...", "signal": "1-2 sentences"}}
+
+connection: |
+  Story A: {a}
+  Story B: {b}
+  These look unrelated on the surface. Trace any real causal, economic, or policy chain
+  by which one affects the other. Be skeptical: if there is no meaningful link, use
+  confidence 0. Reply ONLY with JSON:
+  {{"chain": "the step-by-step link, plainly explained", "confidence": 0.0, "affected": [...]}}
+
+claims: |
+  List the 1-4 most important checkable factual claims in this story.
+  Reply ONLY with JSON: {{"claims": ["...", "..."]}}
+  Story: {text}
+
+verify: |
+  Claims: {claims}
+  Corroboration: {corroboration} of the ingested sources independently report this story.
+  Source reputation tier (1 best - 4 worst): {tier}
+  Assess each claim and give an overall corroboration score 0-100 (this measures how well
+  supported the story is, NOT absolute truth). Reply ONLY with JSON:
+  {{"verdicts": [{{"claim": "...", "verdict": "corroborated|unverified|disputed", "note": "..."}}],
+    "score": 0, "note": "one-line rationale"}}
+
+story: |
+  Write this news as a short story-format piece: a hook, what happened, why it matters
+  now, and what to watch next. 120-180 words, plain language, no hype beyond the facts.
+  Start directly with the hook — never open with meta phrases like "Here's the story",
+  "In this story", or "This article".
+  Then write a headline that is genuinely catchy and attention-grabbing — use tension,
+  a concrete stake, or a sharp question — while staying strictly true to the verified
+  claims below: every factual element in the headline must appear in the claims.
+  Never use generic templates like "What Just Changed and Why It Matters".
+  Verified claims: {claims}
+  Source items: {items}
+  Reply ONLY with JSON: {{"headline": "...", "narrative": "..."}}
+
+ask: |
+  You are the reader's news intelligence assistant. Answer their question about the
+  story below. Be accurate, cite only what the story and claims support, admit
+  uncertainty plainly, and keep it under 120 words. If the reader profile is relevant,
+  tailor the answer to them.
+  Reader profile: {context}
+  {story}
+  Question: {question}
+  Reply ONLY with JSON:
+  {{"answer": "...", "followups": ["2-3 natural follow-up questions"]}}
+
+personalize: |
+  Reader profile: {context}
+  Story headline: {headline}
+  Story: {narrative}
+  Related trends: {trends}
+  In 2-4 sentences, explain what this story could mean for THIS reader specifically —
+  their work, business, city, family or money. Be concrete, honest about uncertainty,
+  and never invent facts. Then score personal impact 0-3 (0 none, 3 high).
+  Reply ONLY with JSON: {{"impact_text": "...", "impact_score": 0}}

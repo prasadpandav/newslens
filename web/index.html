@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bluelligent — AI News Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ============ Bluelligent Design Tokens ============ */
+:root{
+  --bg:#070B14; --bg-2:#0B1120; --surface:rgba(255,255,255,.035);
+  --surface-2:rgba(255,255,255,.06); --border:rgba(255,255,255,.08);
+  --border-2:rgba(255,255,255,.14);
+  --text:#E8ECF4; --text-2:#9AA5B8; --text-3:#5D6778;
+  --accent:#4D9FFF; --ai-2:#7C5CFF;
+  --trust:#3DDC97; --warn:#FFC24D; --breaking:#FF5D73; --predict:#B48CFF;
+  --grad-ai:linear-gradient(135deg,#4D9FFF,#7C5CFF);
+  --r-lg:18px; --r-md:12px; --r-sm:8px;
+  --ease:cubic-bezier(.22,1,.36,1);
+  --font-ui:'Inter',system-ui,sans-serif;
+  --font-ed:'Newsreader',Georgia,serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --shadow:0 10px 40px rgba(0,0,0,.45);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(900px 500px at 80% -10%,rgba(77,159,255,.10),transparent 60%),
+             radial-gradient(700px 500px at 10% 110%,rgba(124,92,255,.08),transparent 60%)}
+a{color:var(--accent);text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+::selection{background:rgba(77,159,255,.35)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ============ Primitives ============ */
+.glass{background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg);backdrop-filter:blur(14px)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;
+  border-radius:100px;font-size:12px;font-weight:600;letter-spacing:.02em;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
+.chip.accent{color:#BFDBFF;background:rgba(77,159,255,.14);border-color:rgba(77,159,255,.3)}
+.chip.trust{color:#A7F3D0;background:rgba(61,220,151,.12);border-color:rgba(61,220,151,.3)}
+.chip.warn{color:#FDE9BE;background:rgba(255,194,77,.12);border-color:rgba(255,194,77,.3)}
+.chip.breaking{color:#FFC9D2;background:rgba(255,93,115,.12);border-color:rgba(255,93,115,.35)}
+.chip.ai{color:#DCD2FF;background:rgba(124,92,255,.14);border-color:rgba(124,92,255,.35)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:12px;
+  font-weight:600;font-size:14px;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
+.btn.primary{background:var(--grad-ai);color:#fff;box-shadow:0 6px 24px rgba(77,159,255,.35)}
+.btn.primary:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(77,159,255,.45)}
+.btn.ghost{border:1px solid var(--border-2);color:var(--text)}
+.btn.ghost:hover{background:var(--surface-2)}
+.meter{height:5px;border-radius:100px;background:rgba(255,255,255,.08);overflow:hidden}
+.meter>i{display:block;height:100%;border-radius:100px;background:var(--trust);
+  transition:width 1s var(--ease)}
+.skel{position:relative;overflow:hidden;background:var(--surface);border-radius:var(--r-md);min-height:90px}
+.skel::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
+  animation:shimmer 1.4s infinite}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.rise{animation:rise .5s var(--ease) both}
+.hidden{display:none!important}
+
+/* ============ Nav ============ */
+nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:20px;
+  padding:14px 28px;background:rgba(7,11,20,.75);backdrop-filter:blur(18px);
+  border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em;color:var(--text)}
+.logo .mark{width:26px;height:26px;border-radius:8px;background:var(--grad-ai);
+  display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff}
+nav .links{display:flex;gap:4px;margin-left:8px}
+nav .links a{padding:7px 14px;border-radius:10px;color:var(--text-2);font-weight:500;font-size:14px;transition:all .2s}
+nav .links a:hover{color:var(--text);background:var(--surface-2)}
+nav .links a.active{color:var(--text);background:var(--surface-2)}
+.searchbtn{margin-left:auto;display:flex;align-items:center;gap:10px;padding:8px 14px;
+  border-radius:12px;border:1px solid var(--border);color:var(--text-2);font-size:13px;transition:all .2s}
+.searchbtn:hover{border-color:var(--border-2);color:var(--text)}
+.searchbtn kbd{font-family:var(--font-mono);font-size:11px;padding:2px 6px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border)}
+.offline{font-size:11px;padding:4px 10px;border-radius:100px;background:rgba(255,194,77,.12);
+  color:#FDE9BE;border:1px solid rgba(255,194,77,.3)}
+
+/* ============ Landing ============ */
+.landing{max-width:1080px;margin:0 auto;padding:80px 28px 60px;text-align:center}
+.landing h1{font-family:var(--font-ed);font-size:clamp(42px,6.5vw,76px);font-weight:600;
+  line-height:1.05;letter-spacing:-.02em}
+.landing h1 em{font-style:italic;background:var(--grad-ai);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.landing .sub{max-width:560px;margin:26px auto 0;color:var(--text-2);font-size:18px}
+.landing .ctas{display:flex;gap:14px;justify-content:center;margin-top:38px}
+.ticker{margin:70px auto 0;max-width:760px;overflow:hidden;border-radius:var(--r-md);
+  border:1px solid var(--border);background:var(--surface)}
+.ticker .row{display:flex;gap:44px;padding:12px 0;white-space:nowrap;width:max-content;
+  animation:tick 36s linear infinite;font-size:13px;color:var(--text-2)}
+.ticker .row b{color:var(--text)}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;
+  max-width:1080px;margin:70px auto 0;text-align:left}
+.pillar{padding:26px 24px}
+.pillar .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;margin-bottom:16px}
+.pillar h3{font-size:16px;margin-bottom:8px}
+.pillar p{font-size:13.5px;color:var(--text-2)}
+
+/* ============ App layout ============ */
+.wrap{max-width:1180px;margin:0 auto;padding:34px 28px 90px}
+.brief-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;margin-bottom:8px}
+.brief-head h2{font-family:var(--font-ed);font-size:34px;font-weight:600;letter-spacing:-.01em}
+.brief-head .date{color:var(--text-2);font-size:14px}
+.brief-sum{color:var(--text-2);font-size:14px;margin-bottom:26px}
+.brief-sum b{color:var(--text)}
+.cols{display:grid;grid-template-columns:1fr 300px;gap:28px}
+@media(max-width:900px){.cols{grid-template-columns:1fr}}
+.topics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+.topics .chip{cursor:pointer;transition:all .2s}
+.topics .chip:hover{border-color:var(--border-2);color:var(--text)}
+.topics .chip.on{color:#BFDBFF;background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
+
+/* story card */
+.scard{display:block;padding:22px 24px;margin-bottom:16px;color:var(--text);
+  transition:transform .3s var(--ease),border-color .3s,background .3s;cursor:pointer}
+.scard:hover{transform:translateY(-3px);border-color:var(--border-2);background:var(--surface-2)}
+.scard .top{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.scard h3{font-family:var(--font-ed);font-size:22px;font-weight:600;line-height:1.25;margin-bottom:8px}
+.scard p{color:var(--text-2);font-size:14px;display:-webkit-box;line-clamp:2;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.scard .foot{display:flex;align-items:center;gap:12px;margin-top:16px}
+.scard .foot .meter{flex:1;max-width:150px}
+.scard .foot .tv{font-family:var(--font-mono);font-size:12px;color:var(--trust)}
+.scard .foot .impact{margin-left:auto}
+
+/* rail */
+.rail>div{padding:20px;margin-bottom:16px}
+.rail h4{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-2);margin-bottom:14px}
+.titem{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border);cursor:pointer}
+.titem:first-of-type{border-top:none}
+.titem .nm{font-size:13.5px;font-weight:500;flex:1}
+.titem svg{flex-shrink:0}
+.signal{padding:10px 12px;border-radius:var(--r-sm);background:rgba(124,92,255,.08);
+  border:1px solid rgba(124,92,255,.2);margin-bottom:8px}
+.signal .nm{font-size:13px;font-weight:600;color:#DCD2FF}
+.signal .sg{font-size:12px;color:var(--text-2);margin-top:3px}
+.stat{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);font-size:13.5px}
+.stat:first-of-type{border-top:none}
+.stat b{font-family:var(--font-mono);color:var(--accent)}
+
+/* ============ Story reader ============ */
+.reader{max-width:720px;margin:0 auto}
+.reader .crumb{display:flex;align-items:center;gap:10px;margin-bottom:26px;font-size:13px;color:var(--text-2)}
+.reader h1{font-family:var(--font-ed);font-size:clamp(30px,4.5vw,44px);font-weight:600;
+  line-height:1.12;letter-spacing:-.015em;margin:14px 0 18px}
+.reader .lede{font-size:17px;color:var(--text-2);line-height:1.7}
+.trustdial{display:flex;align-items:center;gap:16px;padding:16px 20px;margin:26px 0}
+.trustdial .info{flex:1}
+.trustdial .info .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-2)}
+.trustdial .info .note{font-size:13px;color:var(--text-2);margin-top:3px}
+.trustdial .pct{font-family:var(--font-mono);font-size:15px;font-weight:600}
+.understand{position:sticky;top:63px;z-index:40;display:flex;align-items:center;gap:10px;
+  padding:8px 14px;margin-bottom:22px;border-radius:100px;background:rgba(11,17,32,.85);
+  border:1px solid var(--border);backdrop-filter:blur(12px);font-size:12px;color:var(--text-2)}
+.understand .meter{flex:1}
+.understand .meter>i{background:var(--grad-ai)}
+
+/* module cards */
+.module{margin-bottom:14px;overflow:hidden;transition:border-color .3s}
+.module:hover{border-color:var(--border-2)}
+.module .mhead{display:flex;align-items:center;gap:12px;width:100%;padding:18px 22px;text-align:left}
+.module .mhead .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex-shrink:0}
+.module .mhead h3{font-size:15px;font-weight:600;flex:1}
+.module .mhead .chev{transition:transform .35s var(--ease);color:var(--text-2)}
+.module.open .mhead .chev{transform:rotate(180deg)}
+.module .mbody{max-height:0;overflow:hidden;transition:max-height .5s var(--ease)}
+.module.open .mbody{max-height:1600px}
+.module .minner{padding:2px 22px 22px;color:var(--text-2);font-size:14.5px}
+.module .minner p+p{margin-top:10px}
+.claim{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--border)}
+.claim:first-child{border-top:none}
+.claim .vd{flex-shrink:0;margin-top:2px}
+.claim .cx{font-size:14px;color:var(--text)}
+.claim .nt{font-size:12.5px;color:var(--text-2);margin-top:2px}
+.connection{padding:14px 16px;border-radius:var(--r-md);background:rgba(124,92,255,.07);
+  border:1px solid rgba(124,92,255,.2);margin-bottom:10px}
+.connection .oth{font-weight:600;font-size:14px;color:#DCD2FF}
+.connection .ch{font-size:13.5px;margin-top:6px;color:var(--text-2)}
+.connection .cf{font-family:var(--font-mono);font-size:11.5px;color:var(--predict);margin-top:8px}
+.srcrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}
+.srcrow:first-child{border-top:none}
+.srcrow .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.srcrow a{color:var(--text);font-size:14px}
+.srcrow .host{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:var(--text-2)}
+.foryou{padding:18px 22px;margin-bottom:14px;border-radius:var(--r-lg);
+  background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
+  border:1px solid rgba(77,159,255,.25)}
+.foryou .lbl{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.09em;color:#BFDBFF;margin-bottom:8px}
+
+/* ============ Trends ============ */
+.tabs{display:flex;gap:6px;margin-bottom:24px}
+.tabs button{padding:8px 18px;border-radius:10px;font-weight:600;font-size:14px;color:var(--text-2);transition:all .2s}
+.tabs button.on{background:var(--surface-2);color:var(--text);border:1px solid var(--border-2)}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.tcard{padding:22px;transition:transform .3s var(--ease),border-color .3s;cursor:default}
+.tcard:hover{transform:translateY(-3px);border-color:var(--border-2)}
+.tcard .th{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.tcard h3{font-size:16.5px;font-weight:600;line-height:1.3;flex:1}
+.tcard p{font-size:13.5px;color:var(--text-2)}
+.tcard .tf{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap}
+.tcard .cnt{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--text-2)}
+.netwrap{margin-top:34px;padding:24px}
+.netwrap h3{font-size:15px;margin-bottom:4px}
+.netwrap .cap{font-size:12.5px;color:var(--text-2);margin-bottom:14px}
+canvas#net{width:100%;height:380px;border-radius:var(--r-md)}
+
+/* ============ Search overlay ============ */
+.overlay{position:fixed;inset:0;z-index:100;background:rgba(4,7,14,.72);backdrop-filter:blur(10px);
+  display:grid;place-items:start center;padding-top:11vh;opacity:0;pointer-events:none;transition:opacity .25s}
+.overlay.on{opacity:1;pointer-events:auto}
+.panel{width:min(640px,92vw);border-radius:20px;background:#0D1424;border:1px solid var(--border-2);
+  box-shadow:var(--shadow);transform:translateY(12px) scale(.98);transition:transform .3s var(--ease)}
+.overlay.on .panel{transform:none}
+.panel input{width:100%;padding:20px 24px;background:none;border:none;outline:none;
+  color:var(--text);font-size:17px;font-family:var(--font-ui);border-bottom:1px solid var(--border)}
+.panel .sug{padding:14px 20px;display:flex;gap:8px;flex-wrap:wrap}
+.results{max-height:46vh;overflow-y:auto;padding:6px 8px 12px}
+.results .grp{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-3);padding:12px 16px 6px}
+.rrow{display:flex;align-items:center;gap:12px;padding:11px 16px;border-radius:10px;cursor:pointer;font-size:14px}
+.rrow:hover,.rrow.sel{background:var(--surface-2)}
+.rrow .sub{color:var(--text-3);font-size:12px;margin-left:auto;flex-shrink:0}
+
+/* ============ Ask AI ============ */
+.fab{position:fixed;right:26px;bottom:26px;z-index:60;display:flex;align-items:center;gap:9px;
+  padding:13px 20px;border-radius:100px;background:var(--grad-ai);color:#fff;font-weight:600;
+  font-size:14px;box-shadow:0 10px 34px rgba(94,120,255,.45);transition:transform .25s var(--ease)}
+.fab:hover{transform:translateY(-3px) scale(1.02)}
+.askpanel{position:fixed;right:26px;bottom:26px;z-index:70;width:min(400px,92vw);max-height:70vh;
+  display:flex;flex-direction:column;border-radius:20px;background:#0D1424;
+  border:1px solid var(--border-2);box-shadow:var(--shadow);overflow:hidden;
+  transform:translateY(16px);opacity:0;pointer-events:none;transition:all .35s var(--ease)}
+.askpanel.on{transform:none;opacity:1;pointer-events:auto}
+.askpanel .ah{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--border)}
+.askpanel .ah b{font-size:14px}
+.askpanel .ah button{margin-left:auto;color:var(--text-2);padding:4px}
+.msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:120px}
+.msg{max-width:88%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.55}
+.msg.user{align-self:flex-end;background:rgba(77,159,255,.18);border:1px solid rgba(77,159,255,.3)}
+.msg.ai{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border)}
+.msg.ai.think i{display:inline-block;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
+.askrow{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
+.askrow input{flex:1;padding:11px 14px;border-radius:12px;background:var(--surface-2);
+  border:1px solid var(--border);color:var(--text);font-size:13.5px;outline:none}
+.askrow input:focus{border-color:rgba(77,159,255,.5)}
+.askrow button{padding:0 16px;border-radius:12px;background:var(--grad-ai);color:#fff;font-weight:600}
+.sugchips{display:flex;gap:7px;flex-wrap:wrap;padding:0 16px 12px}
+.sugchips .chip{cursor:pointer}
+.sugchips .chip:hover{border-color:rgba(77,159,255,.4);color:var(--text)}
+
+/* modal */
+.modal{position:fixed;inset:0;z-index:110;background:rgba(4,7,14,.75);backdrop-filter:blur(10px);
+  display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .3s}
+.modal.on{opacity:1;pointer-events:auto}
+.mcard{width:min(520px,92vw);padding:32px;border-radius:22px;background:#0D1424;
+  border:1px solid var(--border-2);box-shadow:var(--shadow)}
+.mcard h2{font-family:var(--font-ed);font-size:26px;margin-bottom:6px}
+.mcard .sub{color:var(--text-2);font-size:14px;margin-bottom:22px}
+.mcard label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--text-2);margin:16px 0 8px}
+.mcard input{width:100%;padding:11px 14px;border-radius:12px;background:var(--surface-2);
+  border:1px solid var(--border);color:var(--text);font-size:14px;outline:none}
+.mcard input:focus{border-color:rgba(77,159,255,.5)}
+.ichips{display:flex;gap:8px;flex-wrap:wrap}
+.ichips .chip{cursor:pointer;padding:7px 14px;font-size:13px}
+.ichips .chip.on{color:#BFDBFF;background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.45)}
+.toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%) translateY(20px);
+  z-index:120;padding:11px 20px;border-radius:100px;background:#101A30;border:1px solid var(--border-2);
+  font-size:13.5px;opacity:0;transition:all .35s var(--ease);pointer-events:none;box-shadow:var(--shadow)}
+.toast.on{opacity:1;transform:translateX(-50%)}
+footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="#/"><span class="mark">B</span>Bluelligent</a>
+  <div class="links" id="navlinks">
+    <a href="#/brief" data-r="brief">Daily Brief</a>
+    <a href="#/trends" data-r="trends">Trend Radar</a>
+  </div>
+  <button class="searchbtn" onclick="Search.open()" aria-label="Search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    Ask or search anything <kbd>⌘K</kbd>
+  </button>
+  <span id="offline" class="offline hidden">demo data — backend offline</span>
+</nav>
+
+<main id="view"></main>
+<footer>Bluelligent · AI-generated intelligence from linked sources · Corroboration scores measure source agreement, not absolute truth.</footer>
+
+<!-- Search overlay -->
+<div class="overlay" id="searchov" role="dialog" aria-label="Search">
+  <div class="panel">
+    <input id="searchin" placeholder='Try “chip shortage impact on India”…' autocomplete="off">
+    <div class="sug" id="searchsug"></div>
+    <div class="results" id="searchres"></div>
+  </div>
+</div>
+
+<!-- Ask AI -->
+<button class="fab hidden" id="fab" onclick="Ask.open()">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+  Ask AI</button>
+<div class="askpanel" id="askpanel" role="dialog" aria-label="Ask AI">
+  <div class="ah">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C5CFF" stroke-width="2"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/></svg>
+    <b>Intelligence Assistant</b>
+    <button onclick="Ask.close()" aria-label="Close">✕</button>
+  </div>
+  <div class="msgs" id="msgs"></div>
+  <div class="sugchips" id="asksug"></div>
+  <div class="askrow">
+    <input id="askin" placeholder="Ask about this story…">
+    <button onclick="Ask.send()" aria-label="Send">→</button>
+  </div>
+</div>
+
+<!-- Personalization modal -->
+<div class="modal" id="calib" role="dialog" aria-label="Personalize">
+  <div class="mcard">
+    <h2>Calibrate your lens</h2>
+    <p class="sub">Bluelligent explains what each story means for <b>you</b>. A few details sharpen the lens — everything is optional.</p>
+    <label>Topics you follow</label>
+    <div class="ichips" id="calints"></div>
+    <label>Profession</label>
+    <input id="calprof" placeholder="e.g. pharmacist, founder, analyst">
+    <label>City &amp; country</label>
+    <input id="calloc" placeholder="e.g. Pune, India">
+    <div style="display:flex;gap:10px;margin-top:26px">
+      <button class="btn primary" onclick="Calib.save()">Start understanding</button>
+      <button class="btn ghost" onclick="Calib.skip()">Skip for now</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= Config & state ================= */
+const API = localStorage.getItem('bl_api') || 'http://localhost:8000';
+const S = {
+  online: true, stories: [], trends: [], topic: 'all',
+  creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
+  eng: JSON.parse(localStorage.getItem('bl_eng') || '{"streak":1,"lastDay":"","understood":0,"topics":[]}'),
+  currentStory: null, opened: new Set()
+};
+
+/* ================= Demo fallback data ================= */
+const DEMO = {
+  stories: [
+    {id:'d1',headline:'Chip Export Rules Tighten — and Pune Feels It First',topic:'technology',credibility:86,credibility_note:'6 independent sources incl. 2 wire services',narrative:'New semiconductor export licensing now covers advanced nodes. Global producers are coordinating compliance while assembly investment quietly shifts toward India. Small electronics firms are the early sensors of this change: component costs in western India are already climbing. Watch for supplier diversification announcements next quarter.'},
+    {id:'d2',headline:'Monsoon Arrives Early; Supply Chains Re-Route',topic:'india',credibility:78,credibility_note:'4 sources, regional coverage strong',narrative:'The monsoon reached Maharashtra ahead of schedule. Distributors are re-routing around flooded corridors, briefly delaying medicine and grocery logistics. Historically, early monsoons compress Q3 logistics margins before normalizing within three weeks.'},
+    {id:'d3',headline:'Retail Investors Extend Record Fund Streak',topic:'business',credibility:91,credibility_note:'Official fund-flow data, broadly corroborated',narrative:'Equity mutual fund inflows hit a sixth straight monthly record. The pattern suggests structural — not speculative — household allocation shifts. Rate policy remains the key variable to watch.'},
+    {id:'d4',headline:'Solar Hub Near Pune Promises 4,000 Jobs',topic:'energy',credibility:72,credibility_note:'Single official announcement; execution unverified',narrative:'State officials unveiled a solar manufacturing hub near Pune. If executed, it links India deeper into the global energy-transition supply chain — and adds local demand for skilled electronics labor.'}
+  ],
+  trends: [
+    {id:'t1',kind:'macro',name:'Semiconductor supply realignment',narrative:'Export controls are pushing assembly and testing toward India and Southeast Asia.',sectors:['technology','manufacturing'],velocity:8,article_count:8},
+    {id:'t2',kind:'macro',name:'Household capital moves to equities',narrative:'Sustained retail fund inflows signal a structural savings shift.',sectors:['finance'],velocity:6,article_count:6},
+    {id:'t3',kind:'macro',name:'Energy transition localizes',narrative:'Manufacturing incentives are turning climate policy into regional jobs stories.',sectors:['energy'],velocity:5,article_count:5},
+    {id:'t4',kind:'micro',name:'Early signal: component cost pass-through',narrative:'Small manufacturers mentioning input costs 3× more often this week.',sectors:[],velocity:0.4,article_count:3},
+    {id:'t5',kind:'micro',name:'Early signal: logistics re-routing',narrative:'Monsoon re-routing language accelerating across regional outlets.',sectors:[],velocity:0.3,article_count:2}
+  ],
+  detail: s => ({...s, impact_text: S.creds ? 'Given your profile, this development could touch your costs, suppliers or local market within one or two quarters. Worth tracking the follow-ups.' : '', impact_score: S.creds?2:0,
+    claims:{claims:['Core figures match the original announcements.','Timeline of events is consistent across outlets.'],verdicts:[{claim:'Core figures match the original announcements.',verdict:'corroborated',note:'Multiple independent outlets agree'},{claim:'Timeline of events is consistent across outlets.',verdict:'unverified',note:'Awaiting official confirmation'}]},
+    sources:[{title:'Primary wire report',url:'#',source:'reuters.com'},{title:'Regional coverage',url:'#',source:'thehindu.com'}],
+    trends: DEMO.trends.slice(0,2),
+    connections:[{chain:'Export rules raise component costs → small manufacturers pass costs through → local retail prices shift within two quarters.',confidence:0.66,other_title:DEMO.stories[(DEMO.stories.findIndex(x=>x.id===s.id)+1)%4].headline,other_url:'#'}]})
+};
+
+/* ================= Utilities ================= */
+const $ = q => document.querySelector(q);
+const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* strip legacy label prefixes from trend names generated before the prompt fix */
+const cleanName = s => String(s??'').replace(/^(early signal:|rising focus:|trend:)\s*/i,'').replace(/^./, c=>c.toUpperCase());
+function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('on'); setTimeout(()=>el.classList.remove('on'),2600); }
+function saveEng(){ localStorage.setItem('bl_eng', JSON.stringify(S.eng)); }
+function bumpStreak(){
+  const today = new Date().toDateString();
+  if (S.eng.lastDay !== today){
+    const yd = new Date(Date.now()-864e5).toDateString();
+    S.eng.streak = (S.eng.lastDay === yd) ? S.eng.streak+1 : 1;
+    S.eng.lastDay = today; saveEng();
+  }
+}
+async function api(path, opts={}){
+  const r = await fetch(API+path, {...opts, headers:{'Content-Type':'application/json',
+    ...(S.creds?{'Authorization':'Bearer '+S.creds.token}:{}), ...(opts.headers||{})}});
+  if (!r.ok) throw new Error('api '+r.status);
+  return r.json();
+}
+/* deterministic sparkline from a string seed */
+function spark(seed, w=110, h=26, color='#4D9FFF'){
+  let x=0; for(const c of seed) x=(x*31+c.charCodeAt(0))>>>0;
+  const rnd=()=> (x=(x*1103515245+12345)>>>0, x/4294967295);
+  let pts=[], v=.5;
+  for(let i=0;i<12;i++){ v=Math.min(.95,Math.max(.08,v+(rnd()-.42)*.3)); pts.push(v); }
+  const step=w/11, d=pts.map((p,i)=>`${i?'L':'M'}${(i*step).toFixed(1)},${(h-p*h).toFixed(1)}`).join('');
+  const up = pts[11]>pts[0];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="${up?color:'#FF5D73'}" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+}
+function ring(score){
+  const r=17, c=2*Math.PI*r, off=c*(1-score/100);
+  const col = score>=75?'#3DDC97':score>=50?'#FFC24D':'#FF5D73';
+  return `<svg width="44" height="44" viewBox="0 0 44 44" role="img" aria-label="Corroboration ${Math.round(score)} percent">
+    <circle cx="22" cy="22" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="4"/>
+    <circle cx="22" cy="22" r="${r}" fill="none" stroke="${col}" stroke-width="4" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+      transform="rotate(-90 22 22)" style="transition:stroke-dashoffset 1s var(--ease)"/>
+    <text x="22" y="26" text-anchor="middle" font-size="11" font-weight="700" fill="${col}" font-family="JetBrains Mono">${Math.round(score)}</text></svg>`;
+}
+const ICONS = {
+  what:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2.5 2.5"/></svg>',
+  why:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9-9 4.03-9 9 4.03 9 9 9z"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.7-2.5 2-2.5 4"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg>',
+  big:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>',
+  conn:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7 7.5l3.5 8M17 7.5l-3.5 8M7.5 6h9"/></svg>',
+  verify:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.4-3 8.4-7 10-4-1.6-7-5.6-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>',
+  src:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>',
+  lens:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>'
+};
+
+/* ================= Router ================= */
+function route(){
+  const h = location.hash || '#/';
+  document.querySelectorAll('#navlinks a').forEach(a=>a.classList.toggle('active', h.startsWith('#/'+a.dataset.r)));
+  $('#fab').classList.add('hidden'); Ask.close();
+  if (h.startsWith('#/story/')) return Story.render(h.slice(8));
+  if (h.startsWith('#/trends')) return Trends.render();
+  if (h.startsWith('#/brief')) return Brief.render();
+  Landing.render();
+}
+window.addEventListener('hashchange', route);
+
+/* ================= Data ================= */
+async function loadData(){
+  try{
+    const [st, tr] = await Promise.all([
+      S.creds ? api('/feed?user_id='+S.creds.user_id).catch(()=>api('/stories')) : api('/stories'),
+      api('/trends')
+    ]);
+    S.stories = st.items; S.trends = tr.items; S.online = true;
+  }catch(e){
+    S.online = false; S.stories = DEMO.stories; S.trends = DEMO.trends;
+  }
+  $('#offline').classList.toggle('hidden', S.online);
+}
+
+/* ================= Landing ================= */
+const Landing = { render(){
+  const tick = ['<b>Trend</b> Semiconductor supply realignment ▲','<b>Verified</b> Fund inflows hit 6-month record · 91%','<b>Early signal</b> Component cost pass-through','<b>Connection</b> Export rules ↔ local retail prices','<b>Brief</b> 9 stories · 4 min to understand today'];
+  $('#view').innerHTML = `
+  <div class="landing">
+    <div class="rise"><span class="chip ai">AI News Intelligence</span></div>
+    <h1 class="rise" style="animation-delay:.06s">Understand the news.<br><em>Not just read it.</em></h1>
+    <p class="sub rise" style="animation-delay:.12s">Bluelligent turns information overload into understanding — every story arrives with its context, trends, hidden connections and a verified-claims check. In 30 seconds you know <b>what happened, why, why it matters, and what's next</b>.</p>
+    <div class="ctas rise" style="animation-delay:.18s">
+      <a class="btn primary" href="#/brief">Open today's brief →</a>
+      <a class="btn ghost" href="#/trends">Explore the Trend Radar</a>
+    </div>
+    <div class="ticker rise" style="animation-delay:.28s" aria-hidden="true"><div class="row">${(tick.concat(tick)).map(t=>`<span>${t}</span>`).join('')}</div></div>
+    <div class="pillars">
+      ${[['#4D9FFF','story','Story Intelligence','Every story is a modular journey — what happened, why it matters, the bigger picture — not a wall of text.'],
+         ['#B48CFF','radar','Trend Radar','Macro trends and 72-hour early signals, linked from global forces down to your city.'],
+         ['#3DDC97','shield','Truth Meter','Claim-by-claim verification with a corroboration score you can inspect — never a bare number.'],
+         ['#FFC24D','lens','Your Lens','Tell it your profession and city once; every story explains what it means for you.']]
+        .map(([c,_,h,p],i)=>`<div class="pillar glass rise" style="animation-delay:${.3+i*.07}s">
+          <div class="ic" style="background:${c}1f;color:${c}">${ICONS.big}</div><h3>${h}</h3><p>${p}</p></div>`).join('')}
+    </div>
+  </div>`;
+}};
+
+/* ================= Daily Brief ================= */
+const Brief = { async render(){
+  $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div><br><div class="skel" style="height:200px"></div></div>`;
+  if (!S.stories.length) await loadData();
+  bumpStreak();
+  const topics = ['all', ...new Set(S.stories.map(s=>s.topic))];
+  const list = S.stories.filter(s=>S.topic==='all'||s.topic===S.topic);
+  const macro = S.trends.filter(t=>t.kind==='macro').slice(0,5);
+  const micro = S.trends.filter(t=>t.kind==='micro').slice(0,3);
+  const mins = Math.max(2, Math.round(list.length*0.45));
+  const hr = new Date().getHours(), greet = hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
+  $('#view').innerHTML = `
+  <div class="wrap">
+    <div class="brief-head rise"><h2>${greet}. Here's what matters.</h2>
+      <span class="date">${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span></div>
+    <p class="brief-sum rise" style="animation-delay:.05s"><b>${list.length} stories</b> · about <b>${mins} min</b> to understand ·
+      top signal: <b>${esc(cleanName(macro[0]?.name)||'—')}</b></p>
+    <div class="topics rise" style="animation-delay:.08s">${topics.map(t=>
+      `<button class="chip ${t===S.topic?'on':''}" onclick="S.topic='${esc(t)}';Brief.render()">${esc(t)}</button>`).join('')}</div>
+    <div class="cols">
+      <div id="cards">${list.map((s,i)=>this.card(s,i)).join('') ||
+        `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">No stories yet — run the backend pipeline, then refresh.<br><br><button class="btn ghost" onclick="loadData().then(()=>Brief.render())">Refresh</button></div>`}</div>
+      <aside class="rail">
+        <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
+          ${macro.map(t=>`<div class="titem" onclick="location.hash='#/trends'">
+            <span class="nm">${esc(cleanName(t.name))}</span>${spark(t.name,58,20)}</div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
+        <div class="glass rise" style="animation-delay:.2s"><h4>Early signals · 72h</h4>
+          ${micro.map(t=>`<div class="signal"><div class="nm">${esc(cleanName(t.name))}</div><div class="sg">${esc(t.narrative)}</div></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">No micro-trends yet.</p>'}</div>
+        <div class="glass rise" style="animation-delay:.25s"><h4>Your intelligence</h4>
+          <div class="stat"><span>Learning streak</span><b>${S.eng.streak} day${S.eng.streak>1?'s':''}</b></div>
+          <div class="stat"><span>Stories understood</span><b>${S.eng.understood}</b></div>
+          <div class="stat"><span>Topics explored</span><b>${S.eng.topics.length}</b></div>
+        </div>
+      </aside>
+    </div>
+  </div>`;
+  $('#fab').classList.remove('hidden');
+},
+card(s,i){
+  const impact = s.impact_score>0 ? `<span class="chip ${s.impact_score>=3?'breaking':s.impact_score>=2?'warn':'accent'} impact">${['','For you','Affects you','High impact'][Math.min(s.impact_score,3)]}</span>`:'';
+  return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="#/story/${s.id}">
+    <div class="top"><span class="chip">${esc(s.topic)}</span>${s.credibility>=85?'<span class="chip trust">Highly corroborated</span>':''}</div>
+    <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
+    <div class="foot"><div class="meter"><i style="width:${s.credibility}%;background:${s.credibility>=75?'var(--trust)':s.credibility>=50?'var(--warn)':'var(--breaking)'}"></i></div>
+      <span class="tv">${Math.round(s.credibility)}%</span>${impact}</div></a>`;
+}};
+
+/* ================= Story Reader ================= */
+const Story = { async render(id){
+  $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
+  let s;
+  try{ s = await api('/story/'+id+(S.creds?`?user_id=${S.creds.user_id}`:'')); }
+  catch(e){ const base = (S.stories.length?S.stories:DEMO.stories).find(x=>x.id===id) || DEMO.stories[0]; s = DEMO.detail(base); }
+  S.currentStory = s; S.opened = new Set();
+  if (!S.eng.topics.includes(s.topic)){ S.eng.topics.push(s.topic); saveEng(); }
+  const sent = s.credibility>=75?['Balanced coverage','trust']:['Developing story','warn'];
+  const paras = String(s.narrative||'').split(/\n+/).filter(Boolean);
+  const what = paras[0]||s.narrative, why = paras.slice(1).join(' ')||'This story links to wider forces covered in "The bigger picture" below — open it to see which trends it feeds and who is affected.';
+  const modules = [
+    ['what','What happened','#4D9FFF',`<p>${esc(what)}</p>`],
+    ['why','Why it matters','#FFC24D',`<p>${esc(why)}</p>`],
+    s.trends?.length ? ['big','The bigger picture','#B48CFF',
+      s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
+        <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
+        <div style="font-size:13px">${esc(t.narrative)}</div></div>${spark(t.name,90,24,'#B48CFF')}</div>`).join('')] : null,
+    s.connections?.length ? ['conn','Hidden connections','#7C5CFF',
+      `<p style="font-size:12.5px;margin-bottom:12px">AI-inferred hypotheses — links that aren't obvious but may matter. Treat as leads, not facts.</p>`+
+      s.connections.map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
+        <div class="ch">${esc(c.chain)}</div><div class="cf">confidence ${Math.round(c.confidence*100)}%</div></div>`).join('')] : null,
+    ['verify','Claim check','#3DDC97', this.claims(s)],
+    s.sources?.length ? ['src','Sources','#9AA5B8',
+      s.sources.map(x=>`<div class="srcrow"><span class="dot"></span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title||x.url)}</a><span class="host">${esc(x.source||'')}</span></div>`).join('')] : null
+  ].filter(Boolean);
+  $('#view').innerHTML = `
+  <div class="wrap reader">
+    <div class="crumb rise"><a href="#/brief">← Brief</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span></div>
+    <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
+    <p class="lede rise" style="animation-delay:.08s">${esc(what)}</p>
+    <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility)}
+      <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
+    ${s.impact_text?`<div class="foryou rise" style="animation-delay:.16s"><div class="lbl">${ICONS.lens||''}What this means for you</div>${esc(s.impact_text)}</div>`:''}
+    <div class="understand"><span>Understanding</span><div class="meter"><i id="uprog" style="width:10%"></i></div><span id="upct">10%</span></div>
+    <div id="mods">${modules.map((m,i)=>`
+      <div class="module glass" id="mod-${m[0]}">
+        <button class="mhead" onclick="Story.toggle('${m[0]}',${modules.length})" aria-expanded="false">
+          <span class="ic" style="background:${m[2]}1c;color:${m[2]}">${ICONS[m[0]]||ICONS.what}</span>
+          <h3>${m[1]}</h3>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="mbody"><div class="minner">${m[3]}</div></div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+  $('#fab').classList.remove('hidden');
+  setTimeout(()=>this.toggle('what',modules.length),400);
+},
+claims(s){
+  const V = {corroborated:['#3DDC97','M9 12l2 2 4-4'], disputed:['#FF5D73','M15 9l-6 6M9 9l6 6'], unverified:['#FFC24D','M12 8v4m0 4h.01']};
+  const verdicts = s.claims?.verdicts?.length ? s.claims.verdicts :
+    (s.claims?.claims||[]).map(c=>({claim:c,verdict:'unverified',note:'Not yet assessed'}));
+  return verdicts.map(v=>{const [col,path]=V[v.verdict]||V.unverified;
+    return `<div class="claim"><svg class="vd" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="${path}"/></svg>
+    <div><div class="cx">${esc(v.claim)}</div><div class="nt">${esc(v.verdict)} — ${esc(v.note)}</div></div></div>`;}).join('')
+    + `<p style="font-size:12px;margin-top:12px;color:var(--text-3)">The corroboration score measures agreement across independent sources — it is evidence, not proof.</p>`;
+},
+toggle(id, total){
+  const el = $('#mod-'+id); if(!el) return;
+  const open = el.classList.toggle('open');
+  el.querySelector('.mhead').setAttribute('aria-expanded', open);
+  if (open && !S.opened.has(id)){
+    S.opened.add(id);
+    const pct = Math.min(100, Math.round(10 + 90*S.opened.size/total));
+    $('#uprog').style.width = pct+'%'; $('#upct').textContent = pct+'%';
+    if (pct>=100){ S.eng.understood++; saveEng(); toast('✓ Story understood — nicely done'); }
+  }
+}};
+
+/* ================= Trend Radar ================= */
+const Trends = { tab:'macro', async render(){
+  if (!S.trends.length) await loadData();
+  const list = S.trends.filter(t=>t.kind===this.tab);
+  $('#view').innerHTML = `
+  <div class="wrap">
+    <div class="brief-head rise"><h2>Trend Radar</h2><span class="date">macro forces &amp; 72-hour early signals</span></div>
+    <div class="tabs rise" style="animation-delay:.05s">
+      <button class="${this.tab==='macro'?'on':''}" onclick="Trends.tab='macro';Trends.render()">Macro trends</button>
+      <button class="${this.tab==='micro'?'on':''}" onclick="Trends.tab='micro';Trends.render()">Early signals</button>
+    </div>
+    <div class="tgrid">${list.map((t,i)=>`
+      <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s">
+        <div class="th"><h3>${esc(cleanName(t.name))}</h3>${spark(t.name,86,26,t.kind==='micro'?'#B48CFF':'#4D9FFF')}</div>
+        <p>${esc(t.narrative)}</p>
+        <div class="tf">${(t.sectors||[]).slice(0,3).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}
+          ${t.kind==='micro'?'<span class="chip ai">accelerating</span>':''}
+          <span class="cnt">${t.article_count||0} stories</span></div>
+      </div>`).join('') || `<div class="glass" style="padding:40px;grid-column:1/-1;text-align:center;color:var(--text-2)">No ${this.tab==='macro'?'macro trends':'early signals'} yet — run the pipeline.</div>`}
+    </div>
+    <div class="netwrap glass rise" style="animation-delay:.3s">
+      <h3>Story network</h3><div class="cap">How today's trends and stories interlink. Larger nodes = stronger trends.</div>
+      <canvas id="net" aria-label="Network graph of trends and stories"></canvas>
+    </div>
+  </div>`;
+  requestAnimationFrame(()=>this.net());
+},
+net(){
+  const cv = $('#net'); if(!cv) return;
+  const dpr = devicePixelRatio||1, W = cv.clientWidth, H = 380;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext('2d'); ctx.scale(dpr,dpr);
+  const macro = S.trends.filter(t=>t.kind==='macro').slice(0,6);
+  const nodes = [], edges = [];
+  macro.forEach((t,i)=>{
+    const a = (i/macro.length)*Math.PI*2 - Math.PI/2;
+    nodes.push({x:W/2+Math.cos(a)*W*.26, y:H/2+Math.sin(a)*H*.30, r:10+Math.min(10,(t.article_count||1)), c:'#4D9FFF', l:t.name});
+  });
+  S.stories.slice(0,14).forEach((s,i)=>{
+    const hub = nodes.length? i%macro.length : 0;
+    const a = Math.PI*2*(i/14), rr = Math.min(W,H)*.12;
+    const hx = nodes[hub]?.x??W/2, hy = nodes[hub]?.y??H/2;
+    const n = {x:hx+Math.cos(a)*rr*1.6, y:hy+Math.sin(a)*rr, r:4.5, c:'#7C5CFF', l:''};
+    nodes.push(n); if (nodes[hub]) edges.push([nodes[hub],n]);
+  });
+  for(let i=1;i<macro.length;i++) edges.push([nodes[0],nodes[i]]);
+  let t0 = null;
+  function draw(ts){
+    if(!t0) t0=ts; const p = Math.min(1,(ts-t0)/900);
+    ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle='rgba(124,140,180,.18)'; ctx.lineWidth=1;
+    edges.forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);
+      ctx.lineTo(a.x+(b.x-a.x)*p, a.y+(b.y-a.y)*p);ctx.stroke();});
+    nodes.forEach(n=>{
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*p,0,7);ctx.fillStyle=n.c+'33';ctx.fill();
+      ctx.beginPath();ctx.arc(n.x,n.y,Math.max(1.5,n.r*.45)*p,0,7);ctx.fillStyle=n.c;ctx.fill();
+      if(n.l&&p>.8){ctx.fillStyle='rgba(232,236,244,.85)';ctx.font='11px Inter';
+        ctx.fillText(n.l.length>26?n.l.slice(0,25)+'…':n.l, n.x+n.r+6, n.y+4);}
+    });
+    if(p<1) requestAnimationFrame(draw);
+  }
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches){ draw(1e9); }
+  else requestAnimationFrame(draw);
+}};
+
+/* ================= Search ================= */
+const Search = {
+  idx:-1,
+  open(){ $('#searchov').classList.add('on'); $('#searchin').value=''; this.results(''); setTimeout(()=>$('#searchin').focus(),80); },
+  close(){ $('#searchov').classList.remove('on'); },
+  async results(q){
+    const sug = S.trends.filter(t=>t.kind==='macro').slice(0,4);
+    $('#searchsug').innerHTML = q?'' : sug.map(t=>`<button class="chip" onclick="$('#searchin').value='${esc(t.name)}';Search.results('${esc(t.name)}')">${esc(t.name)}</button>`).join('');
+    let st=[], tr=[];
+    if (q && q.length>1){
+      if (S.online){ try{ const r = await api('/search?q='+encodeURIComponent(q)); st=r.stories; tr=r.trends; }catch(e){} }
+      if (!st.length && !tr.length){
+        const ql = q.toLowerCase();
+        st = S.stories.filter(s=>(s.headline+s.narrative+s.topic).toLowerCase().includes(ql)).slice(0,8);
+        tr = S.trends.filter(t=>(t.name+t.narrative).toLowerCase().includes(ql)).slice(0,5);
+      }
+    } else { st = S.stories.slice(0,5); }
+    this.idx = -1;
+    $('#searchres').innerHTML =
+      (st.length?`<div class="grp">Stories</div>`+st.map(s=>`<div class="rrow" data-go="#/story/${s.id}"><span>📄</span> ${esc(s.headline)}<span class="sub">${Math.round(s.credibility)}%</span></div>`).join(''):'')+
+      (tr.length?`<div class="grp">Trends</div>`+tr.map(t=>`<div class="rrow" data-go="#/trends"><span>📈</span> ${esc(t.name)}<span class="sub">${t.kind}</span></div>`).join(''):'')+
+      (!st.length&&!tr.length?`<div class="grp">No matches — try the Ask AI assistant instead</div>`:'');
+    document.querySelectorAll('.rrow').forEach(r=>r.onclick=()=>{location.hash=r.dataset.go;Search.close();});
+  }
+};
+$('#searchin').addEventListener('input', e=>Search.results(e.target.value));
+$('#searchin').addEventListener('keydown', e=>{
+  const rows=[...document.querySelectorAll('.rrow')];
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault();
+    Search.idx=(Search.idx+(e.key==='ArrowDown'?1:-1)+rows.length)%rows.length;
+    rows.forEach((r,i)=>r.classList.toggle('sel',i===Search.idx));
+    rows[Search.idx]?.scrollIntoView({block:'nearest'});}
+  if(e.key==='Enter'&&rows[Search.idx]) rows[Search.idx].click();
+});
+$('#searchov').addEventListener('click', e=>{ if(e.target.id==='searchov') Search.close(); });
+document.addEventListener('keydown', e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){ e.preventDefault(); Search.open(); }
+  if(e.key==='Escape'){ Search.close(); Ask.close(); }
+});
+
+/* ================= Ask AI ================= */
+const Ask = {
+  open(){ $('#askpanel').classList.add('on'); $('#fab').classList.add('hidden');
+    if(!$('#msgs').children.length){
+      this.bubble('ai', S.currentStory ? `I've read “${S.currentStory.headline}”. What would you like to understand?` : 'Ask me anything about today’s news — impacts, background, opposing views.');
+      this.sugs(['Explain like I’m 15','What happens next?','Why does this matter to me?']);
+    }
+    setTimeout(()=>$('#askin').focus(),100); },
+  close(){ $('#askpanel').classList.remove('on');
+    if(!$('#view').querySelector('.landing')) $('#fab').classList.remove('hidden'); },
+  bubble(kind, text, think){ const d=document.createElement('div');
+    d.className='msg '+kind+(think?' think':''); d.innerHTML = think?'Thinking<i>…</i>':esc(text);
+    $('#msgs').appendChild(d); $('#msgs').scrollTop=1e6; return d; },
+  sugs(list){ $('#asksug').innerHTML=(list||[]).map(t=>`<button class="chip" onclick="Ask.sendText('${esc(t)}')">${esc(t)}</button>`).join(''); },
+  send(){ const v=$('#askin').value.trim(); if(v) this.sendText(v); },
+  async sendText(q){
+    $('#askin').value=''; this.bubble('user', q); this.sugs([]);
+    const th = this.bubble('ai','',true);
+    let ans;
+    try{
+      if(!S.online) throw new Error('offline');
+      ans = await api('/ask',{method:'POST',body:JSON.stringify({question:q,
+        story_id:S.currentStory?.id||'', user_id:S.creds?.user_id||''})});
+    }catch(e){
+      ans = {answer:'(demo) The reporting so far agrees on the core facts; the open questions are timing and second-order effects. Start the backend to get real AI answers here.',
+        followups:['What happens next?','Show opposing viewpoints']};
+    }
+    th.classList.remove('think'); th.innerHTML = esc(ans.answer);
+    this.sugs(ans.followups);
+  }
+};
+$('#askin').addEventListener('keydown', e=>{ if(e.key==='Enter') Ask.send(); });
+
+/* ================= Personalization ================= */
+const Calib = {
+  ints: [],
+  show(){
+    const opts=['Technology','Business','World','Health','Energy','Finance','Science','India','Sports'];
+    $('#calints').innerHTML = opts.map(o=>`<button class="chip" onclick="Calib.tog(this,'${o}')">${o}</button>`).join('');
+    $('#calib').classList.add('on');
+  },
+  tog(el,v){ el.classList.toggle('on');
+    this.ints.includes(v)?this.ints=this.ints.filter(x=>x!==v):this.ints.push(v); },
+  async save(){
+    try{
+      const u = await api('/users',{method:'POST'});
+      S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
+      const loc = $('#calloc').value.split(',').map(s=>s.trim());
+      await api(`/users/${u.user_id}/context`,{method:'PUT',body:JSON.stringify({
+        interests:this.ints, profession:$('#calprof').value,
+        location:{city:loc[0]||'',country:loc[1]||''}})});
+      toast('Lens calibrated — your feed is now personal');
+    }catch(e){ toast('Saved locally — backend offline'); }
+    localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on');
+    await loadData(); route();
+  },
+  skip(){ localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on'); }
+};
+
+/* ================= Boot ================= */
+(async function(){
+  await loadData();
+  route();
+  if (!localStorage.getItem('bl_seen') && location.hash && location.hash!=='#/') Calib.show();
+  window.addEventListener('hashchange', ()=>{
+    if (!localStorage.getItem('bl_seen') && location.hash!=='#/' && location.hash) Calib.show();
+  }, {once:true});
+})();
+</script>
+</body>
+</html>

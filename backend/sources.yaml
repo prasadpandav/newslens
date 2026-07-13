@@ -1,0 +1,5 @@
+# Source reputation tiers used by the Verifier. 1 = wire/major, 4 = unknown.
+tier1: [reuters.com, apnews.com, bbc.co.uk, bbc.com]
+tier2: [aljazeera.com, cnbc.com, theverge.com, arstechnica.com, thehindu.com, sciencedaily.com]
+tier3: [ndtv.com, feedburner.com, rechargenews.com]
+# anything unlisted = tier 4

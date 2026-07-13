@@ -1,0 +1,42 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup: install backend deps",
+      "type": "shell",
+      "command": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && (cp -n .env.example .env || true)",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: start API",
+      "type": "shell",
+      "command": ".venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: run pipeline",
+      "type": "shell",
+      "command": ".venv/bin/python run_pipeline.py",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Web: serve portal",
+      "type": "shell",
+      "command": "python3 -m http.server 3000",
+      "options": { "cwd": "${workspaceFolder}/web" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "iOS: build via xcodebuild (needs ios/NewsLens.xcodeproj)",
+      "type": "shell",
+      "command": "xcodebuild -project ios/NewsLens.xcodeproj -scheme NewsLens -destination 'platform=iOS Simulator,name=iPhone 16' build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}
