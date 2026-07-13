@@ -49,7 +49,7 @@ def _note(kind, provider, task, msg):
 
 # Pace calls to stay under free-tier requests-per-minute limits.
 _last_call: dict[str, float] = {}
-MIN_INTERVAL = {"groq": 2.1, "gemini": 6.5}   # seconds between calls per provider
+MIN_INTERVAL = {"groq": 2.1, "gemini": 6.5, "deepseek": 0.5, "openai": 0.5}
 
 # When a provider rate-limits us, bench it for a while instead of knocking on
 # its door for every call. It gets retried automatically after the cooldown.
@@ -74,8 +74,13 @@ def complete_json(task: str, prompt: str, retries: int = 1):
     provider = config.LLM_PROVIDER
     if provider == "mock":
         return _mock(task, prompt)
-    order = {"groq": ["groq"], "gemini": ["gemini"], "auto": ["groq", "gemini"]}.get(
-        provider, ["groq", "gemini"])
+    # auto = free providers first, then paid fallbacks cheapest-first
+    # (DeepSeek before OpenAI), each included only if its key is configured.
+    auto_order = (["groq", "gemini"]
+                  + (["deepseek"] if config.DEEPSEEK_API_KEY else [])
+                  + (["openai"] if config.OPENAI_API_KEY else []))
+    order = {"groq": ["groq"], "gemini": ["gemini"], "deepseek": ["deepseek"],
+             "openai": ["openai"], "auto": auto_order}.get(provider, auto_order)
     last_err = None
     for attempt in range(retries + 1):
         for p in order:
@@ -140,6 +145,27 @@ def _call(provider, prompt):
         r.raise_for_status()
         data = r.json()
         _record("groq", data.get("usage", {}).get("total_tokens", 0))
+        return data["choices"][0]["message"]["content"]
+    if provider in ("openai", "deepseek"):
+        key = config.DEEPSEEK_API_KEY if provider == "deepseek" else config.OPENAI_API_KEY
+        if not key:
+            raise RuntimeError(f"no {provider} key")
+        base = ("https://api.deepseek.com/v1" if provider == "deepseek"
+                else "https://api.openai.com/v1")
+        r = httpx.post(
+            f"{base}/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": config.DEEPSEEK_MODEL if provider == "deepseek"
+                           else config.OPENAI_MODEL,
+                  "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.4,
+                  "response_format": {"type": "json_object"}},
+            timeout=60)
+        if r.status_code == 429:
+            raise RateLimited()
+        r.raise_for_status()
+        data = r.json()
+        _record(provider, data.get("usage", {}).get("total_tokens", 0))
         return data["choices"][0]["message"]["content"]
     if provider == "gemini":
         if not config.GEMINI_API_KEY:

@@ -65,13 +65,21 @@ def put_context(user_id: str, ctx: ContextIn, authorization: str = Header("")):
 def feed(user_id: str, authorization: str = Header("")):
     con = db.connect()
     _auth(con, user_id, authorization)
+    # LEFT JOIN: every recent story appears in the feed; personalization
+    # (impact text/score) enriches stories where the Personalizer has run,
+    # but never gates visibility — otherwise rate-limited personalization
+    # would silently shrink the feed.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, f.impact_text, f.impact_score
-           FROM feed_items f JOIN stories s ON s.id = f.story_id
-           WHERE f.user_id = ?
-           ORDER BY f.impact_score DESC, s.created_at DESC LIMIT 50""",
-        (user_id,)).fetchall()
+                  s.topic,
+                  COALESCE(f.impact_text, '')  AS impact_text,
+                  COALESCE(f.impact_score, 0)  AS impact_score
+           FROM stories s
+           LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
+           WHERE s.created_at > ?
+           ORDER BY COALESCE(f.impact_score, 0) DESC, s.created_at DESC
+           LIMIT 100""",
+        (user_id, db.now() - 7 * 86400)).fetchall()
     con.close()
     return {"items": [dict(r) for r in rows]}
 
