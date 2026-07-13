@@ -17,6 +17,11 @@ usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "rate_limited": 0, "fail
 _last_call: dict[str, float] = {}
 MIN_INTERVAL = {"groq": 2.1, "gemini": 6.5}   # seconds between calls per provider
 
+# When a provider rate-limits us, bench it for a while instead of knocking on
+# its door for every call. It gets retried automatically after the cooldown.
+_benched_until: dict[str, float] = {}
+COOLDOWN_SECONDS = 900  # 15 min
+
 
 def _pace(provider):
     wait = MIN_INTERVAL.get(provider, 0) - (time.time() - _last_call.get(provider, 0.0))
@@ -40,14 +45,18 @@ def complete_json(task: str, prompt: str, retries: int = 1):
     last_err = None
     for attempt in range(retries + 1):
         for p in order:
+            if time.time() < _benched_until.get(p, 0):
+                continue  # provider is cooling down after a rate limit
             try:
                 _pace(p)
                 text = _call(p, prompt if attempt == 0 else
                              f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
                              f"Reply with ONLY valid JSON.")
+                _benched_until.pop(p, None)
                 return _extract_json(text)
             except RateLimited:
                 usage["rate_limited"] += 1
+                _benched_until[p] = time.time() + COOLDOWN_SECONDS
                 continue
             except Exception as e:  # noqa: BLE001
                 last_err = str(e)[:200]
