@@ -15,7 +15,7 @@ def _load_dotenv():
 
 _load_dotenv()
 
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "mock").lower()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")

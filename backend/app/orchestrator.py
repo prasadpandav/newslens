@@ -2,22 +2,17 @@
 logs every stage. Re-runnable: each stage skips work already done."""
 from . import db, llm
 from .agents import (Scout, EntityTagger, TrendLinker, MicroTrendDetector,
-                     ConnectionFinder, Verifier, Storyteller, Personalizer)
+                     ConnectionFinder, Verifier, Storyteller, Foresight,
+                     Personalizer)
 
 STAGES = ["scout", "entities", "trends", "micro_trends", "connections",
-          "stories", "personalize"]
+          "stories", "signals", "personalize"]
 
 
 def plan(con):
-    """Planner: derive topics from the union of user interests + baseline."""
-    topics = {"world", "business", "technology"}
-    for u in con.execute("SELECT context FROM users").fetchall():
-        ctx = db.uj(u["context"])
-        topics.update(t.lower() for t in ctx.get("interests", []))
-        country = str(ctx.get("location", {}).get("country", "")).lower()
-        if country:
-            topics.add(country)
-    return {"topics": topics, "stages": STAGES}
+    """Planner: fetch ALL configured topics — users can always browse everything.
+    Interests influence personalization and ranking, never availability."""
+    return {"topics": None, "stages": STAGES}  # None = every topic in feeds.yaml
 
 
 def run_pipeline(stage=None):
@@ -40,6 +35,8 @@ def run_pipeline(stage=None):
                 results[s] = ConnectionFinder().run(con)
             elif s == "stories":
                 results[s] = Storyteller().run(con, verifier)
+            elif s == "signals":
+                results[s] = Foresight().run(con)
             elif s == "personalize":
                 results[s] = Personalizer().run(con)
         except Exception as e:  # noqa: BLE001

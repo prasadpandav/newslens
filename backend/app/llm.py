@@ -168,6 +168,20 @@ def _mock(task, prompt):
                              f"space. Watch for follow-up coverage and official responses "
                              f"in the coming days. (Placeholder text — this story was "
                              f"generated without an LLM key or after hitting a rate limit.)"}
+    if task == "signals":
+        # Parse two story ids from digest lines so mock demos still work.
+        ids = re.findall(r"^([0-9a-f]{12}) \|", prompt, re.M)[:3]
+        if len(ids) < 2:
+            return {"signals": []}
+        return {"signals": [{
+            "title": f"{label} ripple effect forming",
+            "prediction": f"Pressure building around {label.lower()} may surface in "
+                          f"adjacent sectors within weeks. (Placeholder — mock mode.)",
+            "chain": "Story A raises costs/attention → intermediaries adjust → "
+                     "second-order effect appears in a different sector.",
+            "watch": "Follow-up coverage volume and supplier pricing announcements.",
+            "affected": kws, "horizon": "2-8 weeks", "confidence": 0.45,
+            "story_ids": ids}]}
     if task == "ask":
         return {"answer": f"Based on the covered reporting around {label.lower()}, the "
                           f"short answer is that the situation is still developing. The "

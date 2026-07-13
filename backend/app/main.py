@@ -152,6 +152,28 @@ def trends():
     return {"items": out}
 
 
+@app.get("/signals")
+def signals():
+    """Foresight signals: cross-domain predictions with their supporting stories."""
+    con = db.connect()
+    out = []
+    for g in con.execute(
+            "SELECT * FROM signals ORDER BY confidence DESC, created_at DESC").fetchall():
+        stories = []
+        for sid in db.uj(g["story_ids"], []):
+            s = con.execute(
+                "SELECT id, headline, narrative, credibility, credibility_note, topic "
+                "FROM stories WHERE id=?", (sid,)).fetchone()
+            if s:
+                stories.append(dict(s))
+        out.append({"id": g["id"], "title": g["title"], "prediction": g["prediction"],
+                    "chain": g["chain"], "watch": g["watch"],
+                    "affected": db.uj(g["affected"], []), "horizon": g["horizon"],
+                    "confidence": g["confidence"], "stories": stories})
+    con.close()
+    return {"items": out}
+
+
 @app.get("/trend/{trend_id}")
 def trend_detail(trend_id: str):
     """A trend plus the stories built from its member articles — powers deep-dive."""

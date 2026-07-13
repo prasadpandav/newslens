@@ -74,10 +74,22 @@ class Scout:
         db.log_run(con, "scout", "ok", f"{added} new articles")
         return added
 
+    def _is_same_source_dup(self, con, source, title, threshold=0.85):
+        """True if this source already gave us a near-identical title recently.
+        Same/similar stories from *different* sources are kept — they feed
+        corroboration and trends. Repeats from the SAME source (new tracking
+        URLs, minor headline edits) are skipped so they aren't reprocessed."""
+        vec = _tf(title)
+        rows = con.execute(
+            "SELECT title FROM articles WHERE source=? AND fetched_at > ?",
+            (source, db.now() - 7 * 86400)).fetchall()
+        return any(cosine(vec, _tf(r["title"])) >= threshold for r in rows)
+
     def _fetch_rss(self, con, topics):
         import feedparser
         feeds = yaml.safe_load(config.FEEDS_FILE.read_text())
         added = 0
+        skipped_dups = 0
         for topic, urls in feeds.items():
             if topics and topic not in topics:
                 continue
@@ -98,6 +110,9 @@ class Scout:
                         continue
                     summary = re.sub(r"<[^>]+>", " ", getattr(e, "summary", ""))[:600]
                     source = re.sub(r"^www\.", "", re.sub(r"https?://([^/]+).*", r"\1", link))
+                    if self._is_same_source_dup(con, source, title):
+                        skipped_dups += 1
+                        continue
                     pub = time.time()
                     try:
                         con.execute(
@@ -109,6 +124,9 @@ class Scout:
                     except Exception:
                         pass  # duplicate url
         con.commit()
+        if skipped_dups:
+            db.log_run(con, "scout_dedup", "ok",
+                       f"{skipped_dups} same-source repeats skipped")
         return added
 
     def _load_samples(self, con):
@@ -340,6 +358,60 @@ class Storyteller:
             made += 1
         con.commit()
         db.log_run(con, "storyteller", "ok", f"{made} stories")
+        return made
+
+
+# -------------------------------------------------------------- Foresight
+class Foresight:
+    """The differentiator. Takes the per-story analysis the pipeline already
+    produced (entities, claims, topics) and reasons over ALL of it in one LLM
+    pass to find cross-domain signals: indirect causal chains where stories
+    from different topics point to something that may happen next."""
+
+    WINDOW_DAYS = 7
+    MAX_DIGESTS = 60
+
+    def run(self, con):
+        stories = con.execute(
+            "SELECT id, headline, topic, claims, article_ids FROM stories "
+            "WHERE created_at > ? ORDER BY created_at DESC LIMIT ?",
+            (db.now() - self.WINDOW_DAYS * 86400, self.MAX_DIGESTS)).fetchall()
+        if len(stories) < 4:
+            db.log_run(con, "foresight", "ok", "too few stories to synthesize")
+            return 0
+        digests = []
+        for s in stories:
+            ents = []
+            for aid in db.uj(s["article_ids"], [])[:3]:
+                a = con.execute("SELECT entities FROM articles WHERE id=?", (aid,)).fetchone()
+                if a:
+                    e = db.uj(a["entities"])
+                    ents += e.get("entities", [])[:4] + e.get("sectors", [])[:2]
+            claim = (db.uj(s["claims"]).get("claims") or [""])[0]
+            digests.append(f"{s['id']} | {s['topic']} | {s['headline']} | "
+                           f"{', '.join(dict.fromkeys(ents))[:120]} | {str(claim)[:100]}")
+        out = llm.complete_json("signals", prompt(
+            "signals", n=len(digests), digests="\n".join(digests)))
+        if out is None:
+            db.log_run(con, "foresight", "error", "LLM unavailable; retry next run")
+            return 0
+        valid = {s["id"] for s in stories}
+        made = 0
+        con.execute("DELETE FROM signals")  # each run recomputes the current view
+        for sig in out.get("signals", [])[:7]:
+            sids = [i for i in sig.get("story_ids", []) if i in valid]
+            conf = float(sig.get("confidence", 0))
+            if len(sids) < 2 or conf < 0.35:
+                continue  # evidence bar: 2+ real stories, non-trivial confidence
+            con.execute(
+                "INSERT INTO signals VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), sig.get("title", "Signal"), sig.get("prediction", ""),
+                 sig.get("chain", ""), sig.get("watch", ""),
+                 db.j(sig.get("affected", [])), sig.get("horizon", ""),
+                 min(conf, 0.85), db.j(sids), db.now()))
+            made += 1
+        con.commit()
+        db.log_run(con, "foresight", "ok", f"{made} signals from {len(digests)} digests")
         return made
 
 

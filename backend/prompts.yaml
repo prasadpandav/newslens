@@ -60,6 +60,30 @@ story: |
   Source items: {items}
   Reply ONLY with JSON: {{"headline": "...", "narrative": "..."}}
 
+signals: |
+  You are the foresight engine of a news-intelligence service. Below are {n} compact
+  digests of recent stories across many topics, one per line, formatted as:
+  story_id | topic | headline | entities | key claim
+  {digests}
+  Identify 3-7 SIGNALS: forward-looking inferences where stories from DIFFERENT
+  topics combine to suggest something that may happen next. Focus on indirect,
+  cross-domain causal chains — e.g. AI demand raises memory-chip prices, which
+  raises consumer electronics prices; a geopolitical move raises shipping costs,
+  which shows up in retail inflation. The best signals are non-obvious but
+  rigorous; skip anything a single headline already says outright.
+  Rules:
+  - Every signal must cite 2 or more story_ids from the digests as evidence.
+    More corroborating stories = stronger signal.
+  - The chain must be concrete and step-by-step, not vague hand-waving.
+  - Be honest about uncertainty; confidence 0-1. Do not exceed 0.85.
+  Reply ONLY with JSON:
+  {{"signals": [{{"title": "5-9 vivid words, no label prefixes",
+     "prediction": "one sentence: what may happen",
+     "chain": "the step-by-step causal reasoning",
+     "watch": "the leading indicator a reader should watch",
+     "affected": ["who/what is affected"], "horizon": "e.g. 2-8 weeks",
+     "confidence": 0.0, "story_ids": ["...", "..."]}}]}}
+
 ask: |
   You are the reader's news intelligence assistant. Answer their question about the
   story below. Be accurate, cite only what the story and claims support, admit
