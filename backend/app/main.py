@@ -259,5 +259,7 @@ def admin_usage():
         "SELECT * FROM runs ORDER BY created_at DESC LIMIT 30").fetchall()]
     con.close()
     return {"session_llm_usage": llm.usage,
+            "provider_status": llm.provider_status(),
+            "provider_events": list(llm.provider_events),
             "recent_errors": list(llm.recent_errors),
             "recent_runs": runs}

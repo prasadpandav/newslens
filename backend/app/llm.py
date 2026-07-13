@@ -13,7 +13,8 @@ from collections import deque
 import httpx
 from . import config
 
-usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "rate_limited": 0, "failed": 0}
+usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "provider_attempts": {},
+         "rate_limited": 0, "failed": 0}
 
 # ------------------------------------------------------------ observability
 log = logging.getLogger("newslens.llm")
@@ -24,7 +25,18 @@ if not log.handlers:
     log.addHandler(_h)
     log.setLevel(logging.INFO)
 
-recent_errors: deque = deque(maxlen=50)  # exposed at /admin/usage
+recent_errors: deque = deque(maxlen=50)   # exposed at /admin/usage
+# Rate-limit/bench events are rare but crucial — keep them separately so a
+# flood of gave_up entries can never push them out of view.
+provider_events: deque = deque(maxlen=20)
+
+
+def provider_status():
+    """Live view: which providers are benched and for how much longer."""
+    now = time.time()
+    return {p: {"benched": now < until,
+                "benched_for_seconds": max(0, int(until - now))}
+            for p, until in _benched_until.items()}
 
 
 def _note(kind, provider, task, msg):
@@ -70,6 +82,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
             if time.time() < _benched_until.get(p, 0):
                 continue  # provider is cooling down after a rate limit
             try:
+                usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
                 _pace(p)
                 text = _call(p, prompt if attempt == 0 else
                              f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
@@ -80,6 +93,10 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 usage["rate_limited"] += 1
                 _benched_until[p] = time.time() + COOLDOWN_SECONDS
                 _note("rate_limited", p, task, f"429 — benched {COOLDOWN_SECONDS // 60} min")
+                provider_events.appendleft({
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "provider": p, "event": "rate_limited_benched",
+                    "task": task})
                 continue
             except json.JSONDecodeError as e:
                 last_err = str(e)[:200]
@@ -90,7 +107,9 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 _note("error", p, task, last_err)
                 continue
     usage["failed"] += 1
-    _note("gave_up", "all", task, last_err or "every provider unavailable or benched")
+    _note("gave_up", "all", task,
+          last_err or f"providers {order} all unavailable or benched "
+                      f"(LLM_PROVIDER={config.LLM_PROVIDER})")
     return None
 
 
