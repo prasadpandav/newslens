@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, llm
 from .agents import prompt
-from .orchestrator import run_pipeline
+from .orchestrator import run_pipeline, STAGES
 
 app = FastAPI(title="NewsLens API", version="0.1")
 # Allow the web portal (any origin) to call this API. Tighten for production.
@@ -20,11 +20,11 @@ scheduler = BackgroundScheduler()
 _pipeline_lock = threading.Lock()
 
 
-def guarded_run():
+def guarded_run(stage: str | None = None):
     if not _pipeline_lock.acquire(blocking=False):
         return None  # a run is already in progress; skip
     try:
-        return run_pipeline()
+        return run_pipeline(stage)
     finally:
         _pipeline_lock.release()
 
@@ -370,15 +370,21 @@ def ask(body: AskIn):
 
 
 @app.post("/admin/run")
-def admin_run():
+def admin_run(stage: str = ""):
     """Kick off a pipeline run in the background and return immediately.
-    (A synchronous run outlives proxy timeouts — the connection resets even
-    though the pipeline keeps running.) Poll /admin/usage for completion."""
+    Optional ?stage= runs a single stage only, e.g.:
+      /admin/run?stage=trends          just macro trends
+      /admin/run?stage=micro_trends    just early signals
+      /admin/run?stage=signals         just Foresight predictions
+    Poll /admin/usage for completion."""
+    if stage and stage not in STAGES:
+        raise HTTPException(400, f"unknown stage '{stage}'; valid: {STAGES}")
     if _pipeline_lock.locked():
         return {"started": False, "status": "a pipeline run is already in progress",
                 "check": "GET /admin/usage — look for stage='pipeline', status='done'"}
-    threading.Thread(target=guarded_run, daemon=True).start()
-    return {"started": True, "status": "running in background",
+    threading.Thread(target=guarded_run, args=(stage or None,), daemon=True).start()
+    return {"started": True, "stage": stage or "all",
+            "status": "running in background",
             "check": "GET /admin/usage — a new recent_runs row with "
                      "stage='pipeline', status='done' marks completion"}
 

@@ -182,15 +182,28 @@ class TrendLinker:
             (db.now() - 7 * 86400,)).fetchall()
         clusters = greedy_cluster([(r["id"], r["title"] + " " + r["summary"]) for r in rows],
                                   threshold)
+        # Incremental: skip clusters we already named; replace trends whose
+        # cluster has since grown. No repeat LLM calls for unchanged clusters.
+        existing = {tuple(sorted(db.uj(r["article_ids"], []))): r["id"]
+                    for r in con.execute(
+                        "SELECT id, article_ids FROM trends WHERE kind='macro'").fetchall()}
         made = 0
         for ids in clusters:
             if len(ids) < min_size:
                 continue
+            key = tuple(sorted(ids))
+            if key in existing:
+                continue  # already processed this exact cluster
             arts = [r for r in rows if r["id"] in ids]
             items = "\n".join(f"- {a['title']}: {a['summary'][:150]}" for a in arts)
             out = llm.complete_json("trend", prompt("trend", n=len(arts), items=items))
             if out is None:
                 continue
+            # the new cluster supersedes any old trend that is a subset of it
+            for old_key, old_id in list(existing.items()):
+                if set(old_key) < set(ids):
+                    con.execute("DELETE FROM trends WHERE id=?", (old_id,))
+                    del existing[old_key]
             con.execute(
                 "INSERT INTO trends (id,kind,name,narrative,sectors,regions,article_ids,"
                 "velocity,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -214,10 +227,15 @@ class MicroTrendDetector:
             (db.now() - 144 * 3600, db.now() - 72 * 3600)).fetchone()["c"]
         clusters = greedy_cluster([(r["id"], r["title"] + " " + r["summary"]) for r in recent],
                                   threshold)
+        existing = {tuple(sorted(db.uj(r["article_ids"], [])))
+                    for r in con.execute(
+                        "SELECT article_ids FROM trends WHERE kind='micro'").fetchall()}
         made = 0
         for ids in clusters:
             if not (2 <= len(ids) <= 5):
                 continue  # micro = small but repeated
+            if tuple(sorted(ids)) in existing:
+                continue  # already processed this exact cluster
             velocity = len(ids) / max(prev_count, 1)
             arts = [r for r in recent if r["id"] in ids]
             items = "\n".join(f"- {a['title']}" for a in arts)
@@ -246,10 +264,16 @@ class ConnectionFinder:
         rows = con.execute(
             "SELECT id,title,summary,entities FROM articles WHERE fetched_at > ?",
             (db.now() - 7 * 86400,)).fetchall()
+        # Incremental: never re-evaluate a pair we've already asked the LLM about.
+        seen_pairs = set()
+        for r in con.execute("SELECT article_a, article_b FROM connections").fetchall():
+            seen_pairs.add(frozenset((r["article_a"], r["article_b"])))
         cands = []
         for i in range(len(rows)):
             for k in range(i + 1, len(rows)):
                 a, b = rows[i], rows[k]
+                if frozenset((a["id"], b["id"])) in seen_pairs:
+                    continue
                 surface = cosine(_tf(a["title"] + a["summary"]),
                                  _tf(b["title"] + b["summary"]))
                 if surface > 0.3:
@@ -271,12 +295,14 @@ class ConnectionFinder:
             if out is None:
                 continue
             conf = float(out.get("confidence", 0))
+            # Store every evaluated pair (including rejections at low confidence)
+            # so it is never sent to the LLM again. Consumers filter to >= 0.6.
+            con.execute(
+                "INSERT INTO connections (id,article_a,article_b,chain,confidence,"
+                "affected,created_at) VALUES (?,?,?,?,?,?,?)",
+                (db.new_id(), a["id"], b["id"], out.get("chain", ""), conf,
+                 db.j(out.get("affected", [])), db.now()))
             if conf >= 0.6:
-                con.execute(
-                    "INSERT INTO connections (id,article_a,article_b,chain,confidence,"
-                    "affected,created_at) VALUES (?,?,?,?,?,?,?)",
-                    (db.new_id(), a["id"], b["id"], out.get("chain", ""), conf,
-                     db.j(out.get("affected", [])), db.now()))
                 made += 1
         con.commit()
         db.log_run(con, "connections", "ok", f"{made} connections from {len(cands)} candidates")
@@ -319,7 +345,8 @@ class Verifier:
 
 # ------------------------------------------------------------ Storyteller
 class Storyteller:
-    MAX_PER_RUN = 20  # fits free-tier budgets; the rest are picked up next run
+    # Configurable via MAX_STORIES_PER_RUN env var; the rest roll to next run.
+    MAX_PER_RUN = config.MAX_STORIES_PER_RUN
 
     def run(self, con, verifier: Verifier):
         """Turn each macro trend cluster (and orphan articles) into a story."""
@@ -356,7 +383,8 @@ class Storyteller:
                 continue
             headline = out.get("headline", arts[0]["title"])
             conn_ids = [r["id"] for r in con.execute(
-                "SELECT id FROM connections WHERE article_a IN (%s) OR article_b IN (%s)"
+                "SELECT id FROM connections WHERE confidence >= 0.6 AND "
+                "(article_a IN (%s) OR article_b IN (%s))"
                 % (",".join("?" * len(ids)), ",".join("?" * len(ids))),
                 ids + ids).fetchall()]
             con.execute(
