@@ -1,5 +1,7 @@
 """FastAPI app: the API the iOS client talks to."""
 import secrets
+import threading
+import httpx
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,10 +16,22 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
 scheduler = BackgroundScheduler()
 
+# One pipeline at a time — shared guard for scheduled AND manual runs.
+_pipeline_lock = threading.Lock()
+
+
+def guarded_run():
+    if not _pipeline_lock.acquire(blocking=False):
+        return None  # a run is already in progress; skip
+    try:
+        return run_pipeline()
+    finally:
+        _pipeline_lock.release()
+
 
 @app.on_event("startup")
 def _start():
-    scheduler.add_job(run_pipeline, "interval",
+    scheduler.add_job(guarded_run, "interval",
                       hours=config.PIPELINE_INTERVAL_HOURS,
                       id="pipeline", replace_existing=True)
     scheduler.start()
@@ -42,13 +56,113 @@ def _auth(con, user_id, authorization):
         raise HTTPException(401, "bad token")
 
 
+class GoogleAuthIn(BaseModel):
+    id_token: str
+
+
+@app.post("/auth/google")
+def auth_google(body: GoogleAuthIn):
+    """Sign in with Google. Verifies the ID token against Google's tokeninfo
+    endpoint, then finds-or-creates the user. Returns credentials plus whether
+    the user already has a saved context (drives the app's personalize flow)."""
+    try:
+        r = httpx.get("https://oauth2.googleapis.com/tokeninfo",
+                      params={"id_token": body.id_token}, timeout=15)
+    except httpx.HTTPError:
+        raise HTTPException(503, "could not reach Google to verify the token")
+    if r.status_code != 200:
+        raise HTTPException(401, "invalid Google token")
+    info = r.json()
+    client_id = __import__("os").environ.get("GOOGLE_CLIENT_ID", "")
+    if client_id and info.get("aud") != client_id:
+        raise HTTPException(401, "token was issued for a different app")
+    sub = info["sub"]
+    email = info.get("email", "")
+    name = info.get("name", "")
+    picture = info.get("picture", "")
+    con = db.connect()
+    row = con.execute("SELECT id, token, context FROM users WHERE google_sub=?",
+                      (sub,)).fetchone()
+    if row:
+        uid, token, ctx = row["id"], row["token"], row["context"]
+        con.execute("UPDATE users SET email=?, name=?, picture=? WHERE id=?",
+                    (email, name, picture, uid))
+    else:
+        uid, token, ctx = db.new_id(), secrets.token_hex(16), "{}"
+        con.execute(
+            "INSERT INTO users (id, token, context, created_at, google_sub, email, "
+            "name, picture) VALUES (?,?,?,?,?,?,?,?)",
+            (uid, token, "{}", db.now(), sub, email, name, picture))
+    con.commit(); con.close()
+    return {"user_id": uid, "token": token, "name": name, "email": email,
+            "picture": picture, "has_context": ctx not in ("", "{}", None)}
+
+
+@app.get("/users/{user_id}/profile")
+def get_profile(user_id: str, authorization: str = Header("")):
+    """Account details for the Profile screen. Lets the app refresh name,
+    email and photo without a fresh Google sign-in."""
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    row = con.execute("SELECT name, email, picture, context FROM users WHERE id=?",
+                      (user_id,)).fetchone()
+    con.close()
+    return {"name": row["name"] or "", "email": row["email"] or "",
+            "picture": row["picture"] or "",
+            "has_context": (row["context"] or "{}") not in ("", "{}")}
+
+
+@app.post("/bookmarks")
+def add_bookmark(user_id: str, story_id: str, authorization: str = Header("")):
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    con.execute("INSERT OR IGNORE INTO bookmarks VALUES (?,?,?,?)",
+                (db.new_id(), user_id, story_id, db.now()))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+@app.delete("/bookmarks")
+def remove_bookmark(user_id: str, story_id: str, authorization: str = Header("")):
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    con.execute("DELETE FROM bookmarks WHERE user_id=? AND story_id=?",
+                (user_id, story_id))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+@app.get("/bookmarks")
+def list_bookmarks(user_id: str, authorization: str = Header("")):
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    rows = con.execute(
+        """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
+                  s.topic, '' AS impact_text, 0 AS impact_score
+           FROM bookmarks b JOIN stories s ON s.id = b.story_id
+           WHERE b.user_id = ? ORDER BY b.created_at DESC""",
+        (user_id,)).fetchall()
+    con.close()
+    return {"items": [dict(r) for r in rows]}
+
+
 @app.post("/users")
 def create_user():
     con = db.connect()
     uid, token = db.new_id(), secrets.token_hex(16)
-    con.execute("INSERT INTO users VALUES (?,?,?,?)", (uid, token, "{}", db.now()))
+    con.execute("INSERT INTO users (id, token, context, created_at) VALUES (?,?,?,?)",
+                (uid, token, "{}", db.now()))
     con.commit(); con.close()
     return {"user_id": uid, "token": token}
+
+
+@app.get("/users/{user_id}/context")
+def get_context(user_id: str, authorization: str = Header("")):
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    row = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
+    con.close()
+    return db.uj(row["context"] if row else "{}")
 
 
 @app.put("/users/{user_id}/context")
@@ -257,7 +371,16 @@ def ask(body: AskIn):
 
 @app.post("/admin/run")
 def admin_run():
-    return run_pipeline()
+    """Kick off a pipeline run in the background and return immediately.
+    (A synchronous run outlives proxy timeouts — the connection resets even
+    though the pipeline keeps running.) Poll /admin/usage for completion."""
+    if _pipeline_lock.locked():
+        return {"started": False, "status": "a pipeline run is already in progress",
+                "check": "GET /admin/usage — look for stage='pipeline', status='done'"}
+    threading.Thread(target=guarded_run, daemon=True).start()
+    return {"started": True, "status": "running in background",
+            "check": "GET /admin/usage — a new recent_runs row with "
+                     "stage='pipeline', status='done' marks completion"}
 
 
 @app.get("/admin/usage")

@@ -158,15 +158,18 @@ class EntityTagger:
         rows = con.execute(
             "SELECT id,title,summary FROM articles WHERE entities='' "
             "ORDER BY fetched_at DESC LIMIT ?", (self.MAX_PER_RUN,)).fetchall()
+        tagged = 0
         for r in rows:
             out = llm.complete_json("entities", prompt("entities", title=r["title"],
                                                        summary=r["summary"]))
             if out is None:
                 continue  # LLM unavailable; retried next run
             con.execute("UPDATE articles SET entities=? WHERE id=?", (db.j(out), r["id"]))
+            tagged += 1
         con.commit()
-        db.log_run(con, "entities", "ok", f"{len(rows)} tagged")
-        return len(rows)
+        db.log_run(con, "entities", "ok",
+                   f"{tagged} tagged, {len(rows) - tagged} deferred to next run")
+        return tagged
 
 
 # ----------------------------------------------------------- Trend Linker
@@ -405,23 +408,29 @@ class Foresight:
             db.log_run(con, "foresight", "error", "LLM unavailable; retry next run")
             return 0
         valid = {s["id"] for s in stories}
-        made = 0
-        con.execute("DELETE FROM signals")  # each run recomputes the current view
+        accepted = []
         for sig in out.get("signals", [])[:7]:
             sids = [i for i in sig.get("story_ids", []) if i in valid]
             conf = float(sig.get("confidence", 0))
             if len(sids) < 2 or conf < 0.35:
                 continue  # evidence bar: 2+ real stories, non-trivial confidence
-            con.execute(
-                "INSERT INTO signals VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (db.new_id(), sig.get("title", "Signal"), sig.get("prediction", ""),
-                 sig.get("chain", ""), sig.get("watch", ""),
-                 db.j(sig.get("affected", [])), sig.get("horizon", ""),
-                 min(conf, 0.85), db.j(sids), db.now()))
-            made += 1
+            accepted.append((db.new_id(), sig.get("title", "Signal"),
+                             sig.get("prediction", ""), sig.get("chain", ""),
+                             sig.get("watch", ""), db.j(sig.get("affected", [])),
+                             sig.get("horizon", ""), min(conf, 0.85),
+                             db.j(sids), db.now()))
+        if not accepted:
+            # Never wipe good signals to replace them with nothing — keep the
+            # previous set until a run produces valid new ones.
+            db.log_run(con, "foresight", "ok",
+                       "no valid new signals this run; kept previous set")
+            return 0
+        con.execute("DELETE FROM signals")
+        con.executemany("INSERT INTO signals VALUES (?,?,?,?,?,?,?,?,?,?)", accepted)
         con.commit()
-        db.log_run(con, "foresight", "ok", f"{made} signals from {len(digests)} digests")
-        return made
+        db.log_run(con, "foresight", "ok",
+                   f"{len(accepted)} signals from {len(digests)} digests")
+        return len(accepted)
 
 
 # ----------------------------------------------------------- Personalizer

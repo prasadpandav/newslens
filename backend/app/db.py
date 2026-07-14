@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS feed_items (
   impact_score INTEGER, created_at REAL, UNIQUE(user_id, story_id));
 CREATE TABLE IF NOT EXISTS feedback (
   id TEXT PRIMARY KEY, user_id TEXT, story_id TEXT, action TEXT, created_at REAL);
+CREATE TABLE IF NOT EXISTS bookmarks (
+  id TEXT PRIMARY KEY, user_id TEXT, story_id TEXT, created_at REAL,
+  UNIQUE(user_id, story_id));
 CREATE TABLE IF NOT EXISTS signals (
   id TEXT PRIMARY KEY, title TEXT, prediction TEXT, chain TEXT, watch TEXT,
   affected TEXT, horizon TEXT, confidence REAL, story_ids TEXT, created_at REAL);
@@ -38,6 +41,12 @@ def connect():
     con = sqlite3.connect(config.DB_PATH)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    # Idempotent migrations for existing databases.
+    for col in ("google_sub TEXT", "email TEXT", "name TEXT", "picture TEXT"):
+        try:
+            con.execute(f"ALTER TABLE users ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     return con
 
 def new_id():
