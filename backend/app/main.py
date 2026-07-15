@@ -389,6 +389,76 @@ def admin_run(stage: str = ""):
                      "stage='pipeline', status='done' marks completion"}
 
 
+def _rebuild_intel():
+    """Wipe ALL trends + forecasts and recompute them from scratch, then re-link
+    existing stories to the fresh trends by article overlap. Runs in the
+    background under the pipeline lock. Uses whatever provider/reasoning models
+    are configured (see REASONING_TASKS)."""
+    from .agents import TrendLinker, MicroTrendDetector, Foresight
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM trends")
+        con.execute("DELETE FROM signals")
+        con.commit()
+        TrendLinker().run(con)
+        MicroTrendDetector().run(con)
+        Foresight().run(con)
+        # Stories kept their old trend_ids (now stale) — relink to fresh trends.
+        macro = [(t["id"], set(db.uj(t["article_ids"], [])))
+                 for t in con.execute(
+                     "SELECT id, article_ids FROM trends WHERE kind='macro'").fetchall()]
+        for s in con.execute("SELECT id, article_ids FROM stories").fetchall():
+            aids = set(db.uj(s["article_ids"], []))
+            linked = [tid for tid, tids in macro if aids & tids]
+            con.execute("UPDATE stories SET trend_ids=? WHERE id=?",
+                        (db.j(linked), s["id"]))
+        con.commit()
+        db.log_run(con, "rebuild_intel", "ok",
+                   "wiped and recomputed all trends + forecasts")
+    except Exception as e:  # noqa: BLE001
+        db.log_run(con, "rebuild_intel", "error", str(e)[:300])
+    finally:
+        con.close()
+
+
+@app.post("/admin/rebuild-intel")
+def admin_rebuild_intel(allow_mock: bool = False):
+    """ONE-TIME reset: delete every trend and forecast, then recompute them all
+    with the configured reasoning models. Guarded so nothing is deleted unless
+    the model actually answers a probe first (avoids wiping then failing).
+    Poll /admin/usage for a stage='rebuild_intel' row to see completion."""
+    if config.LLM_PROVIDER == "mock" and not allow_mock:
+        raise HTTPException(
+            400, "LLM_PROVIDER=mock — set a real provider (e.g. deepseek) with a "
+                 "reasoning model, or pass ?allow_mock=true to rebuild with "
+                 "placeholder content.")
+    # Preflight: confirm the reasoning path returns valid JSON BEFORE deleting.
+    probe = llm.complete_json(
+        "trend", 'Two related items: "A rises"; "B follows". Reply ONLY JSON '
+                 '{"name":"x","narrative":"y","sectors":[],"regions":[]}')
+    if probe is None:
+        raise HTTPException(
+            503, "reasoning provider unreachable (missing key / rate-limited). "
+                 "Nothing was deleted — fix the provider and retry.")
+    if _pipeline_lock.locked():
+        return {"started": False,
+                "status": "a pipeline run is already in progress; retry shortly"}
+
+    def job():
+        if not _pipeline_lock.acquire(blocking=False):
+            return
+        try:
+            _rebuild_intel()
+        finally:
+            _pipeline_lock.release()
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"started": True, "provider": config.LLM_PROVIDER,
+            "reasoning_tasks": sorted(config.REASONING_TASKS),
+            "status": "rebuilding all trends + forecasts in background",
+            "check": "GET /admin/usage — look for stage='rebuild_intel', status='ok'"}
+
+
 @app.post("/admin/dedupe-trends")
 def admin_dedupe_trends():
     """One-off cleanup of already-accumulated duplicate trends. Collapses

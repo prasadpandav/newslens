@@ -147,8 +147,9 @@ def _record(provider, tokens):
 
 def _call(provider, prompt, task=None):
     model = _model_for(provider, task)
+    is_reasoning = task in config.REASONING_TASKS
     # Reasoning models think longer before answering; give them more headroom.
-    timeout = 150 if task in config.REASONING_TASKS else 60
+    timeout = 150 if is_reasoning else 60
     if provider == "groq":
         if not config.GROQ_API_KEY:
             raise RuntimeError("no groq key")
@@ -172,14 +173,22 @@ def _call(provider, prompt, task=None):
             raise RuntimeError(f"no {provider} key")
         base = ("https://api.deepseek.com/v1" if provider == "deepseek"
                 else "https://api.openai.com/v1")
+        body = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+        if provider == "deepseek" and is_reasoning:
+            # DeepSeek "thinking mode": the model reasons step-by-step before its
+            # final answer. It ignores temperature and may reject response_format,
+            # so we omit both and pull JSON from the answer via _extract_json.
+            body["thinking"] = {"type": "enabled"}
+            body["reasoning_effort"] = config.DEEPSEEK_REASONING_EFFORT
+        else:
+            body["temperature"] = 0.4
+            body["response_format"] = {"type": "json_object"}
+            if provider == "deepseek":
+                body["thinking"] = {"type": "disabled"}  # keep base tasks fast/cheap
         r = httpx.post(
             f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {key}"},
-            json={"model": model,
-                  "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.4,
-                  "response_format": {"type": "json_object"}},
-            timeout=timeout)
+            json=body, timeout=timeout)
         if r.status_code == 429:
             raise RateLimited()
         r.raise_for_status()

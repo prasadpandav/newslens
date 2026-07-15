@@ -24,6 +24,10 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+# DeepSeek does reasoning via a thinking-mode toggle on its models (the legacy
+# 'deepseek-reasoner' name retires 2026-07-24). deepseek-v4-pro is the powerful
+# tier; effort high|max controls how long it reasons before answering.
+DEEPSEEK_REASONING_EFFORT = os.environ.get("DEEPSEEK_REASONING_EFFORT", "high")
 
 # Tasks that need deep reasoning use each provider's stronger model when set.
 # Empty string = that provider uses its base model for reasoning tasks too.
@@ -31,7 +35,7 @@ REASONING_TASKS = set(t.strip() for t in
                       os.environ.get("REASONING_TASKS", "signals,trend").split(","))
 GROQ_REASONING_MODEL = os.environ.get("GROQ_REASONING_MODEL", "")
 GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL", "gemini-2.5-pro")
-DEEPSEEK_REASONING_MODEL = os.environ.get("DEEPSEEK_REASONING_MODEL", "deepseek-reasoner")
+DEEPSEEK_REASONING_MODEL = os.environ.get("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
 OPENAI_REASONING_MODEL = os.environ.get("OPENAI_REASONING_MODEL", "")
 NEWSDATA_API_KEY = os.environ.get("NEWSDATA_API_KEY", "")
 PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "3"))
