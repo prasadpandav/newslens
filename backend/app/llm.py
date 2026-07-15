@@ -64,6 +64,23 @@ def _pace(provider):
     _last_call[provider] = time.time()
 
 
+def _model_for(provider, task):
+    """Pick the model for this provider+task. Tasks in REASONING_TASKS get the
+    provider's stronger 'thinking' model when one is configured, so trend and
+    forecast synthesis reason more deeply. Everything else uses the base model.
+    Falls back to the base model when no reasoning model is set."""
+    base_reason = {
+        "groq": (config.GROQ_MODEL, config.GROQ_REASONING_MODEL),
+        "gemini": (config.GEMINI_MODEL, config.GEMINI_REASONING_MODEL),
+        "deepseek": (config.DEEPSEEK_MODEL, config.DEEPSEEK_REASONING_MODEL),
+        "openai": (config.OPENAI_MODEL, config.OPENAI_REASONING_MODEL),
+    }
+    base, reason = base_reason.get(provider, ("", ""))
+    if task in config.REASONING_TASKS and reason:
+        return reason
+    return base
+
+
 def complete_json(task: str, prompt: str, retries: int = 1):
     """Return parsed JSON from the LLM, or None if every provider failed.
 
@@ -91,7 +108,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 _pace(p)
                 text = _call(p, prompt if attempt == 0 else
                              f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
-                             f"Reply with ONLY valid JSON.")
+                             f"Reply with ONLY valid JSON.", task)
                 _benched_until.pop(p, None)
                 return _extract_json(text)
             except RateLimited:
@@ -128,18 +145,21 @@ def _record(provider, tokens):
     usage["provider_calls"][provider] = usage["provider_calls"].get(provider, 0) + 1
 
 
-def _call(provider, prompt):
+def _call(provider, prompt, task=None):
+    model = _model_for(provider, task)
+    # Reasoning models think longer before answering; give them more headroom.
+    timeout = 150 if task in config.REASONING_TASKS else 60
     if provider == "groq":
         if not config.GROQ_API_KEY:
             raise RuntimeError("no groq key")
         r = httpx.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
-            json={"model": config.GROQ_MODEL,
+            json={"model": model,
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.4,
                   "response_format": {"type": "json_object"}},
-            timeout=60)
+            timeout=timeout)
         if r.status_code == 429:
             raise RateLimited()
         r.raise_for_status()
@@ -155,12 +175,11 @@ def _call(provider, prompt):
         r = httpx.post(
             f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {key}"},
-            json={"model": config.DEEPSEEK_MODEL if provider == "deepseek"
-                           else config.OPENAI_MODEL,
+            json={"model": model,
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.4,
                   "response_format": {"type": "json_object"}},
-            timeout=60)
+            timeout=timeout)
         if r.status_code == 429:
             raise RateLimited()
         r.raise_for_status()
@@ -172,12 +191,12 @@ def _call(provider, prompt):
             raise RuntimeError("no gemini key")
         r = httpx.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{config.GEMINI_MODEL}:generateContent",
+            f"{model}:generateContent",
             headers={"x-goog-api-key": config.GEMINI_API_KEY},
             json={"contents": [{"parts": [{"text": prompt}]}],
                   "generationConfig": {"responseMimeType": "application/json",
                                        "temperature": 0.4}},
-            timeout=60)
+            timeout=timeout)
         if r.status_code == 429:
             raise RateLimited()
         r.raise_for_status()

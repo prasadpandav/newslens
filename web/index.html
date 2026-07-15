@@ -348,9 +348,9 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 
 <script>
 /* ================= Config & state ================= */
-const API = localStorage.getItem('bl_api') || 'http://localhost:8000';
+const API = localStorage.getItem('bl_api') || 'https://newslens-rmv6.onrender.com';
 const S = {
-  online: true, stories: [], trends: [], topic: 'all',
+  online: true, stories: [], trends: [], signals: [], topic: 'all',
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
   eng: JSON.parse(localStorage.getItem('bl_eng') || '{"streak":1,"lastDay":"","understood":0,"topics":[]}'),
   currentStory: null, opened: new Set()
@@ -375,7 +375,16 @@ const DEMO = {
     claims:{claims:['Core figures match the original announcements.','Timeline of events is consistent across outlets.'],verdicts:[{claim:'Core figures match the original announcements.',verdict:'corroborated',note:'Multiple independent outlets agree'},{claim:'Timeline of events is consistent across outlets.',verdict:'unverified',note:'Awaiting official confirmation'}]},
     sources:[{title:'Primary wire report',url:'#',source:'reuters.com'},{title:'Regional coverage',url:'#',source:'thehindu.com'}],
     trends: DEMO.trends.slice(0,2),
-    connections:[{chain:'Export rules raise component costs → small manufacturers pass costs through → local retail prices shift within two quarters.',confidence:0.66,other_title:DEMO.stories[(DEMO.stories.findIndex(x=>x.id===s.id)+1)%4].headline,other_url:'#'}]})
+    connections:[{chain:'Export rules raise component costs → small manufacturers pass costs through → local retail prices shift within two quarters.',confidence:0.66,other_title:DEMO.stories[(DEMO.stories.findIndex(x=>x.id===s.id)+1)%4].headline,other_url:'#'}]}),
+  signals: [
+    {id:'g1',title:'Electronics prices set to climb in India',
+     prediction:'Consumer electronics and appliance prices in India may rise within 1-2 quarters.',
+     chain:'Chip export rules tighten supply → component costs climb for small manufacturers → assembly shift to India raises local demand for scarce parts → cost pass-through reaches retail.',
+     watch:'Supplier price announcements and import duty chatter.',
+     affected:['electronics retail','small manufacturers','consumers'],horizon:'1-2 quarters',confidence:0.58,
+     stories:[{id:'d1',headline:'Chip Export Rules Tighten — and Pune Feels It First',topic:'technology',credibility:86},
+              {id:'d4',headline:'Solar Hub Near Pune Promises 4,000 Jobs',topic:'energy',credibility:72}]}
+  ]
 };
 
 /* ================= Utilities ================= */
@@ -436,6 +445,8 @@ function route(){
   document.querySelectorAll('#navlinks a').forEach(a=>a.classList.toggle('active', h.startsWith('#/'+a.dataset.r)));
   $('#fab').classList.add('hidden'); Ask.close();
   if (h.startsWith('#/story/')) return Story.render(h.slice(8));
+  if (h.startsWith('#/signal/')) return SignalPage.render(h.slice(9));
+  if (h.startsWith('#/trend/')) return TrendPage.render(h.slice(8));
   if (h.startsWith('#/trends')) return Trends.render();
   if (h.startsWith('#/brief')) return Brief.render();
   Landing.render();
@@ -445,13 +456,16 @@ window.addEventListener('hashchange', route);
 /* ================= Data ================= */
 async function loadData(){
   try{
-    const [st, tr] = await Promise.all([
+    const [st, tr, sg] = await Promise.all([
       S.creds ? api('/feed?user_id='+S.creds.user_id).catch(()=>api('/stories')) : api('/stories'),
-      api('/trends')
+      api('/trends'),
+      api('/signals').catch(()=>({items:[]}))
     ]);
-    S.stories = st.items; S.trends = tr.items; S.online = true;
+    S.stories = st.items; S.trends = tr.items; S.signals = sg.items || [];
+    S.online = true;
   }catch(e){
     S.online = false; S.stories = DEMO.stories; S.trends = DEMO.trends;
+    S.signals = DEMO.signals;
   }
   $('#offline').classList.toggle('hidden', S.online);
 }
@@ -506,8 +520,11 @@ const Brief = { async render(){
         <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
           ${macro.map(t=>`<div class="titem" onclick="location.hash='#/trends'">
             <span class="nm">${esc(cleanName(t.name))}</span>${spark(t.name,58,20)}</div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
-        <div class="glass rise" style="animation-delay:.2s"><h4>Early signals · 72h</h4>
-          ${micro.map(t=>`<div class="signal"><div class="nm">${esc(cleanName(t.name))}</div><div class="sg">${esc(t.narrative)}</div></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">No micro-trends yet.</p>'}</div>
+        <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
+          ${(S.signals||[]).map(g=>`<div class="signal" style="cursor:pointer" onclick="location.hash='#/story/${esc((g.stories[0]||{}).id||'')}'">
+            <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
+            <div class="sg" style="color:var(--predict);margin-top:5px">${(g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence</div></div>`).join('')
+          || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
         <div class="glass rise" style="animation-delay:.25s"><h4>Your intelligence</h4>
           <div class="stat"><span>Learning streak</span><b>${S.eng.streak} day${S.eng.streak>1?'s':''}</b></div>
           <div class="stat"><span>Stories understood</span><b>${S.eng.understood}</b></div>
@@ -660,6 +677,59 @@ net(){
   }
   if (matchMedia('(prefers-reduced-motion: reduce)').matches){ draw(1e9); }
   else requestAnimationFrame(draw);
+}};
+
+/* ============ Shared-link pages: prediction & trend ============ */
+const SignalPage = { async render(id){
+  $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:220px"></div></div>`;
+  if (!S.signals.length) await loadData();
+  const g = (S.signals||[]).find(x=>x.id===id);
+  if (!g){
+    $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+      <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
+        This prediction has been replaced by newer ones.<br><br>
+        <a class="btn primary" href="#/trends">See current predictions</a></div></div>`;
+    return;
+  }
+  $('#view').innerHTML = `
+  <div class="wrap reader">
+    <div class="crumb rise"><a href="#/brief">← Brief</a> · <span class="chip ai">Prediction</span>
+      ${g.horizon?`· <span class="chip">${esc(g.horizon)}</span>`:''}
+      · <span class="chip">${Math.round(g.confidence*100)}% confidence</span></div>
+    <h1 class="rise">${esc(g.title)}</h1>
+    <p class="lede rise">${esc(g.prediction)}</p>
+    <div class="module glass open" style="margin-top:14px"><div class="mbody" style="max-height:none"><div class="minner">
+      <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${esc(g.chain)}</p>
+      ${g.watch?`<p><b style="color:var(--warn)">What to watch:</b> ${esc(g.watch)}</p>`:''}
+      ${(g.affected||[]).length?`<p>${g.affected.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</p>`:''}
+    </div></div></div>
+    <div class="grp" style="padding:16px 0 8px">THE ${(g.stories||[]).length} STORIES BEHIND THIS</div>
+    ${(g.stories||[]).map(s=>Brief.card(s,0)).join('')}
+    <p style="font-size:12px;color:var(--text-3)">This prediction was made by AI by connecting the stories above — a lead to watch, not a fact.</p>
+  </div>`;
+}};
+
+const TrendPage = { async render(id){
+  $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:220px"></div></div>`;
+  let t = null;
+  try { t = await api('/trend/'+id); } catch(e) {}
+  if (!t){
+    $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+      <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
+        This trend is no longer tracked.<br><br>
+        <a class="btn primary" href="#/trends">See current trends</a></div></div>`;
+    return;
+  }
+  $('#view').innerHTML = `
+  <div class="wrap reader">
+    <div class="crumb rise"><a href="#/trends">← Trends</a> ·
+      <span class="chip ${t.kind==='micro'?'ai':'accent'}">${t.kind==='micro'?'Picking up speed':'Big trend'}</span></div>
+    <h1 class="rise">${esc(cleanName(t.name))}</h1>
+    <p class="lede rise">${esc(t.narrative)}</p>
+    ${(t.sectors||[]).length?`<div style="margin:12px 0">${t.sectors.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</div>`:''}
+    <div class="grp" style="padding:16px 0 8px">THE STORIES BEHIND THIS TREND</div>
+    ${(t.stories||[]).map(s=>Brief.card(s,0)).join('')}
+  </div>`;
 }};
 
 /* ================= Search ================= */

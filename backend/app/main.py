@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, llm
-from .agents import prompt
+from .agents import prompt, _dedupe_trends
 from .orchestrator import run_pipeline, STAGES
 
 app = FastAPI(title="NewsLens API", version="0.1")
@@ -387,6 +387,21 @@ def admin_run(stage: str = ""):
             "status": "running in background",
             "check": "GET /admin/usage — a new recent_runs row with "
                      "stage='pipeline', status='done' marks completion"}
+
+
+@app.post("/admin/dedupe-trends")
+def admin_dedupe_trends():
+    """One-off cleanup of already-accumulated duplicate trends. Collapses
+    near-duplicate macro and micro trends in place (same logic the pipeline now
+    runs every pass). Returns how many were removed per kind."""
+    con = db.connect()
+    macro = _dedupe_trends(con, "macro")
+    micro = _dedupe_trends(con, "micro")
+    con.commit()
+    db.log_run(con, "dedupe_trends", "ok",
+               f"cleanup removed {macro} macro + {micro} micro dupes")
+    con.close()
+    return {"removed_macro": macro, "removed_micro": micro}
 
 
 @app.get("/admin/usage")
