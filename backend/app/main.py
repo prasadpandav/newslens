@@ -1,4 +1,5 @@
 """FastAPI app: the API the iOS client talks to."""
+import os
 import secrets
 import threading
 import httpx
@@ -10,7 +11,7 @@ from . import config, db, llm
 from .agents import prompt, _dedupe_trends
 from .orchestrator import run_pipeline, STAGES
 
-app = FastAPI(title="NewsLens API", version="0.1")
+app = FastAPI(title="Descry API", version="0.1")
 # Allow the web portal (any origin) to call this API. Tighten for production.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
@@ -73,8 +74,11 @@ def auth_google(body: GoogleAuthIn):
     if r.status_code != 200:
         raise HTTPException(401, "invalid Google token")
     info = r.json()
-    client_id = __import__("os").environ.get("GOOGLE_CLIENT_ID", "")
-    if client_id and info.get("aud") != client_id:
+    # Allowlist may hold several client IDs (e.g. the iOS app AND the web portal
+    # use different OAuth clients). Comma-separate them in GOOGLE_CLIENT_ID.
+    allowed = {c.strip() for c in os.environ.get("GOOGLE_CLIENT_ID", "").split(",")
+               if c.strip()}
+    if allowed and info.get("aud") not in allowed:
         raise HTTPException(401, "token was issued for a different app")
     sub = info["sub"]
     email = info.get("email", "")
@@ -247,7 +251,8 @@ def feedback(user_id: str, story_id: str, action: str, authorization: str = Head
 
 @app.get("/stories")
 def stories(limit: int = 30):
-    """Public recent stories — powers the portal before personalization."""
+    """Public recent stories — powers the portal for anonymous visitors (30).
+    Signed-in clients (web + iOS) use /feed instead, which returns up to 100."""
     con = db.connect()
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
@@ -394,15 +399,14 @@ def _rebuild_intel():
     existing stories to the fresh trends by article overlap. Runs in the
     background under the pipeline lock. Uses whatever provider/reasoning models
     are configured (see REASONING_TASKS)."""
-    from .agents import TrendLinker, MicroTrendDetector, Foresight
+    from .agents import TrendLinker, Foresight
     con = db.connect()
     try:
         con.execute("DELETE FROM trends")
         con.execute("DELETE FROM signals")
         con.commit()
-        TrendLinker().run(con)
-        MicroTrendDetector().run(con)
-        Foresight().run(con)
+        TrendLinker().run(con)   # per-unit: macro + micro trends, 1 call per topic
+        Foresight().run(con)     # per-unit forecasts + 1 cross-domain pass
         # Stories kept their old trend_ids (now stale) — relink to fresh trends.
         macro = [(t["id"], set(db.uj(t["article_ids"], [])))
                  for t in con.execute(

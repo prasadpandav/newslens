@@ -64,6 +64,12 @@ def _pace(provider):
     _last_call[provider] = time.time()
 
 
+def _has_key(provider):
+    return bool({"groq": config.GROQ_API_KEY, "gemini": config.GEMINI_API_KEY,
+                 "deepseek": config.DEEPSEEK_API_KEY,
+                 "openai": config.OPENAI_API_KEY}.get(provider, ""))
+
+
 def _model_for(provider, task):
     """Pick the model for this provider+task. Tasks in REASONING_TASKS get the
     provider's stronger 'thinking' model when one is configured, so trend and
@@ -91,13 +97,14 @@ def complete_json(task: str, prompt: str, retries: int = 1):
     provider = config.LLM_PROVIDER
     if provider == "mock":
         return _mock(task, prompt)
-    # auto = free providers first, then paid fallbacks cheapest-first
-    # (DeepSeek before OpenAI), each included only if its key is configured.
-    auto_order = (["groq", "gemini"]
-                  + (["deepseek"] if config.DEEPSEEK_API_KEY else [])
-                  + (["openai"] if config.OPENAI_API_KEY else []))
-    order = {"groq": ["groq"], "gemini": ["gemini"], "deepseek": ["deepseek"],
-             "openai": ["openai"], "auto": auto_order}.get(provider, auto_order)
+    if provider == "auto":
+        # Reasoning tasks prefer the strongest thinking model first (DeepSeek),
+        # then groq/gemini; ordinary tasks keep the cheaper free-first order.
+        base = (config.REASONING_PROVIDER_ORDER if task in config.REASONING_TASKS
+                else ["groq", "gemini", "deepseek", "openai"])
+        order = [p for p in base if _has_key(p)]
+    else:
+        order = [provider]
     last_err = None
     for attempt in range(retries + 1):
         for p in order:
@@ -251,14 +258,32 @@ def _mock(task, prompt):
     if task == "entities":
         return {"entities": kws, "sectors": kws[:1], "regions": []}
     if task == "trend":
-        return {"name": f"{label} gathers momentum",
-                "narrative": f"Multiple outlets are converging on {label.lower()}, "
-                             f"suggesting sustained attention in this area.",
-                "sectors": kws[:2], "regions": []}
+        # Single-call shape: split the numbered items into 1-2 pseudo-trends so
+        # mock demos exercise the plural path.
+        idxs = [int(x) for x in re.findall(r"^\[(\d+)\]", prompt, re.M)]
+        if len(idxs) < 2:
+            return {"trends": []}
+        mid = max(1, len(idxs) // 2)
+        groups = [idxs[:mid], idxs[mid:]] if len(idxs) >= 4 else [idxs]
+        names = [f"{label} gathers momentum", f"{label} ripple widens"]
+        trends = [{"name": names[i % len(names)],
+                   "narrative": f"Multiple outlets are converging on {label.lower()}, "
+                                f"suggesting sustained attention in this area.",
+                   "sectors": kws[:2], "regions": [], "members": g}
+                  for i, g in enumerate(groups) if len(g) >= 2]
+        micro = ([{"name": f"{label} stirs early",
+                   "narrative": f"Early, thin coverage of {label.lower()} — worth watching.",
+                   "members": idxs[:2]}] if len(idxs) >= 2 else [])
+        return {"trends": trends, "micro_trends": micro}
     if task == "micro_trend":
-        return {"name": f"{label} accelerating",
-                "signal": f"Coverage of {label.lower()} is picking up over the last "
-                          f"72 hours — worth watching."}
+        idxs = [int(x) for x in re.findall(r"^\[(\d+)\]", prompt, re.M)]
+        if len(idxs) < 2:
+            return {"micro_trends": []}
+        return {"micro_trends": [{
+            "name": f"{label} accelerating",
+            "signal": f"Coverage of {label.lower()} is picking up over the last "
+                      f"72 hours — worth watching.",
+            "members": idxs[:3]}]}
     if task == "connection":
         return {"chain": f"Both stories touch {label.lower()}; a shift in one can move "
                          f"costs, policy or sentiment that feeds the other.",
@@ -279,7 +304,7 @@ def _mock(task, prompt):
                              f"space. Watch for follow-up coverage and official responses "
                              f"in the coming days. (Placeholder text — this story was "
                              f"generated without an LLM key or after hitting a rate limit.)"}
-    if task == "signals":
+    if task in ("signals", "signals_unit"):
         # Parse two story ids from digest lines so mock demos still work.
         ids = re.findall(r"^([0-9a-f]{12}) \|", prompt, re.M)[:3]
         if len(ids) < 2:

@@ -65,6 +65,15 @@ def _jaccard(a, b):
     return len(sa & sb) / len(sa | sb)
 
 
+def _by_topic(rows):
+    """Group DB rows (which must carry a 'topic' column) into {topic: [rows]},
+    preserving order. This is the 'unit' the per-topic trend/forecast calls run over."""
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["topic"], []).append(r)
+    return groups
+
+
 def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
     """Collapse near-duplicate trends of one kind. Two trends are duplicates when
     their name+narrative are highly similar OR they share most of their articles.
@@ -144,7 +153,7 @@ class Scout:
                     # feedparser's own fetching hits SSL/UA issues on some systems.
                     import httpx
                     resp = httpx.get(url, timeout=15, follow_redirects=True,
-                                     headers={"User-Agent": "NewsLensBot/0.1 (+beta)"})
+                                     headers={"User-Agent": "DescryBot/0.1 (+beta)"})
                     parsed = feedparser.parse(resp.content)
                 except Exception:
                     continue
@@ -214,132 +223,158 @@ class EntityTagger:
 
 
 # ----------------------------------------------------------- Trend Linker
-def _trend_items(arts):
-    """Rich context line per article for the trend prompt: source, title,
-    entities/sectors, and a generous summary excerpt — so the LLM reasons over
-    real substance, not bare headlines."""
+def _numbered_items(rows):
+    """One indexed line per article for the (single) trend call: [i] source,
+    title, entities/sectors, summary excerpt. The [i] index is how the LLM
+    references which articles belong to each trend, so it must stay 1 per line."""
     lines = []
-    for a in arts:
+    for i, a in enumerate(rows, 1):
         keys = a.keys()
         ent = db.uj(a["entities"]) if "entities" in keys else {}
         tags = ", ".join((ent.get("entities", []) + ent.get("sectors", []))[:6])
         src = a["source"] if "source" in keys else ""
-        lines.append(f"- [{src}] {a['title']}"
+        title = (a["title"] or "").replace("\n", " ")
+        summary = (a["summary"] or "").replace("\n", " ")[:220]
+        lines.append(f"[{i}] [{src}] {title}"
                      + (f" | entities: {tags}" if tags else "")
-                     + f" | {(a['summary'] or '')[:220]}")
+                     + f" | {summary}")
     return "\n".join(lines)
 
 
-class TrendLinker:
-    """Macro trends: clusters across all recent articles, LLM names each.
-    New clusters that substantially overlap an existing trend are MERGED into it
-    (absorbing newly-arrived articles and re-narrating) rather than spawning a
-    near-duplicate. A dedupe pass then collapses any residual look-alikes."""
+def _parse_trends(items, rows, min_size, kind="macro"):
+    """Turn the LLM's list of trends (with 1-based member indices into `rows`)
+    into fresh trend dicts with resolved article_ids. Drops anything under
+    min_size or with no valid members."""
+    fresh = []
+    for t in items or []:
+        members = t.get("members") or t.get("article_ids") or []
+        ids = []
+        for m in members:
+            try:
+                idx = int(m) - 1
+            except (ValueError, TypeError):
+                continue
+            if 0 <= idx < len(rows):
+                ids.append(rows[idx]["id"])
+        ids = sorted(set(ids))
+        if len(ids) < min_size:
+            continue
+        fresh.append({
+            "name": t.get("name", "Trend"),
+            "narrative": t.get("narrative") or t.get("signal") or "",
+            "sectors": t.get("sectors", []) if kind == "macro" else [],
+            "regions": t.get("regions", []) if kind == "macro" else [],
+            "article_ids": ids,
+            "velocity": float(len(ids)),
+        })
+    return fresh
 
-    def run(self, con, threshold=0.25, min_size=2, merge_overlap=0.5):
-        rows = con.execute(
-            "SELECT id,title,summary,source,entities FROM articles WHERE fetched_at > ?",
-            (db.now() - 7 * 86400,)).fetchall()
-        by_id = {r["id"]: r for r in rows}
-        clusters = greedy_cluster([(r["id"], r["title"] + " " + r["summary"]) for r in rows],
-                                  threshold)
-        existing = [{"id": r["id"], "name": r["name"],
-                     "ids": db.uj(r["article_ids"], [])}
-                    for r in con.execute(
-                        "SELECT id, name, article_ids FROM trends WHERE kind='macro'").fetchall()]
-        exact = {tuple(sorted(e["ids"])) for e in existing}
-        made = merged = 0
-        for ids in clusters:
-            if len(ids) < min_size:
-                continue
-            if tuple(sorted(ids)) in exact:
-                continue  # identical cluster already named
-            # Merge into an existing trend this cluster mostly overlaps, instead
-            # of minting a near-duplicate. This is how existing trends get
-            # enhanced with newer articles across runs.
-            match = max(existing, key=lambda e: _jaccard(ids, e["ids"]), default=None)
-            if match and _jaccard(ids, match["ids"]) >= merge_overlap:
-                union = sorted(set(ids) | set(match["ids"]))
-                if set(union) != set(match["ids"]):  # cluster grew -> re-narrate
-                    arts = [by_id[i] for i in union if i in by_id]
-                    out = llm.complete_json("trend", prompt(
-                        "trend", n=len(arts), items=_trend_items(arts)))
-                    if out is not None:
-                        con.execute(
-                            "UPDATE trends SET name=?, narrative=?, sectors=?, regions=?, "
-                            "article_ids=?, velocity=?, created_at=? WHERE id=?",
-                            (out.get("name", match["name"]), out.get("narrative", ""),
-                             db.j(out.get("sectors", [])), db.j(out.get("regions", [])),
-                             db.j(union), float(len(union)), db.now(), match["id"]))
-                        match["ids"] = union
-                        match["name"] = out.get("name", match["name"])
-                        merged += 1
-                continue
-            # genuinely new cluster
-            arts = [by_id[i] for i in ids if i in by_id]
-            out = llm.complete_json("trend", prompt(
-                "trend", n=len(arts), items=_trend_items(arts)))
-            if out is None:
-                continue
-            # supersede any existing trend that is a strict subset of this cluster
-            for e in list(existing):
-                if set(e["ids"]) < set(ids):
-                    con.execute("DELETE FROM trends WHERE id=?", (e["id"],))
-                    existing.remove(e)
-            nid = db.new_id()
+
+def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
+    """Reconcile a freshly-computed trend set against what's stored, keeping stable
+    IDs. Each fresh trend is matched to an existing one by article overlap or name
+    similarity: a match is UPDATED in place (id preserved, so story->trend links
+    survive); unmatched fresh trends are INSERTED; existing trends absent from the
+    fresh set are DELETED — but only when prune=True. Pass prune=False when some
+    per-unit calls failed this run, so a transient error can't wipe good trends.
+    Returns (new, updated, removed)."""
+    existing = [{"id": r["id"], "ids": db.uj(r["article_ids"], []),
+                 "vec": _tf((r["name"] or "") + " " + (r["narrative"] or ""))}
+                for r in con.execute(
+                    "SELECT id,name,narrative,article_ids FROM trends WHERE kind=?",
+                    (kind,)).fetchall()]
+    matched, new_ct, upd_ct = set(), 0, 0
+    for f in fresh:
+        fvec = _tf(f["name"] + " " + f["narrative"])
+        cand = next((e for e in existing if e["id"] not in matched
+                     and (cosine(fvec, e["vec"]) >= name_sim
+                          or _jaccard(f["article_ids"], e["ids"]) >= overlap)), None)
+        if cand:
+            con.execute(
+                "UPDATE trends SET name=?,narrative=?,sectors=?,regions=?,article_ids=?,"
+                "velocity=?,created_at=? WHERE id=?",
+                (f["name"], f["narrative"], db.j(f["sectors"]), db.j(f["regions"]),
+                 db.j(f["article_ids"]), f["velocity"], db.now(), cand["id"]))
+            matched.add(cand["id"])
+            upd_ct += 1
+        else:
             con.execute(
                 "INSERT INTO trends (id,kind,name,narrative,sectors,regions,article_ids,"
                 "velocity,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (nid, "macro", out.get("name", "Trend"),
-                 out.get("narrative", ""), db.j(out.get("sectors", [])),
-                 db.j(out.get("regions", [])), db.j(sorted(ids)), float(len(ids)), db.now()))
-            existing.append({"id": nid, "name": out.get("name", "Trend"),
-                             "ids": sorted(ids)})
-            made += 1
-        removed = _dedupe_trends(con, "macro")
+                (db.new_id(), kind, f["name"], f["narrative"], db.j(f["sectors"]),
+                 db.j(f["regions"]), db.j(f["article_ids"]), f["velocity"], db.now()))
+            new_ct += 1
+    removed = 0
+    if prune:
+        for e in existing:
+            if e["id"] not in matched:  # no longer a current trend
+                con.execute("DELETE FROM trends WHERE id=?", (e["id"],))
+                removed += 1
+    return new_ct, upd_ct, removed
+
+
+class TrendLinker:
+    """Per-UNIT trends: ONE reasoning call per topic ('unit') over that topic's recent
+    articles, returning both established (macro) and emerging (micro) trends. Fresh
+    trends are accumulated across all topics, then reconciled ONCE per kind (stable IDs
+    preserved). So ~1 LLM call per topic, folding micro-trend detection into the same
+    call. Also covers the old MicroTrendDetector, which is now retired."""
+
+    MAX_PER_UNIT = 60  # cap per-topic articles so each prompt stays small/cheap
+
+    def run(self, con, min_size=2):
+        rows = con.execute(
+            "SELECT id,title,summary,source,topic,entities,fetched_at FROM articles "
+            "WHERE fetched_at > ? ORDER BY fetched_at DESC",
+            (db.now() - 7 * 86400,)).fetchall()
+        if len(rows) < min_size:
+            db.log_run(con, "trends", "ok", "too few articles to synthesize")
+            return 0
+        cutoff72 = db.now() - 72 * 3600
+        prev_count = con.execute(
+            "SELECT COUNT(*) c FROM articles WHERE fetched_at BETWEEN ? AND ?",
+            (db.now() - 144 * 3600, cutoff72)).fetchone()["c"]
+        fresh_macro, fresh_micro, calls, failed = [], [], 0, 0
+        for topic, arts in _by_topic(rows).items():
+            arts = arts[:self.MAX_PER_UNIT]
+            if len(arts) < min_size:
+                continue
+            out = llm.complete_json("trend", prompt(
+                "trend", topic=topic, n=len(arts), items=_numbered_items(arts)))
+            calls += 1
+            if out is None:
+                failed += 1
+                continue
+            fresh_macro += _parse_trends(out.get("trends", []), arts, min_size, "macro")
+            micro = _parse_trends(out.get("micro_trends", []), arts, 2, "micro")
+            micro = [m for m in micro if 2 <= len(m["article_ids"]) <= 5]
+            recent_ids = {a["id"] for a in arts if a["fetched_at"] > cutoff72}
+            for m in micro:  # velocity = share of the cluster that's from the last 72h
+                m["velocity"] = len(set(m["article_ids"]) & recent_ids) / max(prev_count, 1)
+            fresh_micro += micro
+        if not fresh_macro and not fresh_micro:
+            db.log_run(con, "trends", "ok",
+                       f"no valid trends this run ({calls} unit calls); kept existing set")
+            return 0
+        # Don't prune (delete) stale trends if any unit call failed — avoids wiping.
+        prune = failed == 0
+        mn, mu, mr = _reconcile_trends(con, "macro", fresh_macro, prune=prune)
+        cn, cu, cr = _reconcile_trends(con, "micro", fresh_micro, prune=prune)
         con.commit()
         db.log_run(con, "trends", "ok",
-                   f"{made} new, {merged} merged, {removed} dupes removed")
-        return made
+                   f"macro {mn} new/{mu} upd/-{mr}, micro {cn} new/{cu} upd/-{cr} "
+                   f"({calls} unit calls, {failed} failed)")
+        return mn + mu + cn + cu
 
 
 class MicroTrendDetector:
-    """Tighter clusters over a 72h window; flags accelerating coverage."""
+    """RETIRED. Micro-trend detection is now folded into TrendLinker's per-unit call
+    (each topic call returns both macro and emerging/micro trends). Kept as a no-op
+    so any lingering reference/stage runs harmlessly and makes no LLM calls."""
 
-    def run(self, con, threshold=0.4):
-        recent = con.execute("SELECT id,title,summary FROM articles WHERE fetched_at > ?",
-                             (db.now() - 72 * 3600,)).fetchall()
-        prev_count = con.execute(
-            "SELECT COUNT(*) c FROM articles WHERE fetched_at BETWEEN ? AND ?",
-            (db.now() - 144 * 3600, db.now() - 72 * 3600)).fetchone()["c"]
-        clusters = greedy_cluster([(r["id"], r["title"] + " " + r["summary"]) for r in recent],
-                                  threshold)
-        existing = {tuple(sorted(db.uj(r["article_ids"], [])))
-                    for r in con.execute(
-                        "SELECT article_ids FROM trends WHERE kind='micro'").fetchall()}
-        made = 0
-        for ids in clusters:
-            if not (2 <= len(ids) <= 5):
-                continue  # micro = small but repeated
-            if tuple(sorted(ids)) in existing:
-                continue  # already processed this exact cluster
-            velocity = len(ids) / max(prev_count, 1)
-            arts = [r for r in recent if r["id"] in ids]
-            items = "\n".join(f"- {a['title']}" for a in arts)
-            out = llm.complete_json("micro_trend", prompt("micro_trend", items=items))
-            if out is None:
-                continue
-            con.execute(
-                "INSERT INTO trends (id,kind,name,narrative,sectors,regions,article_ids,"
-                "velocity,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (db.new_id(), "micro", out.get("name", "Micro-trend"),
-                 out.get("signal", ""), "[]", "[]", db.j(ids), velocity, db.now()))
-            made += 1
-        removed = _dedupe_trends(con, "micro")
-        con.commit()
-        db.log_run(con, "micro_trends", "ok",
-                   f"{made} micro trends, {removed} dupes removed")
-        return made
+    def run(self, con):
+        db.log_run(con, "micro_trends", "ok", "folded into per-unit trends (no-op)")
+        return 0
 
 
 # ----------------------------------------------------- Hidden connections
@@ -492,15 +527,17 @@ class Storyteller:
 
 # -------------------------------------------------------------- Foresight
 class Foresight:
-    """The differentiator. Takes the per-story analysis the pipeline already
-    produced (entities, claims, topics) and reasons over ALL of it in one LLM
-    pass to find cross-domain signals: indirect causal chains where stories
-    from different topics point to something that may happen next."""
+    """Per-UNIT forecasting plus one cross-domain pass. For each topic it makes ONE
+    reasoning call over that topic's recent stories (within-domain foresight), then a
+    final call over a cross-topic sample to catch the indirect cross-domain chains that
+    are this feature's differentiator. All fresh signals are reconciled/enhanced against
+    stored ones and stale (>WINDOW_DAYS) forecasts pruned. ~1 call per topic + 1 cross."""
 
     WINDOW_DAYS = 7
-    MAX_DIGESTS = 60
-    TITLE_SIM = 0.6      # title cosine above this = same forecast
-    STORY_OVERLAP = 0.3  # story_id Jaccard above this = same forecast
+    MAX_PER_UNIT = 30           # stories per topic fed to each unit call
+    CROSS_SAMPLE_PER_TOPIC = 4  # stories per topic in the single cross-domain pass
+    TITLE_SIM = 0.6             # title cosine above this = same forecast
+    STORY_OVERLAP = 0.3         # story_id Jaccard above this = same forecast
 
     def _digest(self, con, s):
         """One rich digest block per story: topic, headline, credibility, the
@@ -521,8 +558,8 @@ class Foresight:
     def run(self, con):
         stories = con.execute(
             "SELECT id, headline, topic, narrative, credibility, claims, article_ids "
-            "FROM stories WHERE created_at > ? ORDER BY created_at DESC LIMIT ?",
-            (db.now() - self.WINDOW_DAYS * 86400, self.MAX_DIGESTS)).fetchall()
+            "FROM stories WHERE created_at > ? ORDER BY created_at DESC",
+            (db.now() - self.WINDOW_DAYS * 86400,)).fetchall()
         # Age out stale forecasts every run (instead of wiping all of them), so
         # a run that produces nothing new still leaves recent forecasts intact.
         pruned = con.execute(
@@ -533,12 +570,40 @@ class Foresight:
             db.log_run(con, "foresight", "ok",
                        f"too few stories to synthesize; pruned {pruned} stale")
             return 0
-        digests = [self._digest(con, s) for s in stories]
-        out = llm.complete_json("signals", prompt(
-            "signals", n=len(digests), digests="\n".join(digests)))
-        if out is None:
-            con.commit()  # keep the age-based prune
-            db.log_run(con, "foresight", "error", "LLM unavailable; retry next run")
+        by_topic = _by_topic(stories)
+        fresh, calls, failed = [], 0, 0
+        # One call per unit: within-domain foresight for each topic.
+        for topic, sts in by_topic.items():
+            sts = sts[:self.MAX_PER_UNIT]
+            if len(sts) < 2:
+                continue
+            digests = [self._digest(con, s) for s in sts]
+            out = llm.complete_json("signals_unit", prompt(
+                "signals_unit", topic=topic, n=len(digests), digests="\n".join(digests)))
+            calls += 1
+            if out is None:
+                failed += 1
+                continue
+            fresh += out.get("signals", [])
+        # One cross-domain call over a sample spanning all topics — keeps the indirect,
+        # cross-topic chains that a per-topic pass alone would miss.
+        sample = []
+        for sts in by_topic.values():
+            sample += sts[:self.CROSS_SAMPLE_PER_TOPIC]
+        if len(sample) >= 4:
+            digests = [self._digest(con, s) for s in sample]
+            out = llm.complete_json("signals", prompt(
+                "signals", n=len(digests), digests="\n".join(digests)))
+            calls += 1
+            if out is None:
+                failed += 1
+            else:
+                fresh += out.get("signals", [])
+        if not fresh:
+            # Never wipe a good set to replace it with nothing.
+            con.commit()
+            db.log_run(con, "foresight", "ok" if failed == 0 else "error",
+                       f"no valid signals ({calls} calls); pruned {pruned}; kept previous")
             return 0
         valid = {s["id"] for s in stories}
         # Load surviving forecasts so new ones can enhance them rather than duplicate.
@@ -547,7 +612,7 @@ class Foresight:
                     for r in con.execute(
                         "SELECT id, title, story_ids FROM signals").fetchall()]
         new_ct = upd_ct = 0
-        for sig in out.get("signals", [])[:7]:
+        for sig in fresh:
             sids = [i for i in sig.get("story_ids", []) if i in valid]
             conf = float(sig.get("confidence", 0))
             if len(sids) < 2 or conf < 0.35:
@@ -585,8 +650,8 @@ class Foresight:
                 new_ct += 1
         con.commit()
         db.log_run(con, "foresight", "ok",
-                   f"{new_ct} new + {upd_ct} enhanced forecasts, {pruned} stale pruned, "
-                   f"from {len(digests)} digests")
+                   f"{new_ct} new + {upd_ct} enhanced forecasts, {pruned} pruned "
+                   f"({calls} calls: {len(by_topic)} units + cross-domain, {failed} failed)")
         return new_ct + upd_ct
 
 

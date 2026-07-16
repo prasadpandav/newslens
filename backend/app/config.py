@@ -32,9 +32,14 @@ DEEPSEEK_REASONING_EFFORT = os.environ.get("DEEPSEEK_REASONING_EFFORT", "high")
 # Tasks that need deep reasoning use each provider's stronger model when set.
 # Empty string = that provider uses its base model for reasoning tasks too.
 REASONING_TASKS = set(t.strip() for t in
-                      os.environ.get("REASONING_TASKS", "signals,trend").split(","))
+                      os.environ.get("REASONING_TASKS", "signals,signals_unit,trend").split(","))
+# Under LLM_PROVIDER=auto, reasoning tasks (trend/forecast) try these providers
+# in order — strongest thinking model first — falling through on missing key or
+# rate-limit. Ordinary tasks keep the cheaper free-first order below.
+REASONING_PROVIDER_ORDER = [p.strip() for p in os.environ.get(
+    "REASONING_PROVIDER_ORDER", "deepseek,groq,gemini,openai").split(",") if p.strip()]
 GROQ_REASONING_MODEL = os.environ.get("GROQ_REASONING_MODEL", "")
-GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL", "gemini-2.5-pro")
+GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL", "gemini-2.5-flash")
 DEEPSEEK_REASONING_MODEL = os.environ.get("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
 OPENAI_REASONING_MODEL = os.environ.get("OPENAI_REASONING_MODEL", "")
 NEWSDATA_API_KEY = os.environ.get("NEWSDATA_API_KEY", "")

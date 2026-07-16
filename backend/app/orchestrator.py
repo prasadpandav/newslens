@@ -5,7 +5,9 @@ from .agents import (Scout, EntityTagger, TrendLinker, MicroTrendDetector,
                      ConnectionFinder, Verifier, Storyteller, Foresight,
                      Personalizer)
 
-STAGES = ["scout", "entities", "trends", "micro_trends", "connections",
+# micro_trends is retired as a separate stage — it's folded into the per-unit
+# "trends" call (each topic call returns both macro and emerging/micro trends).
+STAGES = ["scout", "entities", "trends", "connections",
           "stories", "signals", "personalize"]
 
 
