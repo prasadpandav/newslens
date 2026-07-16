@@ -16,6 +16,48 @@
 .account .acct-name{font-size:13px;font-weight:600;color:#E7EEFB;max-width:120px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .account .btn.sm{padding:5px 10px;font-size:12px}
+.gbtn-fallback{display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  background:#fff;color:#3c4043;border:none;border-radius:999px;
+  padding:8px 14px;font:600 13px/1 'Inter',sans-serif}
+.gbtn-fallback:hover{background:#f4f6fb}
+.acct-link{display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;
+  padding:3px 4px;border-radius:999px}
+.acct-link:hover{background:var(--surface-2)}
+/* ---- Profile page ---- */
+.prof{max-width:840px}
+.avatar-fallback{display:inline-flex;align-items:center;justify-content:center;
+  background:var(--grad-ai);color:#fff;font-weight:700}
+.prof-hero{display:flex;align-items:center;gap:18px;padding:26px 26px;margin-bottom:16px}
+.prof-av{border-radius:50%;object-fit:cover;flex-shrink:0}
+.av-lg{width:78px;height:78px;font-size:30px}
+.prof-id{flex:1;min-width:0}
+.prof-id h1{font-family:var(--font-ed);font-size:26px;font-weight:600;line-height:1.2}
+.prof-email{color:var(--text-2);font-size:14px;margin:3px 0 9px}
+.prof-signout{flex-shrink:0;align-self:flex-start}
+.prof-card{padding:22px 24px;margin-bottom:16px}
+.prof-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.prof-label{font-size:11px;font-weight:700;letter-spacing:1.2px;color:var(--accent)}
+.prof-interests{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.prof-muted{color:var(--text-2);font-size:13.5px}
+.kvs{display:grid;grid-template-columns:1fr 1fr;gap:2px 26px}
+.kv{display:flex;flex-direction:column;gap:3px;border-top:1px solid var(--border);padding:11px 0}
+.kv .k{font-size:10.5px;color:var(--text-2);text-transform:uppercase;letter-spacing:.6px}
+.kv .v{font-size:14px;color:var(--text)}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px}
+.stat{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm,14px);
+  padding:18px 10px;text-align:center}
+.stat-ic{font-size:20px;margin-bottom:7px;line-height:1}
+.stat-n{font-family:var(--font-mono);font-size:23px;font-weight:700;
+  background:var(--grad-ai);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent}
+.stat-l{font-size:12px;color:var(--text-2);margin-top:3px}
+.prof-empty{max-width:470px;margin:48px auto;text-align:center;padding:42px 32px;
+  display:flex;flex-direction:column;align-items:center;gap:12px}
+.prof-empty h1{font-family:var(--font-ed);font-size:24px;font-weight:600}
+.prof-empty p{color:var(--text-2);font-size:14px;line-height:1.55}
+.prof-signin{margin-top:8px}
+@media(max-width:620px){.kvs{grid-template-columns:1fr}.stat-grid{grid-template-columns:repeat(2,1fr)}
+  .prof-hero{flex-wrap:wrap}}
 </style>
 <style>
 /* ============ Bluelligent Design Tokens ============ */
@@ -473,6 +515,7 @@ function route(){
   if (h.startsWith('#/trend/')) return TrendPage.render(h.slice(8));
   if (h.startsWith('#/trends')) return Trends.render();
   if (h.startsWith('#/brief')) return Brief.render();
+  if (h.startsWith('#/profile')) return Profile.render();
   Landing.render();
 }
 window.addEventListener('hashchange', route);
@@ -481,7 +524,7 @@ window.addEventListener('hashchange', route);
 async function loadData(){
   try{
     const [st, tr, sg] = await Promise.all([
-      S.creds ? api('/feed?user_id='+S.creds.user_id).catch(()=>api('/stories')) : api('/stories'),
+      S.creds ? api('/feed?user_id='+S.creds.user_id).catch(()=>api('/stories?limit=100')) : api('/stories?limit=30'),
       api('/trends'),
       api('/signals').catch(()=>({items:[]}))
     ]);
@@ -832,27 +875,136 @@ $('#askin').addEventListener('keydown', e=>{ if(e.key==='Enter') Ask.send(); });
 /* ================= Personalization ================= */
 const Calib = {
   ints: [],
-  show(){
+  show(prefill){
+    prefill = prefill || {};
+    this.ints = Array.isArray(prefill.interests) ? [...prefill.interests] : [];
     const opts=['Technology','Business','World','Health','Energy','Finance','Science','India','Sports'];
-    $('#calints').innerHTML = opts.map(o=>`<button class="chip" onclick="Calib.tog(this,'${o}')">${o}</button>`).join('');
+    $('#calints').innerHTML = opts.map(o=>
+      `<button class="chip${this.ints.includes(o)?' on':''}" onclick="Calib.tog(this,'${o}')">${o}</button>`).join('');
+    if ($('#calprof')) $('#calprof').value = prefill.profession || '';
+    if ($('#calloc')) $('#calloc').value =
+      [prefill.location&&prefill.location.city, prefill.location&&prefill.location.country]
+        .filter(Boolean).join(', ');
     $('#calib').classList.add('on');
   },
   tog(el,v){ el.classList.toggle('on');
     this.ints.includes(v)?this.ints=this.ints.filter(x=>x!==v):this.ints.push(v); },
   async save(){
     try{
-      const u = await api('/users',{method:'POST'});
-      S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
+      // Reuse the signed-in account; only mint an anonymous user if not signed in.
+      if (!S.creds || !S.creds.token){
+        const u = await api('/users',{method:'POST'});
+        S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
+      }
       const loc = $('#calloc').value.split(',').map(s=>s.trim());
-      await api(`/users/${u.user_id}/context`,{method:'PUT',body:JSON.stringify({
-        interests:this.ints, profession:$('#calprof').value,
-        location:{city:loc[0]||'',country:loc[1]||''}})});
-      toast('Lens calibrated — your feed is now personal');
+      const cur = S.ctx || {};
+      // Merge with existing context so fields set elsewhere (e.g. iOS) aren't wiped.
+      const body = {
+        interests: this.ints,
+        profession: $('#calprof').value,
+        line_of_business: cur.line_of_business || '',
+        role_seniority: cur.role_seniority || '',
+        location: { city: loc[0]||'', region:(cur.location&&cur.location.region)||'',
+                    country: loc[1]||'' },
+        native_language: cur.native_language || '',
+        preferred_language: cur.preferred_language || 'English',
+        micro: cur.micro || {}
+      };
+      await api(`/users/${S.creds.user_id}/context`,{method:'PUT',body:JSON.stringify(body)});
+      S.ctx = body; if (S.creds) S.creds.has_context = true;
+      localStorage.setItem('bl_creds', JSON.stringify(S.creds));
+      toast('Lens updated — your feed is now personal');
     }catch(e){ toast('Saved locally — backend offline'); }
     localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on');
     await loadData(); route();
   },
   skip(){ localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on'); }
+};
+
+/* ================= Profile ================= */
+const Profile = {
+  async render(){
+    const v = $('#view');
+    if (!S.creds || !S.creds.token){
+      v.innerHTML = `<div class="wrap"><section class="glass prof-empty rise">
+        <div class="prof-av av-lg avatar-fallback">✦</div>
+        <h1>Your profile</h1>
+        <p>Sign in with Google to personalize your feed, sync saved stories, and track
+        your reading stats across devices.</p>
+        <div id="prof-signin" class="prof-signin"></div></section></div>`;
+      Auth.renderInto($('#prof-signin'));
+      return;
+    }
+    v.innerHTML = `<div class="wrap"><div class="skel" style="height:130px"></div><br>
+      <div class="skel" style="height:190px"></div></div>`;
+    let ctx = S.ctx || {};
+    try{ ctx = await api('/users/'+S.creds.user_id+'/context'); S.ctx = ctx; }catch(e){}
+    let saved = 0;
+    try{ const b = await api('/bookmarks?user_id='+S.creds.user_id); saved = (b.items||[]).length; }
+    catch(e){ saved = 0; }
+
+    const nm = esc(S.creds.name || 'Reader');
+    const email = esc(S.creds.email || '');
+    const avatar = S.creds.picture
+      ? `<img class="prof-av av-lg" src="${esc(S.creds.picture)}" alt="">`
+      : `<div class="prof-av av-lg avatar-fallback">${esc(Auth.initial())}</div>`;
+
+    const interests = Array.isArray(ctx.interests) ? ctx.interests : [];
+    const chips = interests.length
+      ? interests.map(i=>`<span class="chip accent">${esc(i)}</span>`).join('')
+      : `<span class="prof-muted">No interests set yet</span>`;
+    const loc = [ctx.location&&ctx.location.city, ctx.location&&ctx.location.region,
+                 ctx.location&&ctx.location.country].filter(Boolean).map(esc).join(', ');
+    const cap = s => String(s||'').replace(/^./,c=>c.toUpperCase());
+    const kv = (k,val)=>`<div class="kv"><span class="k">${k}</span>
+      <span class="v">${val?esc(val):'—'}</span></div>`;
+    const eng = S.eng || {};
+    const hasLens = interests.length || ctx.profession;
+
+    v.innerHTML = `<div class="wrap prof">
+      <section class="glass prof-hero rise">
+        ${avatar}
+        <div class="prof-id">
+          <h1>${nm}</h1>
+          ${email?`<div class="prof-email">${email}</div>`:''}
+          <span class="chip trust">Signed in with Google</span>
+        </div>
+        <button class="btn ghost sm prof-signout" onclick="Auth.signout()">Sign out</button>
+      </section>
+
+      <section class="glass prof-card rise" style="animation-delay:.05s">
+        <div class="prof-head">
+          <span class="prof-label">YOUR LENS</span>
+          <button class="btn ghost sm" onclick="Profile.edit()">${hasLens?'Edit':'Set up'}</button>
+        </div>
+        <div class="prof-interests">${chips}</div>
+        <div class="kvs">
+          ${kv('Profession', ctx.profession)}
+          ${kv('Business', ctx.line_of_business)}
+          ${kv('Role', cap(ctx.role_seniority))}
+          ${kv('Location', loc)}
+          ${kv('Native language', ctx.native_language)}
+          ${kv('Reads news in', ctx.preferred_language)}
+        </div>
+      </section>
+
+      <section class="glass prof-card rise" style="animation-delay:.1s">
+        <span class="prof-label">YOUR INTELLIGENCE</span>
+        <div class="stat-grid">
+          ${this.stat('🔥', eng.streak||1, 'day streak')}
+          ${this.stat('✓', eng.understood||0, 'completed')}
+          ${this.stat('🧭', (eng.topics||[]).length, 'topics')}
+          ${this.stat('🔖', saved, 'saved')}
+        </div>
+      </section>
+    </div>`;
+  },
+  stat(icon,val,label){
+    return `<div class="stat"><div class="stat-ic">${icon}</div>
+      <div class="stat-n">${esc(String(val))}</div>
+      <div class="stat-l">${esc(label)}</div></div>`;
+  },
+  edit(){ Calib.show(S.ctx || {}); }
 };
 
 /* ================= Auth (Sign in with Google) ================= */
@@ -876,16 +1028,42 @@ const Auth = {
     const el = $('#account'); if (!el) return;
     if (S.creds && S.creds.token){
       const nm = esc(S.creds.name || S.creds.email || 'Account');
-      const pic = S.creds.picture ? `<img class="avatar" src="${esc(S.creds.picture)}" alt="">` : '';
-      el.innerHTML = `${pic}<span class="acct-name">${nm}</span>`+
+      const pic = S.creds.picture
+        ? `<img class="avatar" src="${esc(S.creds.picture)}" alt="">`
+        : `<span class="avatar avatar-fallback">${esc(Auth.initial())}</span>`;
+      el.innerHTML = `<a class="acct-link" href="#/profile" title="Your profile">`+
+        `${pic}<span class="acct-name">${nm}</span></a>`+
         `<button class="btn ghost sm" onclick="Auth.signout()">Sign out</button>`;
-    } else if (this.ready){
-      el.innerHTML = `<div id="gbtn"></div>`;
-      google.accounts.id.renderButton($('#gbtn'),
+    } else {
+      Auth.renderInto(el);
+    }
+  },
+  // Render a sign-in control into any element: the official Google button when
+  // configured+loaded, otherwise a visible fallback that explains what's missing.
+  renderInto(el){
+    if (!el) return;
+    if (this.ready){
+      el.innerHTML = '';
+      google.accounts.id.renderButton(el,
         { theme:'filled_black', size:'medium', shape:'pill', text:'signin_with' });
     } else {
-      el.innerHTML = '';  // GIS not loaded / client ID not configured yet
+      el.innerHTML = Auth.gbtnHTML();
     }
+  },
+  gbtnHTML(){
+    return `<button class="gbtn-fallback" onclick="Auth.fallbackClick()">`+
+      `<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">`+
+      `<path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.1-3.8 6.6-9.4 6.6-16.1z"/>`+
+      `<path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.4 2.1-5.7 0-10.5-3.8-12.2-9H4.5v5.7C8.1 41.1 15.4 46 24 46z"/>`+
+      `<path fill="#FBBC05" d="M11.8 28.2c-.4-1.3-.7-2.7-.7-4.2s.3-2.9.7-4.2v-5.7H4.5C3 17.1 2.2 20.4 2.2 24s.8 6.9 2.3 9.9l7.3-5.7z"/>`+
+      `<path fill="#EA4335" d="M24 10.8c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3C34.9 4.1 29.9 2 24 2 15.4 2 8.1 6.9 4.5 14.1l7.3 5.7c1.7-5.2 6.5-9 12.2-9z"/>`+
+      `</svg>Sign in with Google</button>`;
+  },
+  initial(){ return (S.creds && (S.creds.name || S.creds.email) || 'U').trim().charAt(0).toUpperCase(); },
+  fallbackClick(){
+    const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
+    if (configured){ toast('Google sign-in is still loading — one moment…'); Auth.init(); }
+    else { toast('Google sign-in needs a Web client ID — set GOOGLE_CLIENT_ID (or ?gid=).'); }
   },
   async onCredential(resp){
     try{
