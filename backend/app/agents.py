@@ -360,10 +360,14 @@ class TrendLinker:
         prune = failed == 0
         mn, mu, mr = _reconcile_trends(con, "macro", fresh_macro, prune=prune)
         cn, cu, cr = _reconcile_trends(con, "micro", fresh_micro, prune=prune)
+        # Collapse near-duplicates. Essential with per-unit generation: a trend that
+        # spans two topics gets named independently in each topic's call, and reconcile
+        # doesn't dedupe within a single fresh batch — this pass does.
+        ddup = _dedupe_trends(con, "macro") + _dedupe_trends(con, "micro")
         con.commit()
         db.log_run(con, "trends", "ok",
-                   f"macro {mn} new/{mu} upd/-{mr}, micro {cn} new/{cu} upd/-{cr} "
-                   f"({calls} unit calls, {failed} failed)")
+                   f"macro {mn} new/{mu} upd/-{mr}, micro {cn} new/{cu} upd/-{cr}, "
+                   f"{ddup} dupes collapsed ({calls} unit calls, {failed} failed)")
         return mn + mu + cn + cu
 
 
