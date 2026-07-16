@@ -409,7 +409,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 // default backend. The query param is also persisted for later visits.
 const _qsApi = new URLSearchParams(location.search).get('api');
 if (_qsApi) localStorage.setItem('bl_api', _qsApi);
-const API = _qsApi || localStorage.getItem('bl_api') || 'https://descry-api.onrender.com';
+const API = _qsApi || localStorage.getItem('bl_api') || 'https://newslens-rmv6.onrender.com';
 
 // Google OAuth **Web** client ID (Google Cloud Console -> Credentials -> OAuth
 // client -> Web application). REQUIRED for "Sign in with Google" to appear.
