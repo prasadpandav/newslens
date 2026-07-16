@@ -74,23 +74,33 @@ def _by_topic(rows):
     return groups
 
 
+def _norm_name(s):
+    """Lowercase, strip punctuation and stray prefixes for exact-duplicate matching."""
+    s = re.sub(r"^(early signal|rising focus|trend|focus on)\s*:?\s*", "", (s or "").lower())
+    return re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
 def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
-    """Collapse near-duplicate trends of one kind. Two trends are duplicates when
-    their name+narrative are highly similar OR they share most of their articles.
-    The newest trend in each duplicate group is kept (freshest naming) and absorbs
-    the others' article_ids; the rest are deleted. Returns how many were removed.
-    Safe to run every pipeline pass and as a one-off cleanup of accumulated dupes."""
+    """Collapse near-duplicate trends of one kind. Two trends are duplicates when their
+    NAMES match (identical after normalization, or high name-token similarity) OR they
+    share most of their articles. Matching keys on the NAME only — NOT name+narrative —
+    because per-unit generation produces cross-topic dupes with the same name but
+    different narratives and no shared articles, which name+narrative would dilute and
+    miss. The newest trend in each group is kept and absorbs the others' article_ids;
+    the rest are deleted. Returns how many were removed."""
     rows = con.execute(
         "SELECT id,name,narrative,article_ids,velocity,created_at FROM trends "
         "WHERE kind=? ORDER BY created_at DESC", (kind,)).fetchall()
-    trends = [{"id": r["id"], "name": r["name"],
+    trends = [{"id": r["id"], "norm": _norm_name(r["name"]),
                "ids": db.uj(r["article_ids"], []),
-               "vec": _tf((r["name"] or "") + " " + (r["narrative"] or ""))}
+               "vec": _tf(r["name"] or "")}
               for r in rows]
     keep, removed = [], 0
     for t in trends:
         dup_of = next(
-            (k for k in keep if cosine(t["vec"], k["vec"]) >= name_sim
+            (k for k in keep
+             if (t["norm"] and t["norm"] == k["norm"])
+             or cosine(t["vec"], k["vec"]) >= name_sim
              or _jaccard(t["ids"], k["ids"]) >= overlap), None)
         if dup_of is None:
             keep.append(t)
