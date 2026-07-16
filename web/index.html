@@ -3,12 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bluelligent — AI News Intelligence</title>
+<title>Descry — News that tell stories, stories that matter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <!-- Google Identity Services (Sign in with Google) -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
+/* Brand tagline on the landing hero */
+.tagline{font-family:var(--font-ed);font-style:italic;font-size:20px;line-height:1.4;
+  color:var(--accent);margin:4px 0 10px;max-width:640px}
 /* Account area in the top nav */
 .account{display:flex;align-items:center;gap:8px;margin-left:10px}
 .account .avatar{width:26px;height:26px;border-radius:50%;object-fit:cover;
@@ -60,7 +63,7 @@
   .prof-hero{flex-wrap:wrap}}
 </style>
 <style>
-/* ============ Bluelligent Design Tokens ============ */
+/* ============ Descry Design Tokens (Bluelligent design system) ============ */
 :root{
   --bg:#070B14; --bg-2:#0B1120; --surface:rgba(255,255,255,.035);
   --surface-2:rgba(255,255,255,.06); --border:rgba(255,255,255,.08);
@@ -337,7 +340,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 <body>
 
 <nav>
-  <a class="logo" href="#/"><span class="mark">B</span>Bluelligent</a>
+  <a class="logo" href="#/"><span class="mark">D</span>Descry</a>
   <div class="links" id="navlinks">
     <a href="#/brief" data-r="brief">Daily Brief</a>
     <a href="#/trends" data-r="trends">Trend Radar</a>
@@ -351,7 +354,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 </nav>
 
 <main id="view"></main>
-<footer>Bluelligent · AI-generated intelligence from linked sources · Corroboration scores measure source agreement, not absolute truth.</footer>
+<footer>Descry — News that tell stories, stories that matter · A Bluelligent product · AI-generated intelligence from linked sources · Corroboration scores measure source agreement, not absolute truth.</footer>
 
 <!-- Search overlay -->
 <div class="overlay" id="searchov" role="dialog" aria-label="Search">
@@ -384,7 +387,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 <div class="modal" id="calib" role="dialog" aria-label="Personalize">
   <div class="mcard">
     <h2>Calibrate your lens</h2>
-    <p class="sub">Bluelligent explains what each story means for <b>you</b>. A few details sharpen the lens — everything is optional.</p>
+    <p class="sub">Descry explains what each story means for <b>you</b>. A few details sharpen the lens — everything is optional.</p>
     <label>Topics you follow</label>
     <div class="ichips" id="calints"></div>
     <label>Profession</label>
@@ -406,7 +409,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 // default backend. The query param is also persisted for later visits.
 const _qsApi = new URLSearchParams(location.search).get('api');
 if (_qsApi) localStorage.setItem('bl_api', _qsApi);
-const API = _qsApi || localStorage.getItem('bl_api') || 'https://newslens-rmv6.onrender.com';
+const API = _qsApi || localStorage.getItem('bl_api') || 'https://descry-api.onrender.com';
 
 // Google OAuth **Web** client ID (Google Cloud Console -> Credentials -> OAuth
 // client -> Web application). REQUIRED for "Sign in with Google" to appear.
@@ -544,7 +547,8 @@ const Landing = { render(){
   <div class="landing">
     <div class="rise"><span class="chip ai">AI News Intelligence</span></div>
     <h1 class="rise" style="animation-delay:.06s">Understand the news.<br><em>Not just read it.</em></h1>
-    <p class="sub rise" style="animation-delay:.12s">Bluelligent turns information overload into understanding — every story arrives with its context, trends, hidden connections and a verified-claims check. In 30 seconds you know <b>what happened, why, why it matters, and what's next</b>.</p>
+    <p class="tagline rise" style="animation-delay:.1s">News that tell stories, stories that matter.</p>
+    <p class="sub rise" style="animation-delay:.14s">Descry turns information overload into understanding — every story arrives with its context, trends, hidden connections and a verified-claims check. In 30 seconds you know <b>what happened, why, why it matters, and what's next</b>.</p>
     <div class="ctas rise" style="animation-delay:.18s">
       <a class="btn primary" href="#/brief">Open today's brief →</a>
       <a class="btn ghost" href="#/trends">Explore the Trend Radar</a>
