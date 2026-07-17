@@ -420,7 +420,7 @@ const API = _qsApi || localStorage.getItem('bl_api') || 'https://newslens-rmv6.o
 const _qsGid = new URLSearchParams(location.search).get('gid');
 if (_qsGid) localStorage.setItem('bl_gid', _qsGid);
 const GOOGLE_CLIENT_ID = _qsGid || localStorage.getItem('bl_gid')
-  || 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
+  || '50298747849-q9kj8dhgueogu7l8feugstur5su10tmh.apps.googleusercontent.com';
 const S = {
   online: true, stories: [], trends: [], signals: [], topic: 'all',
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
