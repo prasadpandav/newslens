@@ -1,0 +1,35 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4D9FFF"/>
+      <stop offset="100%" stop-color="#7C5CFF"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#C9DEFF"/>
+    </linearGradient>
+    <radialGradient id="glowTR" cx="82%" cy="12%" r="55%">
+      <stop offset="0%" stop-color="#4D9FFF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#4D9FFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBL" cx="14%" cy="90%" r="60%">
+      <stop offset="0%" stop-color="#7C5CFF" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#7C5CFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1226"/>
+      <stop offset="100%" stop-color="#070B14"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="224" fill="url(#glowTR)"/>
+  <rect width="1024" height="1024" rx="224" fill="url(#glowBL)"/>
+  <!-- corroboration ring: open arc, gap at top-right -->
+  <path d="M 782.4 439.5 A 280 280 0 1 1 584.5 241.6"
+        fill="none" stroke="url(#ring)" stroke-width="88" stroke-linecap="round"/>
+  <!-- live signal dot in the gap -->
+  <circle cx="710" cy="314" r="36" fill="#3DDC97"/>
+  <!-- AI sparkle at the center -->
+  <path d="M512 348 C534 466 558 490 676 512 C558 534 534 558 512 676 C490 558 466 534 348 512 C466 490 490 466 512 348 Z"
+        fill="url(#spark)"/>
+</svg>

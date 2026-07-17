@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Descry — News that tell stories, stories that matter</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <!-- Google Identity Services (Sign in with Google) -->
@@ -126,8 +128,9 @@ nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:20px;
   padding:14px 28px;background:rgba(7,11,20,.75);backdrop-filter:blur(18px);
   border-bottom:1px solid var(--border)}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em;color:var(--text)}
-.logo .mark{width:26px;height:26px;border-radius:8px;background:var(--grad-ai);
-  display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff}
+.logo .mark{width:28px;height:28px;border-radius:8px;overflow:hidden;
+  display:grid;place-items:center;flex-shrink:0}
+.logo .mark img{width:100%;height:100%;object-fit:cover;display:block}
 nav .links{display:flex;gap:4px;margin-left:8px}
 nav .links a{padding:7px 14px;border-radius:10px;color:var(--text-2);font-weight:500;font-size:14px;transition:all .2s}
 nav .links a:hover{color:var(--text);background:var(--surface-2)}
@@ -340,7 +343,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 <body>
 
 <nav>
-  <a class="logo" href="#/"><span class="mark">D</span>Descry</a>
+  <a class="logo" href="#/"><span class="mark"><img src="icon.svg" alt="Descry"></span>Descry</a>
   <div class="links" id="navlinks">
     <a href="#/brief" data-r="brief">Daily Brief</a>
     <a href="#/trends" data-r="trends">Trend Radar</a>
@@ -417,7 +420,7 @@ const API = _qsApi || localStorage.getItem('bl_api') || 'https://newslens-rmv6.o
 const _qsGid = new URLSearchParams(location.search).get('gid');
 if (_qsGid) localStorage.setItem('bl_gid', _qsGid);
 const GOOGLE_CLIENT_ID = _qsGid || localStorage.getItem('bl_gid')
-  || '50298747849-q9kj8dhgueogu7l8feugstur5su10tmh.apps.googleusercontent.com';
+  || 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
 const S = {
   online: true, stories: [], trends: [], signals: [], topic: 'all',
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
@@ -882,7 +885,7 @@ const Calib = {
   show(prefill){
     prefill = prefill || {};
     this.ints = Array.isArray(prefill.interests) ? [...prefill.interests] : [];
-    const opts=['Technology','Business','World','Health','Energy','Finance','Science','India','Sports'];
+    const opts=['AI','Technology','Business','World','Health','Energy','Finance','Science','India','Sports'];
     $('#calints').innerHTML = opts.map(o=>
       `<button class="chip${this.ints.includes(o)?' on':''}" onclick="Calib.tog(this,'${o}')">${o}</button>`).join('');
     if ($('#calprof')) $('#calprof').value = prefill.profession || '';
