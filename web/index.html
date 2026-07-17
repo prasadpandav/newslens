@@ -420,7 +420,7 @@ const API = _qsApi || localStorage.getItem('bl_api') || 'https://newslens-rmv6.o
 const _qsGid = new URLSearchParams(location.search).get('gid');
 if (_qsGid) localStorage.setItem('bl_gid', _qsGid);
 const GOOGLE_CLIENT_ID = _qsGid || localStorage.getItem('bl_gid')
-  || '50298747849-q9kj8dhgueogu7l8feugstur5su10tmh.apps.googleusercontent.com';
+  || 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
 const S = {
   online: true, stories: [], trends: [], signals: [], topic: 'all',
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
@@ -592,10 +592,10 @@ const Brief = { async render(){
         `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">No stories yet — run the backend pipeline, then refresh.<br><br><button class="btn ghost" onclick="loadData().then(()=>Brief.render())">Refresh</button></div>`}</div>
       <aside class="rail">
         <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
-          ${macro.map(t=>`<div class="titem" onclick="location.hash='#/trends'">
+          ${macro.map(t=>`<div class="titem" style="cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
             <span class="nm">${esc(cleanName(t.name))}</span>${spark(t.name,58,20)}</div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
-          ${(S.signals||[]).map(g=>`<div class="signal" style="cursor:pointer" onclick="location.hash='#/story/${esc((g.stories[0]||{}).id||'')}'">
+          ${(S.signals||[]).map(g=>`<div class="signal" style="cursor:pointer" onclick="location.hash='#/signal/${g.id}'">
             <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
             <div class="sg" style="color:var(--predict);margin-top:5px">${(g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence</div></div>`).join('')
           || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
@@ -700,7 +700,7 @@ const Trends = { tab:'macro', async render(){
       <button class="${this.tab==='micro'?'on':''}" onclick="Trends.tab='micro';Trends.render()">Early signals</button>
     </div>
     <div class="tgrid">${list.map((t,i)=>`
-      <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s">
+      <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s;cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
         <div class="th"><h3>${esc(cleanName(t.name))}</h3>${spark(t.name,86,26,t.kind==='micro'?'#B48CFF':'#4D9FFF')}</div>
         <p>${esc(t.narrative)}</p>
         <div class="tf">${(t.sectors||[]).slice(0,3).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}
