@@ -9,6 +9,16 @@ technology:
   - https://feeds.bbci.co.uk/news/technology/rss.xml
   - https://www.theverge.com/rss/index.xml
   - https://feeds.arstechnica.com/arstechnica/index
+  - https://techcrunch.com/feed/
+  - https://www.wired.com/feed/rss
+  - https://www.engadget.com/rss.xml
+  - https://www.technologyreview.com/feed/
+ai:
+  - https://the-decoder.com/feed/
+  - https://techcrunch.com/category/artificial-intelligence/feed/
+  - https://venturebeat.com/category/ai/feed/
+  - https://arstechnica.com/ai/feed/
+  - https://www.technologyreview.com/topic/artificial-intelligence/feed/
 science:
   - https://www.sciencedaily.com/rss/all.xml
 health:

@@ -2,6 +2,7 @@
 import os
 import secrets
 import threading
+from datetime import datetime, timedelta
 import httpx
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,9 +33,15 @@ def guarded_run(stage: str | None = None):
 
 @app.on_event("startup")
 def _start():
+    # Interval jobs otherwise fire first at startup+interval; with frequent redeploys
+    # that clock keeps resetting and a run may never happen. Kick the first run ~2 min
+    # after boot, then every interval. coalesce + a wide misfire grace mean a busy or
+    # skipped window collapses to a single catch-up run rather than being dropped.
     scheduler.add_job(guarded_run, "interval",
                       hours=config.PIPELINE_INTERVAL_HOURS,
-                      id="pipeline", replace_existing=True)
+                      id="pipeline", replace_existing=True,
+                      next_run_time=datetime.now() + timedelta(minutes=2),
+                      coalesce=True, misfire_grace_time=3600, max_instances=1)
     scheduler.start()
 
 
@@ -180,22 +187,27 @@ def put_context(user_id: str, ctx: ContextIn, authorization: str = Header("")):
 
 
 @app.get("/feed")
-def feed(user_id: str, authorization: str = Header("")):
+def feed(user_id: str, sort: str = "recent", authorization: str = Header("")):
     con = db.connect()
     _auth(con, user_id, authorization)
     # LEFT JOIN: every recent story appears in the feed; personalization
     # (impact text/score) enriches stories where the Personalizer has run,
-    # but never gates visibility — otherwise rate-limited personalization
-    # would silently shrink the feed.
+    # but never gates visibility.
+    # Ordering: default "recent" keeps the feed chronological so ALL news stays
+    # accessible and nothing is buried by preferences (only-some stories get an
+    # impact score, so impact-ordering would sink everything else). sort=foryou
+    # opts into a personalized ranking (impact first) for those who want it.
+    order = ("COALESCE(f.impact_score, 0) DESC, s.created_at DESC"
+             if sort == "foryou" else "s.created_at DESC")
     rows = con.execute(
-        """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
+        f"""SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
                   s.topic,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
            LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
            WHERE s.created_at > ?
-           ORDER BY COALESCE(f.impact_score, 0) DESC, s.created_at DESC
+           ORDER BY {order}
            LIMIT 100""",
         (user_id, db.now() - 7 * 86400)).fetchall()
     con.close()
@@ -399,9 +411,17 @@ def _rebuild_intel():
     existing stories to the fresh trends by article overlap. Runs in the
     background under the pipeline lock. Uses whatever provider/reasoning models
     are configured (see REASONING_TASKS)."""
-    from .agents import TrendLinker, Foresight
+    from .agents import TrendLinker, Foresight, PROMPTS
     con = db.connect()
     try:
+        # Guard: never wipe if the deployed prompts.yaml is out of sync with the code
+        # (a stale file is missing these keys and would crash mid-rebuild after the wipe).
+        missing = [k for k in ("trend", "signals_unit", "signals") if k not in PROMPTS]
+        if missing:
+            db.log_run(con, "rebuild_intel", "error",
+                       f"prompts.yaml missing {missing} — redeploy; nothing deleted")
+            con.close()
+            return
         con.execute("DELETE FROM trends")
         con.execute("DELETE FROM signals")
         con.commit()
