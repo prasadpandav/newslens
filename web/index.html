@@ -480,17 +480,6 @@ async function api(path, opts={}){
   if (!r.ok) throw new Error('api '+r.status);
   return r.json();
 }
-/* deterministic sparkline from a string seed */
-function spark(seed, w=110, h=26, color='#4D9FFF'){
-  let x=0; for(const c of seed) x=(x*31+c.charCodeAt(0))>>>0;
-  const rnd=()=> (x=(x*1103515245+12345)>>>0, x/4294967295);
-  let pts=[], v=.5;
-  for(let i=0;i<12;i++){ v=Math.min(.95,Math.max(.08,v+(rnd()-.42)*.3)); pts.push(v); }
-  const step=w/11, d=pts.map((p,i)=>`${i?'L':'M'}${(i*step).toFixed(1)},${(h-p*h).toFixed(1)}`).join('');
-  const up = pts[11]>pts[0];
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
-    <path d="${d}" fill="none" stroke="${up?color:'#FF5D73'}" stroke-width="1.8" stroke-linecap="round"/></svg>`;
-}
 function ring(score){
   const r=17, c=2*Math.PI*r, off=c*(1-score/100);
   const col = score>=75?'#3DDC97':score>=50?'#FFC24D':'#FF5D73';
@@ -545,7 +534,15 @@ async function loadData(){
 
 /* ================= Landing ================= */
 const Landing = { render(){
-  const tick = ['<b>Trend</b> Semiconductor supply realignment ▲','<b>Verified</b> Fund inflows hit 6-month record · 91%','<b>Early signal</b> Component cost pass-through','<b>Connection</b> Export rules ↔ local retail prices','<b>Brief</b> 9 stories · 4 min to understand today'];
+  /* Ticker reflects the actually-loaded data (demo data only when offline). */
+  const macro = S.trends.filter(t=>t.kind==='macro'), micro = S.trends.filter(t=>t.kind==='micro');
+  const top = S.stories[0], tick = [];
+  if (macro[0]) tick.push(`<b>Trend</b> ${esc(cleanName(macro[0].name))} ▲`);
+  if (top) tick.push(`<b>Story</b> ${esc(top.headline)} · ${Math.round(top.credibility||0)}%`);
+  if (micro[0]) tick.push(`<b>Early signal</b> ${esc(cleanName(micro[0].name))}`);
+  if (S.signals[0]) tick.push(`<b>Foresight</b> ${esc(S.signals[0].title)}`);
+  if (S.stories.length) tick.push(`<b>Brief</b> ${S.stories.length} stories · ${Math.max(2,Math.round(S.stories.length*0.45))} min to understand today`);
+  if (!tick.length) tick.push('<b>Descry</b> Run the backend pipeline to fill this ticker with live intelligence');
   $('#view').innerHTML = `
   <div class="landing">
     <div class="rise"><span class="chip ai">AI News Intelligence</span></div>
@@ -593,7 +590,7 @@ const Brief = { async render(){
       <aside class="rail">
         <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
           ${macro.map(t=>`<div class="titem" style="cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
-            <span class="nm">${esc(cleanName(t.name))}</span>${spark(t.name,58,20)}</div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
+            <span class="nm">${esc(cleanName(t.name))}</span><span class="cnt" style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">${t.article_count||0}</span></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
           ${(S.signals||[]).map(g=>`<div class="signal" style="cursor:pointer" onclick="location.hash='#/signal/${g.id}'">
             <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
@@ -610,12 +607,13 @@ const Brief = { async render(){
   $('#fab').classList.remove('hidden');
 },
 card(s,i){
+  const cred = Math.round(s.credibility||0);
   const impact = s.impact_score>0 ? `<span class="chip ${s.impact_score>=3?'breaking':s.impact_score>=2?'warn':'accent'} impact">${['','For you','Affects you','High impact'][Math.min(s.impact_score,3)]}</span>`:'';
   return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="#/story/${s.id}">
-    <div class="top"><span class="chip">${esc(s.topic)}</span>${s.credibility>=85?'<span class="chip trust">Highly corroborated</span>':''}</div>
+    <div class="top"><span class="chip">${esc(s.topic)}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
-    <div class="foot"><div class="meter"><i style="width:${s.credibility}%;background:${s.credibility>=75?'var(--trust)':s.credibility>=50?'var(--warn)':'var(--breaking)'}"></i></div>
-      <span class="tv">${Math.round(s.credibility)}%</span>${impact}</div></a>`;
+    <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
+      <span class="tv">${cred}%</span>${impact}</div></a>`;
 }};
 
 /* ================= Story Reader ================= */
@@ -623,10 +621,21 @@ const Story = { async render(id){
   $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
   let s;
   try{ s = await api('/story/'+id+(S.creds?`?user_id=${S.creds.user_id}`:'')); }
-  catch(e){ const base = (S.stories.length?S.stories:DEMO.stories).find(x=>x.id===id) || DEMO.stories[0]; s = DEMO.detail(base); }
+  catch(e){
+    if (S.online){
+      // Never dress a missing real story in demo content — say it's gone.
+      $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+        <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
+          This story is no longer available — stories rotate out after 7 days.<br><br>
+          <a class="btn primary" href="#/brief">Back to the brief</a></div></div>`;
+      return;
+    }
+    const base = (S.stories.length?S.stories:DEMO.stories).find(x=>x.id===id) || DEMO.stories[0];
+    s = DEMO.detail(base);
+  }
   S.currentStory = s; S.opened = new Set();
   if (!S.eng.topics.includes(s.topic)){ S.eng.topics.push(s.topic); saveEng(); }
-  const sent = s.credibility>=75?['Balanced coverage','trust']:['Developing story','warn'];
+  const sent = (s.credibility||0)>=75?['Balanced coverage','trust']:['Developing story','warn'];
   const paras = String(s.narrative||'').split(/\n+/).filter(Boolean);
   const what = paras[0]||s.narrative, why = paras.slice(1).join(' ')||'This story links to wider forces covered in "The bigger picture" below — open it to see which trends it feeds and who is affected.';
   const modules = [
@@ -635,7 +644,7 @@ const Story = { async render(id){
     s.trends?.length ? ['big','The bigger picture','#B48CFF',
       s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
         <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
-        <div style="font-size:13px">${esc(t.narrative)}</div></div>${spark(t.name,90,24,'#B48CFF')}</div>`).join('')] : null,
+        <div style="font-size:13px">${esc(t.narrative)}</div></div></div>`).join('')] : null,
     s.connections?.length ? ['conn','Hidden connections','#7C5CFF',
       `<p style="font-size:12.5px;margin-bottom:12px">AI-inferred hypotheses — links that aren't obvious but may matter. Treat as leads, not facts.</p>`+
       s.connections.map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
@@ -649,7 +658,7 @@ const Story = { async render(id){
     <div class="crumb rise"><a href="#/brief">← Brief</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span></div>
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
     <p class="lede rise" style="animation-delay:.08s">${esc(what)}</p>
-    <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility)}
+    <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
       <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
     ${s.impact_text?`<div class="foryou rise" style="animation-delay:.16s"><div class="lbl">${ICONS.lens||''}What this means for you</div>${esc(s.impact_text)}</div>`:''}
     <div class="understand"><span>Understanding</span><div class="meter"><i id="uprog" style="width:10%"></i></div><span id="upct">10%</span></div>
@@ -701,7 +710,7 @@ const Trends = { tab:'macro', async render(){
     </div>
     <div class="tgrid">${list.map((t,i)=>`
       <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s;cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
-        <div class="th"><h3>${esc(cleanName(t.name))}</h3>${spark(t.name,86,26,t.kind==='micro'?'#B48CFF':'#4D9FFF')}</div>
+        <div class="th"><h3>${esc(cleanName(t.name))}</h3></div>
         <p>${esc(t.narrative)}</p>
         <div class="tf">${(t.sectors||[]).slice(0,3).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}
           ${t.kind==='micro'?'<span class="chip ai">accelerating</span>':''}
@@ -825,7 +834,7 @@ const Search = {
     } else { st = S.stories.slice(0,5); }
     this.idx = -1;
     $('#searchres').innerHTML =
-      (st.length?`<div class="grp">Stories</div>`+st.map(s=>`<div class="rrow" data-go="#/story/${s.id}"><span>📄</span> ${esc(s.headline)}<span class="sub">${Math.round(s.credibility)}%</span></div>`).join(''):'')+
+      (st.length?`<div class="grp">Stories</div>`+st.map(s=>`<div class="rrow" data-go="#/story/${s.id}"><span>📄</span> ${esc(s.headline)}<span class="sub">${Math.round(s.credibility||0)}%</span></div>`).join(''):'')+
       (tr.length?`<div class="grp">Trends</div>`+tr.map(t=>`<div class="rrow" data-go="#/trends"><span>📈</span> ${esc(t.name)}<span class="sub">${t.kind}</span></div>`).join(''):'')+
       (!st.length&&!tr.length?`<div class="grp">No matches — try the Ask AI assistant instead</div>`:'');
     document.querySelectorAll('.rrow').forEach(r=>r.onclick=()=>{location.hash=r.dataset.go;Search.close();});
