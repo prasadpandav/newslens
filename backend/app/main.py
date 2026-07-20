@@ -13,10 +13,22 @@ from .agents import prompt, _dedupe_trends
 from .orchestrator import run_pipeline, STAGES
 
 app = FastAPI(title="Descry API", version="0.1")
-# Allow the web portal (any origin) to call this API. Tighten for production.
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
-                   allow_headers=["*"])
+# Browser origin allowlist — ALLOWED_ORIGINS env, default * for the beta portal.
+app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS,
+                   allow_methods=["*"], allow_headers=["*"])
 scheduler = BackgroundScheduler()
+
+
+def _require_admin(authorization: str = "", token: str = ""):
+    """Gate for /admin/*: the API is public, so admin actions (pipeline runs,
+    intel wipes, usage internals) need ADMIN_TOKEN — via Authorization: Bearer
+    or ?token= for curl convenience. No token configured = admin disabled."""
+    if not config.ADMIN_TOKEN:
+        raise HTTPException(403, "admin endpoints are disabled — set ADMIN_TOKEN "
+                                 "in the environment to enable them")
+    supplied = token or authorization.removeprefix("Bearer ").strip()
+    if not secrets.compare_digest(supplied, config.ADMIN_TOKEN):
+        raise HTTPException(401, "bad admin token")
 
 # One pipeline at a time — shared guard for scheduled AND manual runs.
 _pipeline_lock = threading.Lock()
@@ -275,10 +287,15 @@ def stories(limit: int = 30):
 
 @app.get("/trends")
 def trends():
+    # Ranked per kind: macro velocity is an article count while micro velocity is
+    # a small ratio, so one mixed velocity sort would push every micro trend
+    # (the portal's "Early signals" tab) out of a shared limit.
     con = db.connect()
-    rows = con.execute(
-        "SELECT id, kind, name, narrative, sectors, regions, article_ids, velocity, "
-        "created_at FROM trends ORDER BY velocity DESC, created_at DESC LIMIT 60").fetchall()
+    q = ("SELECT id, kind, name, narrative, sectors, regions, article_ids, velocity, "
+         "created_at FROM trends WHERE kind=? "
+         "ORDER BY velocity DESC, created_at DESC LIMIT ?")
+    rows = (con.execute(q, ("macro", 40)).fetchall()
+            + con.execute(q, ("micro", 20)).fetchall())
     con.close()
     out = []
     for r in rows:
@@ -362,9 +379,13 @@ class AskIn(BaseModel):
 
 
 @app.post("/ask")
-def ask(body: AskIn):
-    """Ask-AI: question about a story (or general). Mock mode gives canned answers."""
+def ask(body: AskIn, authorization: str = Header("")):
+    """Ask-AI: question about a story (or general). Mock mode gives canned answers.
+    Passing a user_id requires that user's bearer token — a user's saved context
+    must never be injectable into a prompt by whoever guesses their id."""
     con = db.connect()
+    if body.user_id:
+        _auth(con, body.user_id, authorization)
     story_ctx, user_ctx = "", "{}"
     if body.story_id:
         s = con.execute("SELECT headline, narrative, claims FROM stories WHERE id=?",
@@ -387,13 +408,13 @@ def ask(body: AskIn):
 
 
 @app.post("/admin/run")
-def admin_run(stage: str = ""):
+def admin_run(stage: str = "", token: str = "", authorization: str = Header("")):
     """Kick off a pipeline run in the background and return immediately.
     Optional ?stage= runs a single stage only, e.g.:
-      /admin/run?stage=trends          just macro trends
-      /admin/run?stage=micro_trends    just early signals
-      /admin/run?stage=signals         just Foresight predictions
+      /admin/run?stage=trends     macro + micro trends (one per-topic pass)
+      /admin/run?stage=signals    just Foresight predictions
     Poll /admin/usage for completion."""
+    _require_admin(authorization, token)
     if stage and stage not in STAGES:
         raise HTTPException(400, f"unknown stage '{stage}'; valid: {STAGES}")
     if _pipeline_lock.locked():
@@ -446,11 +467,13 @@ def _rebuild_intel():
 
 
 @app.post("/admin/rebuild-intel")
-def admin_rebuild_intel(allow_mock: bool = False):
+def admin_rebuild_intel(allow_mock: bool = False, token: str = "",
+                        authorization: str = Header("")):
     """ONE-TIME reset: delete every trend and forecast, then recompute them all
     with the configured reasoning models. Guarded so nothing is deleted unless
     the model actually answers a probe first (avoids wiping then failing).
     Poll /admin/usage for a stage='rebuild_intel' row to see completion."""
+    _require_admin(authorization, token)
     if config.LLM_PROVIDER == "mock" and not allow_mock:
         raise HTTPException(
             400, "LLM_PROVIDER=mock — set a real provider (e.g. deepseek) with a "
@@ -484,10 +507,11 @@ def admin_rebuild_intel(allow_mock: bool = False):
 
 
 @app.post("/admin/dedupe-trends")
-def admin_dedupe_trends():
+def admin_dedupe_trends(token: str = "", authorization: str = Header("")):
     """One-off cleanup of already-accumulated duplicate trends. Collapses
     near-duplicate macro and micro trends in place (same logic the pipeline now
     runs every pass). Returns how many were removed per kind."""
+    _require_admin(authorization, token)
     con = db.connect()
     macro = _dedupe_trends(con, "macro")
     micro = _dedupe_trends(con, "micro")
@@ -499,7 +523,8 @@ def admin_dedupe_trends():
 
 
 @app.get("/admin/usage")
-def admin_usage():
+def admin_usage(token: str = "", authorization: str = Header("")):
+    _require_admin(authorization, token)
     con = db.connect()
     runs = [dict(r) for r in con.execute(
         "SELECT * FROM runs ORDER BY created_at DESC LIMIT 30").fetchall()]

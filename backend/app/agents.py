@@ -21,7 +21,8 @@ def prompt(name, **kw):
 def _tokens(text):
     stop = set("the a an of to in on for and or is are was were with from by at as "
                "it its this that new says said will would could more amid".split())
-    return [w for w in re.findall(r"[a-z]{3,}", text.lower()) if w not in stop]
+    # 2-letter tokens matter here: "AI", "EU", "US" are the subject of many trends.
+    return [w for w in re.findall(r"[a-z0-9]{2,}", text.lower()) if w not in stop]
 
 
 def _tf(text):
@@ -58,11 +59,15 @@ def greedy_cluster(items, threshold):
     return [c["ids"] for c in clusters]
 
 
-def _jaccard(a, b):
+def _containment(a, b):
+    """Overlap relative to the SMALLER set. Jaccard punishes subset relations —
+    a fresh trend carrying only the recent window's articles scores low against
+    the stored trend whose id set has grown by unions, even when it is fully
+    contained in it. Containment treats a subset as a full match."""
     sa, sb = set(a), set(b)
     if not sa or not sb:
         return 0.0
-    return len(sa & sb) / len(sa | sb)
+    return len(sa & sb) / min(len(sa), len(sb))
 
 
 def _by_topic(rows):
@@ -93,6 +98,7 @@ def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
         "WHERE kind=? ORDER BY created_at DESC", (kind,)).fetchall()
     trends = [{"id": r["id"], "norm": _norm_name(r["name"]),
                "ids": db.uj(r["article_ids"], []),
+               "vel": r["velocity"] or 0.0,
                "vec": _tf(r["name"] or "")}
               for r in rows]
     keep, removed = [], 0
@@ -101,7 +107,7 @@ def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
             (k for k in keep
              if (t["norm"] and t["norm"] == k["norm"])
              or cosine(t["vec"], k["vec"]) >= name_sim
-             or _jaccard(t["ids"], k["ids"]) >= overlap), None)
+             or _containment(t["ids"], k["ids"]) >= overlap), None)
         if dup_of is None:
             keep.append(t)
             continue
@@ -109,9 +115,10 @@ def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
         if kind == "macro":  # macro velocity == article count
             con.execute("UPDATE trends SET article_ids=?, velocity=? WHERE id=?",
                         (db.j(union), float(len(union)), dup_of["id"]))
-        else:
-            con.execute("UPDATE trends SET article_ids=? WHERE id=?",
-                        (db.j(union), dup_of["id"]))
+        else:  # micro velocity is a ratio — keep the livelier of the two
+            dup_of["vel"] = max(dup_of["vel"], t["vel"])
+            con.execute("UPDATE trends SET article_ids=?, velocity=? WHERE id=?",
+                        (db.j(union), dup_of["vel"], dup_of["id"]))
         dup_of["ids"] = union
         con.execute("DELETE FROM trends WHERE id=?", (t["id"],))
         removed += 1
@@ -178,6 +185,12 @@ class Scout:
                         skipped_dups += 1
                         continue
                     pub = time.time()
+                    for attr in ("published_parsed", "updated_parsed"):
+                        st = getattr(e, attr, None)
+                        if st:  # feed timestamps are UTC struct_times
+                            import calendar
+                            pub = calendar.timegm(st)
+                            break
                     try:
                         con.execute(
                             "INSERT INTO articles (id,url,title,summary,source,topic,"
@@ -288,17 +301,19 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
     fresh set are DELETED — but only when prune=True. Pass prune=False when some
     per-unit calls failed this run, so a transient error can't wipe good trends.
     Returns (new, updated, removed)."""
+    # Match on NAME only (same key as _dedupe_trends): narratives are re-worded
+    # every generation, and folding them into the vector dilutes real name matches.
     existing = [{"id": r["id"], "ids": db.uj(r["article_ids"], []),
-                 "vec": _tf((r["name"] or "") + " " + (r["narrative"] or ""))}
+                 "vec": _tf(r["name"] or "")}
                 for r in con.execute(
-                    "SELECT id,name,narrative,article_ids FROM trends WHERE kind=?",
+                    "SELECT id,name,article_ids FROM trends WHERE kind=?",
                     (kind,)).fetchall()]
     matched, new_ct, upd_ct = set(), 0, 0
     for f in fresh:
-        fvec = _tf(f["name"] + " " + f["narrative"])
+        fvec = _tf(f["name"])
         cand = next((e for e in existing if e["id"] not in matched
                      and (cosine(fvec, e["vec"]) >= name_sim
-                          or _jaccard(f["article_ids"], e["ids"]) >= overlap)), None)
+                          or _containment(f["article_ids"], e["ids"]) >= overlap)), None)
         if cand:
             con.execute(
                 "UPDATE trends SET name=?,narrative=?,sectors=?,regions=?,article_ids=?,"
@@ -341,16 +356,25 @@ class TrendLinker:
             db.log_run(con, "trends", "ok", "too few articles to synthesize")
             return 0
         cutoff72 = db.now() - 72 * 3600
-        prev_count = con.execute(
-            "SELECT COUNT(*) c FROM articles WHERE fetched_at BETWEEN ? AND ?",
-            (db.now() - 144 * 3600, cutoff72)).fetchone()["c"]
+        # Previous 72h window counts PER TOPIC — the acceleration baseline for a
+        # micro-trend is its own beat, not the global article firehose.
+        prev_counts = {r["topic"]: r["c"] for r in con.execute(
+            "SELECT topic, COUNT(*) c FROM articles WHERE fetched_at BETWEEN ? AND ? "
+            "GROUP BY topic", (db.now() - 144 * 3600, cutoff72)).fetchall()}
+        # Show each unit call what is already tracked so the LLM reuses names
+        # verbatim instead of re-inventing wording (which defeats dedupe).
+        existing_names = [r["name"] for r in con.execute(
+            "SELECT name FROM trends ORDER BY velocity DESC, created_at DESC "
+            "LIMIT 40").fetchall()]
+        existing_txt = "\n".join(f"- {n}" for n in existing_names) or "(none yet)"
         fresh_macro, fresh_micro, calls, failed = [], [], 0, 0
         for topic, arts in _by_topic(rows).items():
             arts = arts[:self.MAX_PER_UNIT]
             if len(arts) < min_size:
                 continue
             out = llm.complete_json("trend", prompt(
-                "trend", topic=topic, n=len(arts), items=_numbered_items(arts)))
+                "trend", topic=topic, n=len(arts), items=_numbered_items(arts),
+                existing=existing_txt))
             calls += 1
             if out is None:
                 failed += 1
@@ -359,8 +383,9 @@ class TrendLinker:
             micro = _parse_trends(out.get("micro_trends", []), arts, 2, "micro")
             micro = [m for m in micro if 2 <= len(m["article_ids"]) <= 5]
             recent_ids = {a["id"] for a in arts if a["fetched_at"] > cutoff72}
-            for m in micro:  # velocity = share of the cluster that's from the last 72h
-                m["velocity"] = len(set(m["article_ids"]) & recent_ids) / max(prev_count, 1)
+            for m in micro:  # velocity = recent share vs this topic's previous window
+                m["velocity"] = (len(set(m["article_ids"]) & recent_ids)
+                                 / max(prev_counts.get(topic, 0), 1))
             fresh_micro += micro
         if not fresh_macro and not fresh_micro:
             db.log_run(con, "trends", "ok",
@@ -487,12 +512,20 @@ class Storyteller:
     MAX_PER_RUN = config.MAX_STORIES_PER_RUN
 
     def run(self, con, verifier: Verifier):
-        """Turn each macro trend cluster (and orphan articles) into a story."""
+        """Turn each macro trend cluster (and orphan articles) into a story.
+        A trend that already has a story gets that story UPDATED in place when new
+        articles arrive (same id, refreshed narrative) — never a second, near-
+        duplicate story for the same trend."""
+        prior = [{"id": r["id"], "aids": set(db.uj(r["article_ids"], [])),
+                  "tids": set(db.uj(r["trend_ids"], []))}
+                 for r in con.execute(
+                     "SELECT id, article_ids, trend_ids FROM stories").fetchall()]
         done_ids = set()
-        for row in con.execute("SELECT article_ids FROM stories").fetchall():
-            done_ids.update(db.uj(row["article_ids"], []))
-        made = 0
+        for p in prior:
+            done_ids.update(p["aids"])
+        new_ct = upd_ct = absorbed = 0
         trends = con.execute("SELECT * FROM trends WHERE kind='macro'").fetchall()
+        live_tids = {t["id"] for t in trends}
         groups = [(t, db.uj(t["article_ids"], [])) for t in trends]
         # orphan articles not in any trend become single-article stories
         in_trend = {i for _, ids in groups for i in ids}
@@ -502,10 +535,23 @@ class Storyteller:
             if o["id"] not in in_trend:
                 groups.append((None, [o["id"]]))
         for trend, ids in groups:
-            if made >= self.MAX_PER_RUN:
+            if new_ct + upd_ct >= self.MAX_PER_RUN:
                 break
-            if not ids or set(ids) <= done_ids:
+            if not ids:
                 continue
+            # The story already telling this trend: linked by trend id, or (for
+            # stories from before relinking) holding most of the same articles.
+            mine = None
+            if trend:
+                mine = next(
+                    (p for p in prior if trend["id"] in p["tids"]
+                     or _containment(ids, p["aids"]) >= 0.5), None)
+            if mine:
+                ids = sorted(set(ids) | mine["aids"])  # keep the story's history
+                if not (set(ids) - mine["aids"]):
+                    continue  # nothing new since the story was last told
+            elif set(ids) <= done_ids:
+                continue  # articles already covered by other stories
             arts = [con.execute("SELECT * FROM articles WHERE id=?", (i,)).fetchone()
                     for i in ids]
             arts = [a for a in arts if a]
@@ -525,18 +571,45 @@ class Storyteller:
                 "(article_a IN (%s) OR article_b IN (%s))"
                 % (",".join("?" * len(ids)), ",".join("?" * len(ids))),
                 ids + ids).fetchall()]
-            con.execute(
-                "INSERT INTO stories (id,headline,narrative,credibility,credibility_note,"
-                "claims,topic,article_ids,trend_ids,connection_ids,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (db.new_id(), headline, out.get("narrative", items), score, note,
-                 db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
-                 db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids), db.now()))
+            if mine:  # developing story: refresh content, bump to top of the feed
+                con.execute(
+                    "UPDATE stories SET headline=?,narrative=?,credibility=?,"
+                    "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
+                    "connection_ids=?,created_at=? WHERE id=?",
+                    (headline, out.get("narrative", items), score, note,
+                     db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
+                     db.j(sorted(mine["tids"] | {trend["id"]})), db.j(conn_ids),
+                     db.now(), mine["id"]))
+                mine["aids"] = set(ids)
+                upd_ct += 1
+            else:
+                con.execute(
+                    "INSERT INTO stories (id,headline,narrative,credibility,credibility_note,"
+                    "claims,topic,article_ids,trend_ids,connection_ids,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (db.new_id(), headline, out.get("narrative", items), score, note,
+                     db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
+                     db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids), db.now()))
+                new_ct += 1
             done_ids.update(ids)
-            made += 1
+            # Absorb superseded stories now fully covered by this trend story:
+            # an orphan story whose article joined the trend, or a story left
+            # behind when its trend was merged away. Their articles must not
+            # keep a second, stale telling in the feed.
+            if trend:
+                ids_set = set(ids)
+                for p in [p for p in prior
+                          if p is not mine and p["aids"]
+                          and p["aids"] <= ids_set
+                          and not (p["tids"] & live_tids)]:
+                    con.execute("DELETE FROM stories WHERE id=?", (p["id"],))
+                    con.execute("DELETE FROM feed_items WHERE story_id=?", (p["id"],))
+                    prior.remove(p)
+                    absorbed += 1
         con.commit()
-        db.log_run(con, "storyteller", "ok", f"{made} stories")
-        return made
+        db.log_run(con, "storyteller", "ok",
+                   f"{new_ct} new + {upd_ct} updated stories, {absorbed} absorbed")
+        return new_ct + upd_ct
 
 
 # -------------------------------------------------------------- Foresight
@@ -551,7 +624,7 @@ class Foresight:
     MAX_PER_UNIT = 30           # stories per topic fed to each unit call
     CROSS_SAMPLE_PER_TOPIC = 4  # stories per topic in the single cross-domain pass
     TITLE_SIM = 0.6             # title cosine above this = same forecast
-    STORY_OVERLAP = 0.3         # story_id Jaccard above this = same forecast
+    STORY_OVERLAP = 0.5         # story_id containment above this = same forecast
 
     def _digest(self, con, s):
         """One rich digest block per story: topic, headline, credibility, the
@@ -585,6 +658,12 @@ class Foresight:
                        f"too few stories to synthesize; pruned {pruned} stale")
             return 0
         by_topic = _by_topic(stories)
+        # Show the LLM what is already forecast so it reuses titles verbatim
+        # instead of re-wording the same forecast (which defeats dedupe).
+        existing_titles = [r["title"] for r in con.execute(
+            "SELECT title FROM signals ORDER BY confidence DESC, created_at DESC "
+            "LIMIT 30").fetchall()]
+        existing_txt = "\n".join(f"- {t}" for t in existing_titles) or "(none yet)"
         fresh, calls, failed = [], 0, 0
         # One call per unit: within-domain foresight for each topic.
         for topic, sts in by_topic.items():
@@ -593,7 +672,8 @@ class Foresight:
                 continue
             digests = [self._digest(con, s) for s in sts]
             out = llm.complete_json("signals_unit", prompt(
-                "signals_unit", topic=topic, n=len(digests), digests="\n".join(digests)))
+                "signals_unit", topic=topic, n=len(digests), digests="\n".join(digests),
+                existing=existing_txt))
             calls += 1
             if out is None:
                 failed += 1
@@ -607,7 +687,8 @@ class Foresight:
         if len(sample) >= 4:
             digests = [self._digest(con, s) for s in sample]
             out = llm.complete_json("signals", prompt(
-                "signals", n=len(digests), digests="\n".join(digests)))
+                "signals", n=len(digests), digests="\n".join(digests),
+                existing=existing_txt))
             calls += 1
             if out is None:
                 failed += 1
@@ -636,7 +717,7 @@ class Foresight:
             match = next(
                 (e for e in existing
                  if cosine(vec, e["vec"]) >= self.TITLE_SIM
-                 or _jaccard(sids, e["story_ids"]) >= self.STORY_OVERLAP), None)
+                 or _containment(sids, e["story_ids"]) >= self.STORY_OVERLAP), None)
             if match:  # enhance the existing forecast with the newer synthesis
                 union = sorted(set(match["story_ids"]) | set(sids))
                 con.execute(
@@ -670,6 +751,13 @@ class Foresight:
 
 
 # ----------------------------------------------------------- Personalizer
+def _phrase_in(phrase, words):
+    """True when every word of `phrase` appears as a WHOLE word in `words`.
+    Substring matching burned us: interest "ai" matched "said" and "train"."""
+    toks = re.findall(r"[a-z0-9]{2,}", phrase.lower())
+    return bool(toks) and all(t in words for t in toks)
+
+
 class Personalizer:
     def run(self, con):
         users = con.execute("SELECT * FROM users").fetchall()
@@ -679,7 +767,10 @@ class Personalizer:
         for u in users:
             ctx = db.uj(u["context"])
             interests = {s.lower() for s in ctx.get("interests", [])}
-            loc = str(ctx.get("location", {})).lower()
+            # Location VALUES only — matching on str(dict) leaked the keys
+            # ("city", "region", "country") and tagged nearly every story.
+            loc_words = {w for v in ctx.get("location", {}).values()
+                         for w in re.findall(r"[a-z]{3,}", str(v).lower())}
             for s in stories:
                 exists = con.execute(
                     "SELECT 1 FROM feed_items WHERE user_id=? AND story_id=?",
@@ -687,9 +778,10 @@ class Personalizer:
                 if exists:
                     continue
                 text = (s["headline"] + " " + s["narrative"] + " " + s["topic"]).lower()
+                words = set(re.findall(r"[a-z0-9]{2,}", text))
                 relevant = (s["topic"].lower() in interests
-                            or any(i in text for i in interests)
-                            or any(w in text for w in re.findall(r"[a-z]{4,}", loc)))
+                            or any(_phrase_in(i, words) for i in interests)
+                            or bool(loc_words & words))
                 if relevant:
                     trends = [t["name"] for t in con.execute(
                         "SELECT name FROM trends WHERE id IN (%s)" %

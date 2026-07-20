@@ -18,9 +18,14 @@ trend: |
   - "trends": established macro trends in this topic (each needs >= 2 items).
   - "micro_trends": small but EMERGING signals (2-5 items) where coverage is only just
     starting to pick up — not yet mainstream. Skip anything already large or obvious.
+  These trends are ALREADY being tracked from previous runs:
+  {existing}
   Rules:
-  - Names read like sharp magazine section titles, 3-6 vivid words, SPECIFIC to their
-    items (not generic). No label prefixes like "Trend:", "Rising focus", "early signal".
+  - If a trend you see is the same underlying force as an already-tracked one, reuse
+    that existing name VERBATIM (so it updates in place instead of duplicating).
+    Only coin a new name for a genuinely new force.
+  - New names read like sharp magazine section titles, 3-6 vivid words, SPECIFIC to
+    their items (not generic). No label prefixes like "Trend:", "Rising focus", "early signal".
   - Produce DISTINCT trends; never two near-duplicates for the same force.
   - "members" lists the [bracket] indices of the items in that trend.
   Reply ONLY with JSON:
@@ -40,7 +45,12 @@ signals_unit: |
   single story or on low-credibility reporting.
   Identify 1-4 forward-looking SIGNALS: non-obvious inferences about what may happen next
   in or adjacent to this area. Name the sectors/regions that would be affected.
+  These forecasts are ALREADY being tracked from previous runs:
+  {existing}
   Rules:
+  - If a signal you see is the same underlying forecast as an already-tracked one, reuse
+    that existing title VERBATIM (so it is refreshed in place instead of duplicated).
+    Only coin a new title for a genuinely new forecast.
   - Every signal must cite 2 or more story_ids from the digests as evidence.
   - The chain must be concrete and step-by-step, not vague hand-waving.
   - Be honest about uncertainty; confidence 0-1. Do not exceed 0.85.
@@ -115,7 +125,12 @@ signals: |
   raises consumer electronics prices; a geopolitical move raises shipping costs,
   which shows up in retail inflation. The best signals are non-obvious but
   rigorous; skip anything a single headline already says outright.
+  These forecasts are ALREADY being tracked from previous runs:
+  {existing}
   Rules:
+  - If a signal you see is the same underlying forecast as an already-tracked one, reuse
+    that existing title VERBATIM (so it is refreshed in place instead of duplicated).
+    Only coin a new title for a genuinely new forecast.
   - Every signal must cite 2 or more story_ids from the digests as evidence.
     More corroborating stories = stronger signal.
   - The chain must be concrete and step-by-step, not vague hand-waving.

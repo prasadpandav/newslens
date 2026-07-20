@@ -37,16 +37,21 @@ CREATE TABLE IF NOT EXISTS runs (
   llm_calls INTEGER DEFAULT 0, llm_tokens INTEGER DEFAULT 0, created_at REAL);
 """
 
+_schema_ready = False
+
 def connect():
+    global _schema_ready
     con = sqlite3.connect(config.DB_PATH)
     con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
-    # Idempotent migrations for existing databases.
-    for col in ("google_sub TEXT", "email TEXT", "name TEXT", "picture TEXT"):
-        try:
-            con.execute(f"ALTER TABLE users ADD COLUMN {col}")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+    if not _schema_ready:  # once per process, not on every request
+        con.executescript(SCHEMA)
+        # Idempotent migrations for existing databases.
+        for col in ("google_sub TEXT", "email TEXT", "name TEXT", "picture TEXT"):
+            try:
+                con.execute(f"ALTER TABLE users ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        _schema_ready = True
     return con
 
 def new_id():

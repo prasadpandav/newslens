@@ -43,6 +43,12 @@ GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL", "gemini-2.5-fl
 DEEPSEEK_REASONING_MODEL = os.environ.get("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
 OPENAI_REASONING_MODEL = os.environ.get("OPENAI_REASONING_MODEL", "")
 NEWSDATA_API_KEY = os.environ.get("NEWSDATA_API_KEY", "")
+# Required for /admin/* endpoints (pipeline runs, intel rebuild, usage). With no
+# token set, admin endpoints refuse — the API is public, so they must never be open.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+# Comma-separated CORS origin allowlist for browsers; * = any (beta default).
+ALLOWED_ORIGINS = [o.strip() for o in
+                   os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "3"))
 # Max stories built per run — keeps a single run inside LLM budgets.
 MAX_STORIES_PER_RUN = int(os.environ.get("MAX_STORIES_PER_RUN", "20"))
