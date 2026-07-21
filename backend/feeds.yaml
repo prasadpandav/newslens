@@ -5,6 +5,12 @@ world:
 business:
   - https://feeds.bbci.co.uk/news/business/rss.xml
   - https://www.cnbc.com/id/10001147/device/rss/rss.html
+finance:
+  - https://www.cnbc.com/id/10000664/device/rss/rss.html
+  - https://feeds.bbci.co.uk/news/business/economy/rss.xml
+sports:
+  - https://feeds.bbci.co.uk/sport/rss.xml
+  - https://www.espn.com/espn/rss/news
 technology:
   - https://feeds.bbci.co.uk/news/technology/rss.xml
   - https://www.theverge.com/rss/index.xml

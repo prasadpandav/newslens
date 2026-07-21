@@ -98,12 +98,12 @@ verify: |
 
 story: |
   Write this news as a short story-format piece: a hook, what happened, why it matters
-  now, and what to watch next. 120-180 words, plain language, no hype beyond the facts.
+  now, and what to watch next. 250-300 words, plain language, no hype beyond the facts.
   Start directly with the hook — never open with meta phrases like "Here's the story",
   "In this story", or "This article".
   Then write a headline that is genuinely catchy and attention-grabbing — use tension,
   a concrete stake, or a sharp question — while staying strictly true to the verified
-  claims below: every factual element in the headline must appear in the claims. Make sure the what happened is clearly providing story and painting a picture to the reader, and the why it matters is clearly explaining the implications.
+  claims below: every factual element in the headline must appear in the claims. Make sure the what happened is clearly providing story in a narrative format and painting a picture to the reader, and the why it matters is clearly explaining the implications.
   Never use generic templates like "What Just Changed and Why It Matters".
   Verified claims: {claims}
   Source items: {items}

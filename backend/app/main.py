@@ -6,10 +6,11 @@ from datetime import datetime, timedelta
 import httpx
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import config, db, llm
-from .agents import prompt, _dedupe_trends
+from . import config, db, llm, live
+from .agents import prompt, _dedupe_trends, linkify, story_refs
 from .orchestrator import run_pipeline, STAGES
 
 app = FastAPI(title="Descry API", version="0.1")
@@ -54,7 +55,24 @@ def _start():
                       id="pipeline", replace_existing=True,
                       next_run_time=datetime.now() + timedelta(minutes=2),
                       coalesce=True, misfire_grace_time=3600, max_instances=1)
+    # Fast, lightweight live refresh (breaking sweep + sports/finance), separate
+    # from the 3h story pipeline. First run ~20s after boot so /live isn't empty.
+    scheduler.add_job(_refresh_live_job, "interval",
+                      minutes=config.LIVE_REFRESH_MINUTES,
+                      id="refresh_live", replace_existing=True,
+                      next_run_time=datetime.now() + timedelta(seconds=20),
+                      coalesce=True, misfire_grace_time=300, max_instances=1)
     scheduler.start()
+
+
+def _refresh_live_job():
+    con = db.connect()
+    try:
+        live.refresh_live(con)
+    except Exception as e:  # noqa: BLE001
+        db.log_run(con, "refresh_live", "error", str(e)[:300])
+    finally:
+        con.close()
 
 
 class ContextIn(BaseModel):
@@ -66,6 +84,9 @@ class ContextIn(BaseModel):
     native_language: str = ""
     preferred_language: str = "English"
     micro: dict = {}
+    # Dynamic-hero config (open bag — no migration): which categories show, order,
+    # master on/off, followed sports. Read by /live and /live/stream.
+    live_prefs: dict = {}
 
 
 def _auth(con, user_id, authorization):
@@ -199,7 +220,8 @@ def put_context(user_id: str, ctx: ContextIn, authorization: str = Header("")):
 
 
 @app.get("/feed")
-def feed(user_id: str, sort: str = "recent", authorization: str = Header("")):
+def feed(user_id: str, sort: str = "recent", since: float = 0.0,
+         authorization: str = Header("")):
     con = db.connect()
     _auth(con, user_id, authorization)
     # LEFT JOIN: every recent story appears in the feed; personalization
@@ -211,9 +233,13 @@ def feed(user_id: str, sort: str = "recent", authorization: str = Header("")):
     # opts into a personalized ranking (impact first) for those who want it.
     order = ("COALESCE(f.impact_score, 0) DESC, s.created_at DESC"
              if sort == "foryou" else "s.created_at DESC")
+    # `since` (epoch) returns only stories newer than the client's newest — the
+    # cheap incremental fetch behind the "N new stories" banner. created_at is
+    # exposed so the client can diff/merge without a second call.
+    floor = max(since, db.now() - 7 * 86400)
     rows = con.execute(
         f"""SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic,
+                  s.topic, s.created_at,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
@@ -221,7 +247,7 @@ def feed(user_id: str, sort: str = "recent", authorization: str = Header("")):
            WHERE s.created_at > ?
            ORDER BY {order}
            LIMIT 100""",
-        (user_id, db.now() - 7 * 86400)).fetchall()
+        (user_id, floor)).fetchall()
     con.close()
     return {"items": [dict(r) for r in rows]}
 
@@ -310,24 +336,76 @@ def trends():
 
 @app.get("/signals")
 def signals():
-    """Foresight signals: cross-domain predictions with their supporting stories."""
+    """Foresight signals: cross-domain predictions with their supporting stories.
+    Raw 12-hex story ids the model cited inline are rewritten to the story's
+    headline (linkify), and story_refs lets clients make those spans tappable."""
     con = db.connect()
     out = []
     for g in con.execute(
             "SELECT * FROM signals ORDER BY confidence DESC, created_at DESC").fetchall():
-        stories = []
+        stories, id_head = [], {}
         for sid in db.uj(g["story_ids"], []):
             s = con.execute(
                 "SELECT id, headline, narrative, credibility, credibility_note, topic "
                 "FROM stories WHERE id=?", (sid,)).fetchone()
             if s:
                 stories.append(dict(s))
-        out.append({"id": g["id"], "title": g["title"], "prediction": g["prediction"],
-                    "chain": g["chain"], "watch": g["watch"],
+                id_head[sid] = s["headline"]
+        out.append({"id": g["id"],
+                    "title": linkify(g["title"], id_head),
+                    "prediction": linkify(g["prediction"], id_head),
+                    "chain": linkify(g["chain"], id_head),
+                    "watch": linkify(g["watch"], id_head),
                     "affected": db.uj(g["affected"], []), "horizon": g["horizon"],
-                    "confidence": g["confidence"], "stories": stories})
+                    "confidence": g["confidence"], "stories": stories,
+                    "story_refs": story_refs(id_head)})
     con.close()
     return {"items": out}
+
+
+DEFAULT_LIVE_CATEGORIES = ["breaking", "sports", "finance", "events"]
+
+
+def _user_live_categories(con, user_id, override):
+    """Resolve which hero categories to serve: explicit ?categories= wins, else the
+    user's saved live_prefs, else all. Returns None when the section is disabled."""
+    if override:
+        return [c.strip() for c in override.split(",") if c.strip()]
+    if user_id:
+        row = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
+        if row:
+            prefs = db.uj(row["context"]).get("live_prefs", {}) or {}
+            if prefs.get("enabled") is False:
+                return None
+            cats = prefs.get("categories")
+            if cats:
+                return [c for c in cats if c in DEFAULT_LIVE_CATEGORIES]
+    return list(DEFAULT_LIVE_CATEGORIES)
+
+
+@app.get("/live")
+def live_snapshot(user_id: str = "", categories: str = ""):
+    """Snapshot of the dynamic-hero cards — first paint and SSE fallback. Filtered
+    to the user's configured categories (or ?categories= override)."""
+    con = db.connect()
+    cats = _user_live_categories(con, user_id, categories)
+    items = [] if cats is None else live.snapshot(con, cats)
+    con.close()
+    return {"items": items, "enabled": cats is not None}
+
+
+@app.get("/live/stream")
+def live_stream(user_id: str = "", categories: str = ""):
+    """Server-Sent Events: pushes hero-card changes (`event: live`) and feed
+    freshness (`event: feed`) with heartbeats. Falls back to /live if unreachable."""
+    con = db.connect()
+    cats = _user_live_categories(con, user_id, categories)
+    con.close()
+    gen = live.sse_event_stream(cats)
+    return StreamingResponse(
+        gen, media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"})  # disable proxy buffering for SSE
 
 
 @app.get("/trend/{trend_id}")
@@ -339,7 +417,7 @@ def trend_detail(trend_id: str):
         con.close()
         raise HTTPException(404, "trend not found")
     member_ids = set(db.uj(t["article_ids"], []))
-    stories = []
+    stories, id_head = [], {}
     for s in con.execute(
             "SELECT id, headline, narrative, credibility, credibility_note, topic, "
             "article_ids FROM stories ORDER BY created_at DESC LIMIT 200").fetchall():
@@ -347,11 +425,13 @@ def trend_detail(trend_id: str):
             d = dict(s)
             del d["article_ids"]
             stories.append(d)
+            id_head[s["id"]] = s["headline"]
     con.close()
     return {"id": t["id"], "kind": t["kind"], "name": t["name"],
-            "narrative": t["narrative"], "sectors": db.uj(t["sectors"], []),
+            "narrative": linkify(t["narrative"], id_head),
+            "sectors": db.uj(t["sectors"], []),
             "regions": db.uj(t["regions"], []), "velocity": t["velocity"],
-            "stories": stories}
+            "stories": stories, "story_refs": story_refs(id_head)}
 
 
 @app.get("/search")

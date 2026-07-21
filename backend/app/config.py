@@ -43,6 +43,24 @@ GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL", "gemini-2.5-fl
 DEEPSEEK_REASONING_MODEL = os.environ.get("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
 OPENAI_REASONING_MODEL = os.environ.get("OPENAI_REASONING_MODEL", "")
 NEWSDATA_API_KEY = os.environ.get("NEWSDATA_API_KEY", "")
+
+# --- Live dynamic-hero section (scores / breaking / finance / events) ---
+# Free sports API for live scores. Blank key = no score cards (breaking/finance
+# still work). Provider is currently "thesportsdb" (free tier; key "3" is their
+# public test key). Sports to follow: soccer, cricket.
+SPORTS_API_KEY = os.environ.get("SPORTS_API_KEY", "")
+SPORTS_PROVIDER = os.environ.get("SPORTS_PROVIDER", "thesportsdb").lower()
+# Minutes between fast live refreshes (breaking sweep + sports/finance). This is
+# the separate, lightweight job — NOT the 3h story pipeline.
+LIVE_REFRESH_MINUTES = float(os.environ.get("LIVE_REFRESH_MINUTES", "5"))
+# Finance cards (news + optional index snapshot via keyless Stooq). Set to 0/false
+# to disable the finance category server-side.
+FINANCE_ENABLED = os.environ.get("FINANCE_ENABLED", "1").lower() not in ("0", "false", "no")
+# A story is "breaking" when corroborated by >= this many distinct sources within
+# BREAKING_WINDOW_HOURS, or when its text hits a high-signal keyword.
+BREAKING_MIN_SOURCES = int(os.environ.get("BREAKING_MIN_SOURCES", "3"))
+BREAKING_WINDOW_HOURS = float(os.environ.get("BREAKING_WINDOW_HOURS", "6"))
+
 # Required for /admin/* endpoints (pipeline runs, intel rebuild, usage). With no
 # token set, admin endpoints refuse — the API is public, so they must never be open.
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")

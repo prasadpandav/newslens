@@ -85,6 +85,50 @@ def _norm_name(s):
     return re.sub(r"[^a-z0-9]+", " ", s).strip()
 
 
+# ------------------------------------------------------ story-reference linking
+_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
+
+
+def linkify(text, id_to_headline):
+    """Replace bare 12-hex story-id tokens in `text` with the story's HEADLINE so
+    raw ids never reach a reader. Only ids present in `id_to_headline` (the story's
+    own evidence set) are touched — random hex is left alone. Used at read time on
+    signal/story/trend prose; stored text stays raw. Returns the rewritten string."""
+    if not text:
+        return text
+    return _ID_RE.sub(
+        lambda m: id_to_headline.get(m.group(0), m.group(0)), text)
+
+
+def story_refs(id_to_headline):
+    """The [{story_id, headline}] list clients use to turn headline spans back into
+    tappable links after linkify() has substituted them into the prose."""
+    return [{"story_id": sid, "headline": h} for sid, h in id_to_headline.items()]
+
+
+# ---------------------------------------------------------- breaking heuristic
+# Words that, in a headline, strongly imply an urgent/breaking event. Kept small
+# and high-precision so the no-LLM sweep stays cheap and rarely false-positives.
+_BREAKING_WORDS = set(
+    "breaking killed dead dies died explosion attack strikes strike quake "
+    "earthquake evacuated evacuation resigns resign ousted coup ceasefire "
+    "wins win victory champions final verdict guilty acquitted crash crashes "
+    "outage recall emergency landslide flood wildfire eruption hostage".split())
+
+
+def _breaking_score(title, source_count, age_hours, window_hours, min_sources):
+    """0..1 urgency. Corroboration (many distinct sources fast) OR a high-signal
+    keyword lifts a recent story; everything decays to 0 past the window."""
+    if age_hours > window_hours:
+        return 0.0
+    recency = max(0.0, 1.0 - age_hours / window_hours)
+    corroboration = min(1.0, source_count / max(min_sources, 1))
+    kw = 1.0 if (_tokens(title) and set(_tokens(title)) & _BREAKING_WORDS) else 0.0
+    # Either strong corroboration or a keyword hit qualifies; recency scales it.
+    base = max(corroboration if source_count >= min_sources else 0.0, kw * 0.9)
+    return round(base * (0.5 + 0.5 * recency), 3)
+
+
 def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
     """Collapse near-duplicate trends of one kind. Two trends are duplicates when their
     NAMES match (identical after normalization, or high name-token similarity) OR they
@@ -804,3 +848,37 @@ class Personalizer:
         con.commit()
         db.log_run(con, "personalizer", "ok", f"{made} feed items")
         return made
+
+
+# ------------------------------------------------------- breaking detection
+def detect_breaking(con, limit=8):
+    """Scan recent stories with the no-LLM heuristic and return breaking-card dicts
+    (highest urgency first). Source count = distinct sources across a story's
+    member articles; age from created_at. Pure read — the caller writes cards."""
+    window = config.BREAKING_WINDOW_HOURS
+    min_src = config.BREAKING_MIN_SOURCES
+    rows = con.execute(
+        "SELECT id, headline, topic, article_ids, credibility, created_at "
+        "FROM stories WHERE created_at > ? ORDER BY created_at DESC LIMIT 60",
+        (db.now() - window * 3600,)).fetchall()
+    cards = []
+    for s in rows:
+        aids = db.uj(s["article_ids"], [])
+        if not aids:
+            continue
+        srcs = {r["source"] for r in con.execute(
+            "SELECT DISTINCT source FROM articles WHERE id IN (%s)"
+            % ",".join("?" * len(aids)), aids).fetchall() if r["source"]}
+        age_h = (db.now() - (s["created_at"] or db.now())) / 3600.0
+        score = _breaking_score(s["headline"], len(srcs), age_h, window, min_src)
+        if score <= 0:
+            continue
+        cards.append({
+            "type": "breaking", "priority": score, "title": s["headline"],
+            "subtitle": f"{len(srcs)} sources · {s['topic']}",
+            "detail": "", "story_id": s["id"], "url": "",
+            "payload": {"sources": len(srcs),
+                        "credibility": s["credibility"] or 0,
+                        "topic": s["topic"]}})
+    cards.sort(key=lambda c: -c["priority"])
+    return cards[:limit]
