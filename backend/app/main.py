@@ -611,6 +611,7 @@ def admin_usage(token: str = "", authorization: str = Header("")):
     con.close()
     return {"session_llm_usage": llm.usage,
             "provider_status": llm.provider_status(),
+            "pricing": llm.pricing_status(),
             "provider_events": list(llm.provider_events),
             "recent_errors": list(llm.recent_errors),
             "recent_runs": runs}

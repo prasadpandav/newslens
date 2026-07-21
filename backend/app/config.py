@@ -29,6 +29,32 @@ DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 # tier; effort high|max controls how long it reasons before answering.
 DEEPSEEK_REASONING_EFFORT = os.environ.get("DEEPSEEK_REASONING_EFFORT", "high")
 
+# --- DeepSeek peak-valley pricing (from mid-July 2026) ---
+# DeepSeek charges 2x on ALL billing items during declared peak hours. To avoid
+# overpaying, during those windows we demote DeepSeek to the back of the `auto`
+# provider order, so the free providers (Groq/Gemini) run first and DeepSeek is
+# only a last resort. Off-peak it stays first (best reasoning). Set
+# DEEPSEEK_AVOID_PEAK=0 to always keep DeepSeek's normal priority regardless.
+DEEPSEEK_AVOID_PEAK = os.environ.get(
+    "DEEPSEEK_AVOID_PEAK", "1").lower() not in ("0", "false", "no")
+
+def _parse_hour_windows(s):
+    """Parse "1-4,6-10" into [(1, 4), (6, 10)] — half-open [start, end) UTC hours."""
+    out = []
+    for part in s.split(","):
+        part = part.strip()
+        if "-" in part:
+            a, _, b = part.partition("-")
+            try:
+                out.append((int(a), int(b)))
+            except ValueError:
+                pass
+    return out
+
+# DeepSeek's declared peak hours in UTC: 01:00–04:00 and 06:00–10:00.
+DEEPSEEK_PEAK_WINDOWS_UTC = _parse_hour_windows(
+    os.environ.get("DEEPSEEK_PEAK_WINDOWS_UTC", "1-4,6-10"))
+
 # Tasks that need deep reasoning use each provider's stronger model when set.
 # Empty string = that provider uses its base model for reasoning tasks too.
 REASONING_TASKS = set(t.strip() for t in

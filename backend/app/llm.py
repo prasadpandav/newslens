@@ -10,6 +10,7 @@ import logging
 import re
 import time
 from collections import deque
+from datetime import datetime, timezone
 import httpx
 from . import config
 
@@ -70,6 +71,33 @@ def _has_key(provider):
                  "openai": config.OPENAI_API_KEY}.get(provider, ""))
 
 
+def deepseek_in_peak(now=None):
+    """True if `now` (UTC) falls in a DeepSeek peak-pricing window (2x). Windows are
+    half-open [start, end) hour ranges — e.g. 03:59 is peak, 04:00 is not."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    h = now.hour
+    return any(start <= h < end for start, end in config.DEEPSEEK_PEAK_WINDOWS_UTC)
+
+
+def _apply_peak_order(order):
+    """During DeepSeek peak hours, demote deepseek to the back so free providers run
+    first and the 2x-priced provider is only a last resort. No-op off-peak, when the
+    toggle is off, or when deepseek isn't in the running order anyway."""
+    if (config.DEEPSEEK_AVOID_PEAK and "deepseek" in order
+            and len(order) > 1 and deepseek_in_peak()):
+        return [p for p in order if p != "deepseek"] + ["deepseek"]
+    return order
+
+
+def pricing_status():
+    """DeepSeek peak state for /admin/usage — is it peak now, are we avoiding it,
+    and the configured windows."""
+    return {"deepseek_peak_now": deepseek_in_peak(),
+            "deepseek_avoid_peak": config.DEEPSEEK_AVOID_PEAK,
+            "peak_windows_utc": config.DEEPSEEK_PEAK_WINDOWS_UTC}
+
+
 def _model_for(provider, task):
     """Pick the model for this provider+task. Tasks in REASONING_TASKS get the
     provider's stronger 'thinking' model when one is configured, so trend and
@@ -102,7 +130,9 @@ def complete_json(task: str, prompt: str, retries: int = 1):
         # then groq/gemini; ordinary tasks keep the cheaper free-first order.
         base = (config.REASONING_PROVIDER_ORDER if task in config.REASONING_TASKS
                 else ["groq", "gemini", "deepseek", "openai"])
-        order = [p for p in base if _has_key(p)]
+        # During DeepSeek peak hours, demote it behind the free providers to dodge
+        # the 2x charge (unless DEEPSEEK_AVOID_PEAK is off).
+        order = _apply_peak_order([p for p in base if _has_key(p)])
     else:
         order = [provider]
     last_err = None
