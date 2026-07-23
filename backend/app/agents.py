@@ -267,26 +267,79 @@ class Scout:
 
 
 # ------------------------------------------------------- Entity extraction
+# --------------------------------------------------- Near-duplicate merging
+def assign_groups(con):
+    """Group near-duplicate articles — the SAME story reported by different sources —
+    so the LLM stages process each real-world event ONCE instead of once per source.
+    Titles are clustered by cosine similarity (>= DEDUPE_SIMILARITY); every member is
+    stamped with a shared group_id = the earliest member (the representative). No LLM
+    calls. Cross-source rows are kept (corroboration still counts distinct sources);
+    only the redundant LLM work is removed."""
+    cutoff = db.now() - config.DEDUPE_WINDOW_DAYS * 86400
+    rows = con.execute(
+        "SELECT id, title FROM articles WHERE fetched_at > ? ORDER BY fetched_at ASC",
+        (cutoff,)).fetchall()
+    if not rows:
+        db.log_run(con, "dedupe", "ok", "no recent articles to group")
+        return 0
+    # Earliest-first ordering makes the first article in each cluster its stable rep.
+    clusters = greedy_cluster([(r["id"], r["title"] or "") for r in rows],
+                              config.DEDUPE_SIMILARITY)
+    merged = 0
+    for cluster in clusters:
+        rep = cluster[0]
+        for aid in cluster:
+            con.execute("UPDATE articles SET group_id=? WHERE id=?", (rep, aid))
+        merged += len(cluster) - 1
+    con.commit()
+    db.log_run(con, "dedupe", "ok",
+               f"{len(clusters)} groups from {len(rows)} articles, "
+               f"{merged} cross-source duplicates merged")
+    return merged
+
+
+class Deduper:
+    """Pipeline stage wrapper for assign_groups — runs right after Scout, before the
+    LLM stages, so entities/stories operate per group."""
+    def run(self, con):
+        return assign_groups(con)
+
+
 class EntityTagger:
-    MAX_PER_RUN = 80  # don't let a backlog of untagged articles starve the
-                      # later stages' LLM budget in a single run
+    MAX_PER_RUN = 80  # cap untagged articles pulled per run (grouping means far
+                      # fewer actual LLM calls than this)
 
     def run(self, con):
         rows = con.execute(
-            "SELECT id,title,summary FROM articles WHERE entities='' "
+            "SELECT id,group_id,title,summary FROM articles WHERE entities='' "
             "ORDER BY fetched_at DESC LIMIT ?", (self.MAX_PER_RUN,)).fetchall()
-        tagged = 0
+        # One extraction per GROUP, not per article. If the group's representative is
+        # already tagged, just copy its entities to the untagged members (no call).
+        groups = {}
         for r in rows:
-            out = llm.complete_json("entities", prompt("entities", title=r["title"],
-                                                       summary=r["summary"]))
-            if out is None:
-                continue  # LLM unavailable; retried next run
-            con.execute("UPDATE articles SET entities=? WHERE id=?", (db.j(out), r["id"]))
-            tagged += 1
+            groups.setdefault(r["group_id"] or r["id"], []).append(r)
+        called = copied = 0
+        for gid, members in groups.items():
+            rep = con.execute("SELECT entities,title,summary FROM articles WHERE id=?",
+                              (gid,)).fetchone()
+            if rep and rep["entities"]:
+                ent = rep["entities"]
+                copied += 1
+            else:
+                src = rep if rep else members[0]
+                out = llm.complete_json("entities", prompt(
+                    "entities", title=src["title"], summary=src["summary"]))
+                if out is None:
+                    continue  # LLM unavailable; retried next run
+                ent = db.j(out)
+                called += 1
+            for m in members:
+                con.execute("UPDATE articles SET entities=? WHERE id=?", (ent, m["id"]))
         con.commit()
         db.log_run(con, "entities", "ok",
-                   f"{tagged} tagged, {len(rows) - tagged} deferred to next run")
-        return tagged
+                   f"{called} groups tagged + {copied} copied from reps "
+                   f"over {len(rows)} articles ({len(groups)} groups)")
+        return called + copied
 
 
 # ----------------------------------------------------------- Trend Linker
@@ -571,13 +624,18 @@ class Storyteller:
         trends = con.execute("SELECT * FROM trends WHERE kind='macro'").fetchall()
         live_tids = {t["id"] for t in trends}
         groups = [(t, db.uj(t["article_ids"], [])) for t in trends]
-        # orphan articles not in any trend become single-article stories
+        # Orphan articles (not in any trend) become stories too — but near-duplicates
+        # from different sources are merged into ONE story per group_id, so the same
+        # event isn't storied (and LLM-called) once per source.
         in_trend = {i for _, ids in groups for i in ids}
-        orphans = con.execute(
-            "SELECT id FROM articles WHERE fetched_at > ?", (db.now() - 7 * 86400,)).fetchall()
-        for o in orphans:
+        orphan_groups = {}
+        for o in con.execute(
+                "SELECT id, group_id FROM articles WHERE fetched_at > ?",
+                (db.now() - 7 * 86400,)).fetchall():
             if o["id"] not in in_trend:
-                groups.append((None, [o["id"]]))
+                orphan_groups.setdefault(o["group_id"] or o["id"], []).append(o["id"])
+        for ids in orphan_groups.values():
+            groups.append((None, ids))
         for trend, ids in groups:
             if new_ct + upd_ct >= self.MAX_PER_RUN:
                 break
@@ -601,7 +659,10 @@ class Storyteller:
             arts = [a for a in arts if a]
             if not arts:
                 continue
-            items = "\n".join(f"- {a['title']}: {a['summary'][:200]}" for a in arts)
+            # Annotate each line with its source so a single LLM call over a merged,
+            # multi-source cluster knows the corroborating outlets.
+            items = "\n".join(
+                f"- [{a['source']}] {a['title']}: {a['summary'][:200]}" for a in arts)
             verified = verifier.run(con, ids, items)
             if verified is None:
                 continue  # LLM unavailable — article kept for next run

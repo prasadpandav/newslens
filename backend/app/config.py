@@ -93,9 +93,26 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 # Comma-separated CORS origin allowlist for browsers; * = any (beta default).
 ALLOWED_ORIGINS = [o.strip() for o in
                    os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+
+# Public URL of the static web SPA — where the crawler-facing OG routes (/s /t /g)
+# redirect human visitors, and the base for sitemap links.
+WEB_BASE_URL = os.environ.get("WEB_BASE_URL", "https://descry.onrender.com").rstrip("/")
+# 1200x630 preview image for social/OG cards. Replace the placeholder with a real
+# hosted PNG. Blank = omit og:image.
+OG_IMAGE_URL = os.environ.get("OG_IMAGE_URL", f"{WEB_BASE_URL}/og.png")
 PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "3"))
 # Max stories built per run — keeps a single run inside LLM budgets.
 MAX_STORIES_PER_RUN = int(os.environ.get("MAX_STORIES_PER_RUN", "20"))
+
+# Global cap on REAL LLM calls per rolling minute, across every task and provider.
+# Protects free-tier RPM limits (Groq is 30/min) and bounds token burn. 0 = off.
+LLM_MAX_CALLS_PER_MIN = int(os.environ.get("LLM_MAX_CALLS_PER_MIN", "30"))
+
+# Near-duplicate article merging (same story from different sources). Articles
+# whose titles cosine-match at/above this are grouped so the LLM stages process
+# the event ONCE (with all sources annotated) instead of once per source.
+DEDUPE_SIMILARITY = float(os.environ.get("DEDUPE_SIMILARITY", "0.62"))
+DEDUPE_WINDOW_DAYS = float(os.environ.get("DEDUPE_WINDOW_DAYS", "7"))
 DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))
 FEEDS_FILE = ROOT / "feeds.yaml"
 SOURCES_FILE = ROOT / "sources.yaml"

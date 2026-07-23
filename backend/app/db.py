@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, token TEXT, context TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS articles (
   id TEXT PRIMARY KEY, url TEXT UNIQUE, title TEXT, summary TEXT, source TEXT,
-  topic TEXT, published REAL, entities TEXT, fetched_at REAL);
+  topic TEXT, published REAL, entities TEXT, fetched_at REAL, group_id TEXT);
 CREATE TABLE IF NOT EXISTS trends (
   id TEXT PRIMARY KEY, kind TEXT, name TEXT, narrative TEXT, sectors TEXT,
   regions TEXT, article_ids TEXT, velocity REAL, created_at REAL);
@@ -55,6 +55,10 @@ def connect():
                 con.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        try:
+            con.execute("ALTER TABLE articles ADD COLUMN group_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         _schema_ready = True
     return con
 

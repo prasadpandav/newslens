@@ -3,10 +3,11 @@ import os
 import secrets
 import threading
 from datetime import datetime, timedelta
+import html
 import httpx
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, llm, live
@@ -452,6 +453,98 @@ def search(q: str):
             "trends": [dict(r) for r in trend_rows]}
 
 
+# --------------------------------------------- Shareable previews / SEO (OG)
+def _clip(text, n=180):
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+def _og_page(title, description, hash_path, canonical):
+    """Crawler-facing HTML: real readable content + OG/Twitter meta, then a JS
+    redirect so humans land in the SPA. Crawlers read the meta and index the text;
+    people get the full app. Everything is HTML-escaped."""
+    t, d = html.escape(title or "Descry"), html.escape(description or "")
+    spa = html.escape(f"{config.WEB_BASE_URL}/#/{hash_path}")
+    can = html.escape(canonical)
+    img = html.escape(config.OG_IMAGE_URL)
+    img_tags = (f'<meta property="og:image" content="{img}">'
+                f'<meta name="twitter:image" content="{img}">') if config.OG_IMAGE_URL else ""
+    return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{t} · Descry</title>
+<meta name="description" content="{d}">
+<link rel="canonical" href="{can}">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Descry">
+<meta property="og:title" content="{t}">
+<meta property="og:description" content="{d}">
+<meta property="og:url" content="{can}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{t}">
+<meta name="twitter:description" content="{d}">{img_tags}
+<script>location.replace("{spa}");</script>
+</head><body style="font-family:system-ui;background:#070B14;color:#E8ECF4;padding:40px">
+<h1>{t}</h1><p>{d}</p><p><a href="{spa}" style="color:#4D9FFF">Read on Descry →</a></p>
+</body></html>""")
+
+
+@app.get("/s/{story_id}", response_class=HTMLResponse)
+def og_story(story_id: str, request: Request):
+    con = db.connect()
+    s = con.execute("SELECT headline, narrative FROM stories WHERE id=?",
+                    (story_id,)).fetchone()
+    con.close()
+    if not s:
+        return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
+    return _og_page(s["headline"], _clip(s["narrative"]),
+                    f"story/{story_id}", str(request.url).split("?")[0])
+
+
+@app.get("/t/{trend_id}", response_class=HTMLResponse)
+def og_trend(trend_id: str, request: Request):
+    con = db.connect()
+    t = con.execute("SELECT name, narrative FROM trends WHERE id=?", (trend_id,)).fetchone()
+    con.close()
+    if not t:
+        return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
+    return _og_page(t["name"], _clip(t["narrative"]),
+                    f"trend/{trend_id}", str(request.url).split("?")[0])
+
+
+@app.get("/g/{signal_id}", response_class=HTMLResponse)
+def og_signal(signal_id: str, request: Request):
+    con = db.connect()
+    g = con.execute("SELECT title, prediction FROM signals WHERE id=?",
+                    (signal_id,)).fetchone()
+    con.close()
+    if not g:
+        return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
+    return _og_page(g["title"], _clip(g["prediction"]),
+                    f"signal/{signal_id}", str(request.url).split("?")[0])
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return PlainTextResponse(f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n")
+
+
+@app.get("/sitemap.xml")
+def sitemap(request: Request):
+    base = str(request.base_url).rstrip("/")
+    con = db.connect()
+    urls = [f"{base}/s/{r['id']}" for r in con.execute(
+        "SELECT id FROM stories ORDER BY created_at DESC LIMIT 500").fetchall()]
+    urls += [f"{base}/t/{r['id']}" for r in con.execute(
+        "SELECT id FROM trends ORDER BY created_at DESC LIMIT 200").fetchall()]
+    con.close()
+    items = "".join(f"<url><loc>{html.escape(u)}</loc></url>" for u in urls)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+           f'{items}</urlset>')
+    return HTMLResponse(xml, media_type="application/xml")
+
+
 class AskIn(BaseModel):
     question: str
     story_id: str = ""
@@ -608,8 +701,13 @@ def admin_usage(token: str = "", authorization: str = Header("")):
     con = db.connect()
     runs = [dict(r) for r in con.execute(
         "SELECT * FROM runs ORDER BY created_at DESC LIMIT 30").fetchall()]
+    # Growth metric: total users and how many completed Google signup (have an email).
+    total_users = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+    google_users = con.execute(
+        "SELECT COUNT(*) c FROM users WHERE email IS NOT NULL AND email != ''").fetchone()["c"]
     con.close()
     return {"session_llm_usage": llm.usage,
+            "users": {"total": total_users, "google_signed_up": google_users},
             "provider_status": llm.provider_status(),
             "pricing": llm.pricing_status(),
             "provider_events": list(llm.provider_events),

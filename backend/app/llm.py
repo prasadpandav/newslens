@@ -8,6 +8,7 @@ Usage (calls + rough tokens) is accumulated in `usage` for /admin/usage.
 import json
 import logging
 import re
+import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -15,7 +16,7 @@ import httpx
 from . import config
 
 usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "provider_attempts": {},
-         "rate_limited": 0, "failed": 0}
+         "rate_limited": 0, "failed": 0, "throttle_waits": 0}
 
 # ------------------------------------------------------------ observability
 log = logging.getLogger("newslens.llm")
@@ -56,6 +57,30 @@ MIN_INTERVAL = {"groq": 2.1, "gemini": 6.5, "deepseek": 0.5, "openai": 0.5}
 # its door for every call. It gets retried automatically after the cooldown.
 _benched_until: dict[str, float] = {}
 COOLDOWN_SECONDS = 900  # 15 min
+
+# Global sliding-window throttle: ≤ LLM_MAX_CALLS_PER_MIN real calls in any 60s,
+# across ALL tasks/providers/threads. Guards free-tier RPM and caps token burn.
+_call_times: deque = deque()
+_throttle_lock = threading.Lock()
+
+
+def _throttle():
+    """Block until making a call keeps us at/under the per-minute cap. Reserves the
+    slot atomically, sleeps outside the lock so concurrent callers don't stampede."""
+    limit = config.LLM_MAX_CALLS_PER_MIN
+    if limit <= 0:
+        return
+    while True:
+        with _throttle_lock:
+            now = time.time()
+            while _call_times and now - _call_times[0] >= 60:
+                _call_times.popleft()
+            if len(_call_times) < limit:
+                _call_times.append(now)
+                return
+            wait = 60 - (now - _call_times[0]) + 0.01
+        usage["throttle_waits"] += 1
+        time.sleep(min(max(wait, 0.0), 60))
 
 
 def _pace(provider):
@@ -142,6 +167,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 continue  # provider is cooling down after a rate limit
             try:
                 usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
+                _throttle()   # global per-minute cap across all tasks/providers
                 _pace(p)
                 text = _call(p, prompt if attempt == 0 else
                              f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
