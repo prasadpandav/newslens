@@ -580,6 +580,17 @@ def ask(body: AskIn, authorization: str = Header("")):
             "followups": out.get("followups", [])}
 
 
+@app.get("/admin", response_class=HTMLResponse)
+def admin_console():
+    """Serve the admin dashboard (static HTML). The page itself is harmless without
+    the ADMIN_TOKEN — every action it performs goes through the token-gated /admin/*
+    APIs, so the real protection lives there, not on this page."""
+    try:
+        return HTMLResponse(config.ADMIN_PAGE.read_text())
+    except FileNotFoundError:
+        raise HTTPException(404, "admin page not found")
+
+
 @app.post("/admin/run")
 def admin_run(stage: str = "", token: str = "", authorization: str = Header("")):
     """Kick off a pipeline run in the background and return immediately.

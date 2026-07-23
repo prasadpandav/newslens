@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Descry · Admin</title>
+<style>
+:root{--bg:#070B14;--surface:rgba(255,255,255,.04);--surface2:rgba(255,255,255,.07);
+  --border:rgba(255,255,255,.09);--text:#E8ECF4;--text2:#9AA5B8;--accent:#4D9FFF;--ai:#7C5CFF;
+  --trust:#3DDC97;--warn:#FFC24D;--bad:#FF5D73;--grad:linear-gradient(135deg,#4D9FFF,#7C5CFF)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,sans-serif;
+  min-height:100vh}
+body::before{content:"";position:fixed;inset:0;z-index:-1;
+  background:radial-gradient(800px 500px at 85% -10%,rgba(77,159,255,.10),transparent 60%),
+             radial-gradient(700px 500px at 5% 110%,rgba(124,92,255,.08),transparent 60%)}
+a{color:var(--accent)}
+.wrap{max-width:1040px;margin:0 auto;padding:26px 20px 80px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;margin-bottom:16px}
+h1{font-size:20px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text2);margin-bottom:14px}
+button{font:inherit;cursor:pointer;border:none;border-radius:10px;color:#fff;background:var(--grad);
+  padding:10px 16px;font-weight:600}
+button.ghost{background:var(--surface2);border:1px solid var(--border);color:var(--text)}
+button:disabled{opacity:.5;cursor:default}
+input{width:100%;padding:12px 14px;border-radius:10px;background:var(--surface2);
+  border:1px solid var(--border);color:var(--text);font:inherit;outline:none}
+input:focus{border-color:var(--accent)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* login */
+#login{max-width:400px;margin:12vh auto 0}
+.logo{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:18px}
+.logo img{width:40px;height:40px;border-radius:10px}
+.logo b{font-size:20px}
+#loginerr{color:var(--bad);font-size:13.5px;margin-top:10px;min-height:18px}
+.hint{color:var(--text2);font-size:12.5px;margin-top:14px;line-height:1.6}
+
+/* dashboard */
+.top{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.top .sp{flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px}
+.stat .n{font-size:26px;font-weight:700;font-family:ui-monospace,monospace;
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.stat .l{font-size:12px;color:var(--text2);margin-top:3px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:100px;font-size:12.5px;
+  font-weight:600;background:var(--surface2);border:1px solid var(--border)}
+.pill.ok{color:#A7F3D0;background:rgba(61,220,151,.12);border-color:rgba(61,220,151,.3)}
+.pill.warn{color:#FDE9BE;background:rgba(255,194,77,.12);border-color:rgba(255,194,77,.3)}
+.pill.bad{color:#FFC9D2;background:rgba(255,93,115,.12);border-color:rgba(255,93,115,.32)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--text2);font-weight:600;font-size:11px;text-transform:uppercase;
+  letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--border)}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+.st-ok{color:var(--trust)}.st-err{color:var(--bad)}.st-done{color:var(--accent)}
+.actions button{margin:0 8px 8px 0}
+select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);font:inherit}
+#result{font-size:13px;color:var(--text2);margin-top:6px;min-height:18px}
+.err-item{font-size:12.5px;padding:8px 0;border-bottom:1px solid var(--border);color:var(--text2)}
+.err-item b{color:var(--bad)}
+.hidden{display:none!important}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);opacity:0;
+  background:#101A30;border:1px solid var(--border);padding:11px 20px;border-radius:100px;font-size:13.5px;
+  transition:all .3s;pointer-events:none}
+.toast.on{opacity:1;transform:translateX(-50%)}
+.muted{color:var(--text2);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login" class="wrap">
+  <div class="card">
+    <div class="logo"><span style="width:36px;height:36px;border-radius:10px;background:var(--grad);display:inline-grid;place-items:center;font-size:18px">✦</span><b>Descry Admin</b></div>
+    <label class="muted">Admin password</label>
+    <input id="pw" type="password" placeholder="Your ADMIN_TOKEN" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')login()">
+    <button style="width:100%;margin-top:12px" onclick="login()">Sign in</button>
+    <div id="loginerr"></div>
+    <div class="hint">The password is the <b>ADMIN_TOKEN</b> value set on your Render service
+      (Environment tab). If you see “admin is disabled”, set that variable first, then sign in here.</div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dash" class="wrap hidden">
+  <div class="top">
+    <h1>Descry · Admin</h1>
+    <span id="peakpill"></span>
+    <span class="sp"></span>
+    <button class="ghost" onclick="refresh()">↻ Refresh</button>
+    <button class="ghost" onclick="signout()">Sign out</button>
+  </div>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="card">
+    <h2>Provider status</h2>
+    <div class="row" id="providers"></div>
+  </div>
+
+  <div class="card actions">
+    <h2>Actions</h2>
+    <div class="row" style="margin-bottom:6px">
+      <select id="stage">
+        <option value="">Full pipeline (all stages)</option>
+        <option value="scout">scout</option>
+        <option value="dedupe">dedupe</option>
+        <option value="entities">entities</option>
+        <option value="trends">trends</option>
+        <option value="connections">connections</option>
+        <option value="stories">stories</option>
+        <option value="signals">signals</option>
+        <option value="personalize">personalize</option>
+      </select>
+      <button onclick="act('/admin/run', 'stage')">▶ Run pipeline</button>
+      <button class="ghost" onclick="act('/admin/dedupe-trends')">Collapse duplicate trends</button>
+      <button class="ghost" onclick="confirmRebuild()">Rebuild all trends &amp; forecasts</button>
+    </div>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent pipeline runs</h2>
+    <div style="overflow-x:auto"><table id="runs"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent errors</h2>
+    <div id="errors"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let TOKEN = sessionStorage.getItem('descry_admin') || '';
+
+function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('on'); setTimeout(()=>el.classList.remove('on'),2600); }
+function when(ts){ if(!ts) return '—'; const d=new Date(ts*1000);
+  return d.toLocaleDateString([], {month:'short',day:'numeric'})+' '+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+
+async function adminGet(path){
+  return fetch(path, {headers:{'Authorization':'Bearer '+TOKEN}});
+}
+async function adminPost(path){
+  return fetch(path, {method:'POST', headers:{'Authorization':'Bearer '+TOKEN}});
+}
+
+async function login(){
+  const pw = $('#pw').value.trim();
+  if(!pw){ $('#loginerr').textContent='Enter your admin password.'; return; }
+  TOKEN = pw;
+  const r = await adminGet('/admin/usage');
+  if(r.status===200){ sessionStorage.setItem('descry_admin', pw); enter(); }
+  else if(r.status===401) $('#loginerr').textContent='Wrong password — check the ADMIN_TOKEN value on Render.';
+  else if(r.status===403) $('#loginerr').textContent='Admin is disabled on the server. Set ADMIN_TOKEN in Render → Environment, then sign in.';
+  else $('#loginerr').textContent='Could not reach the server (error '+r.status+'). Try again in a moment.';
+}
+function signout(){ TOKEN=''; sessionStorage.removeItem('descry_admin');
+  $('#dash').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#pw').value=''; }
+function enter(){ $('#login').classList.add('hidden'); $('#dash').classList.remove('hidden'); refresh(); }
+
+async function refresh(){
+  const r = await adminGet('/admin/usage');
+  if(r.status===401||r.status===403){ signout(); return; }
+  if(!r.ok){ toast('Refresh failed ('+r.status+')'); return; }
+  render(await r.json());
+}
+
+function render(d){
+  const u = d.session_llm_usage||{}, users = d.users||{}, price = d.pricing||{};
+  const stats = [
+    ['Total users', users.total ?? '—'],
+    ['Google sign-ups', users.google_signed_up ?? '—'],
+    ['LLM calls (session)', u.calls ?? 0],
+    ['Tokens (session)', (u.tokens ?? 0).toLocaleString()],
+    ['Failed calls', u.failed ?? 0],
+    ['Rate-limited', u.rate_limited ?? 0],
+  ];
+  $('#stats').innerHTML = stats.map(([l,n])=>
+    `<div class="stat"><div class="n">${esc(String(n))}</div><div class="l">${esc(l)}</div></div>`).join('');
+
+  // DeepSeek peak pill
+  const pk = $('#peakpill');
+  if(price.deepseek_avoid_peak!==undefined){
+    pk.innerHTML = price.deepseek_peak_now
+      ? '<span class="pill warn">DeepSeek peak pricing active (2×)</span>'
+      : '<span class="pill ok">DeepSeek off-peak</span>';
+  } else pk.innerHTML='';
+
+  // Providers
+  const ps = d.provider_status||{};
+  const provs = Object.keys(ps);
+  $('#providers').innerHTML = provs.length ? provs.map(p=>{
+    const b = ps[p].benched;
+    return `<span class="pill ${b?'bad':'ok'}">${esc(p)} · ${b?('benched '+Math.ceil(ps[p].benched_for_seconds/60)+'m'):'ready'}</span>`;
+  }).join('') : '<span class="muted">No provider activity yet this session.</span>';
+
+  // Runs table
+  const runs = d.recent_runs||[];
+  $('#runs').innerHTML = '<tr><th>When</th><th>Stage</th><th>Status</th><th>Detail</th></tr>'+
+    (runs.length ? runs.map(r=>{
+      const cls = r.status==='error'?'st-err':r.status==='done'?'st-done':'st-ok';
+      return `<tr><td class="mono muted">${esc(when(r.created_at))}</td><td>${esc(r.stage)}</td>
+        <td class="${cls}">${esc(r.status)}</td><td class="muted">${esc(r.detail||'')}</td></tr>`;
+    }).join('') : '<tr><td colspan="4" class="muted">No runs recorded yet.</td></tr>');
+
+  // Errors
+  const errs = d.recent_errors||[];
+  $('#errors').innerHTML = errs.length ? errs.slice(0,12).map(e=>
+    `<div class="err-item"><b>${esc(e.kind||'error')}</b> · ${esc(e.provider||'')} · ${esc(e.task||'')}
+      <div class="mono">${esc(e.detail||'')}</div><div class="mono" style="opacity:.6">${esc(e.time||'')}</div></div>`
+  ).join('') : '<div class="muted">No recent errors — nice.</div>';
+}
+
+async function act(path, stageFrom){
+  let url = path;
+  if(stageFrom){ const s=$('#stage').value; if(s) url += '?stage='+encodeURIComponent(s); }
+  $('#result').textContent = 'Working…';
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
+  try{
+    const r = await adminPost(url);
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
+    else { $('#result').textContent = j.status || j.detail || JSON.stringify(j);
+      toast('Started — results appear in Recent runs'); }
+  }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
+  setTimeout(refresh, 1500);
+}
+function confirmRebuild(){
+  if(confirm('Rebuild ALL trends and forecasts from scratch? This deletes the current ones and recomputes them (uses LLM budget). Existing stories are re-linked.'))
+    act('/admin/rebuild-intel');
+}
+
+// Auto-refresh while viewing
+setInterval(()=>{ if(!$('#dash').classList.contains('hidden')) refresh(); }, 20000);
+
+// Boot: if a token is already saved this session, go straight in.
+if(TOKEN){ adminGet('/admin/usage').then(r=>{ if(r.status===200) enter(); else signout(); }); }
+</script>
+</body>
+</html>
