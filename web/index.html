@@ -3,7 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Descry — News that tell stories, stories that matter</title>
+<title>Descry — Understand the news, not just read it</title>
+<meta name="description" content="Descry turns the day's news into understanding — every story with its context, trends, hidden connections and a verified-claims corroboration score.">
+<!-- Default social/OG preview for the homepage; per-story previews are server-rendered at /s /t /g -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Descry">
+<meta property="og:title" content="Descry — Understand the news, not just read it">
+<meta property="og:description" content="Every story with its context, trends, hidden connections and a verified-claims corroboration score.">
+<meta property="og:image" content="og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -143,26 +151,71 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .offline{font-size:11px;padding:4px 10px;border-radius:100px;background:rgba(255,194,77,.12);
   color:#FDE9BE;border:1px solid rgba(255,194,77,.3)}
 
-/* ============ Landing ============ */
-.landing{max-width:1080px;margin:0 auto;padding:80px 28px 60px;text-align:center}
-.landing h1{font-family:var(--font-ed);font-size:clamp(42px,6.5vw,76px);font-weight:600;
-  line-height:1.05;letter-spacing:-.02em}
-.landing h1 em{font-style:italic;background:var(--grad-ai);
-  -webkit-background-clip:text;background-clip:text;color:transparent}
-.landing .sub{max-width:560px;margin:26px auto 0;color:var(--text-2);font-size:18px}
-.landing .ctas{display:flex;gap:14px;justify-content:center;margin-top:38px}
-.ticker{margin:70px auto 0;max-width:760px;overflow:hidden;border-radius:var(--r-md);
-  border:1px solid var(--border);background:var(--surface)}
-.ticker .row{display:flex;gap:44px;padding:12px 0;white-space:nowrap;width:max-content;
-  animation:tick 36s linear infinite;font-size:13px;color:var(--text-2)}
-.ticker .row b{color:var(--text)}
-@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-.pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;
-  max-width:1080px;margin:70px auto 0;text-align:left}
-.pillar{padding:26px 24px}
-.pillar .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;margin-bottom:16px}
-.pillar h3{font-size:16px;margin-bottom:8px}
-.pillar p{font-size:13.5px;color:var(--text-2)}
+/* ============ Logged-out welcome banner ============ */
+.welcomebar{display:flex;align-items:center;gap:16px;padding:14px 18px;margin-bottom:20px;
+  background:linear-gradient(135deg,rgba(77,159,255,.12),rgba(124,92,255,.12));
+  border:1px solid rgba(77,159,255,.28)}
+.welcomebar .wb-copy{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.welcomebar .wb-copy b{font-size:14.5px}
+.welcomebar .wb-copy span{font-size:13px;color:var(--text-2)}
+.welcomebar .wb-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.welcomebar .wb-x{color:var(--text-2);font-size:15px;padding:4px 8px;border-radius:8px}
+.welcomebar .wb-x:hover{background:var(--surface-2);color:var(--text)}
+@media(max-width:620px){.welcomebar{flex-wrap:wrap}}
+
+/* ============ Feed mode toggle + live hero + new banner ============ */
+.feedmodes{display:flex;gap:8px;margin-bottom:16px}
+.feedmodes .chip{cursor:pointer}
+.feedmodes .chip.on{color:#BFDBFF;background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
+.livehero{position:relative;padding:12px 14px 10px;margin-bottom:18px}
+.livehero.brk{border-color:rgba(255,93,115,.4)}
+.livehero .lh-dot{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
+  letter-spacing:1px;color:var(--text-2);margin-bottom:8px}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--breaking);animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.lh-card{display:flex;align-items:center;gap:12px;cursor:pointer;border-radius:12px;padding:4px 2px}
+.lh-card .lh-ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:17px;
+  flex-shrink:0;background:color-mix(in srgb,var(--tint) 15%,transparent);color:var(--tint)}
+.lh-body{flex:1;min-width:0}
+.lh-tag{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--breaking)}
+.lh-title{font-size:14.5px;font-weight:600;line-height:1.25;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical}
+.lh-sub{font-size:12px;color:var(--text-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lh-chev{color:var(--text-2);font-size:18px;flex-shrink:0}
+.lh-gear{position:absolute;top:10px;right:10px;color:var(--text-2);font-size:14px;padding:2px 6px;border-radius:8px}
+.lh-gear:hover{background:var(--surface-2);color:var(--text)}
+.newbanner{display:block;width:100%;margin:0 0 16px;padding:9px 16px;border-radius:100px;
+  background:var(--grad-ai);color:#fff;font-weight:600;font-size:13.5px;cursor:pointer;
+  box-shadow:0 6px 20px rgba(77,159,255,.35)}
+
+/* ============ Sign-in wall + gate + save button ============ */
+.wall{position:fixed;inset:0;z-index:130;background:rgba(4,7,14,.86);backdrop-filter:blur(14px);
+  display:grid;place-items:center;padding:24px}
+.wall .wcard{width:min(440px,94vw);padding:34px 30px;border-radius:22px;background:#0D1424;
+  border:1px solid var(--border-2);box-shadow:var(--shadow);text-align:center}
+.wall .wcard h2{font-family:var(--font-ed);font-size:26px;margin-bottom:8px}
+.wall .wcard p{color:var(--text-2);font-size:14px;margin-bottom:20px}
+.wall .wsignin{display:flex;justify-content:center;margin-bottom:12px}
+.wall .wskip{color:var(--text-2);font-size:13px;cursor:pointer}
+.savebtn{cursor:pointer}
+.lc-master{display:flex;align-items:center;gap:10px;font-size:14px;margin:6px 0 14px;cursor:pointer}
+.lc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;
+  border-top:1px solid var(--border);font-size:14px;cursor:pointer}
+.lc-row input,.lc-master input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+.storylink{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.storylink:hover{color:#BFDBFF}
+.readerbar{display:flex;gap:10px;align-items:center;margin:18px 0 4px}
+.readerbar .btn.sm{padding:7px 14px;font-size:13px}
+.convcard{padding:22px 24px;margin-top:24px;text-align:center;
+  background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
+  border:1px solid rgba(77,159,255,.25)}
+.convcard h3{font-family:var(--font-ed);font-size:20px;margin-bottom:6px}
+.convcard p{color:var(--text-2);font-size:13.5px;margin-bottom:14px}
+.convcard .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.microrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;
+  margin-bottom:6px;border-radius:10px;background:var(--surface-2);font-size:13px}
+.microrow button{color:var(--text-2);padding:2px 6px;border-radius:6px}
+.microrow button:hover{color:var(--text);background:var(--border)}
 
 /* ============ App layout ============ */
 .wrap{max-width:1180px;margin:0 auto;padding:34px 28px 90px}
@@ -345,8 +398,9 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 <nav>
   <a class="logo" href="#/"><span class="mark"><img src="icon.svg" alt="Descry"></span>Descry</a>
   <div class="links" id="navlinks">
-    <a href="#/brief" data-r="brief">Daily Brief</a>
-    <a href="#/trends" data-r="trends">Trend Radar</a>
+    <a href="#/" data-r="home">Feed</a>
+    <a href="#/trends" data-r="trends">Trends</a>
+    <a href="#/saved" data-r="saved">Saved</a>
   </div>
   <button class="searchbtn" onclick="Search.open()" aria-label="Search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -369,7 +423,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 </div>
 
 <!-- Ask AI -->
-<button class="fab hidden" id="fab" onclick="Ask.open()">
+<button class="fab hidden" id="fab" data-act="ask">
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
   Ask AI</button>
 <div class="askpanel" id="askpanel" role="dialog" aria-label="Ask AI">
@@ -395,8 +449,19 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
     <div class="ichips" id="calints"></div>
     <label>Profession</label>
     <input id="calprof" placeholder="e.g. pharmacist, founder, analyst">
+    <label>Your role</label>
+    <div class="ichips" id="calrole"></div>
     <label>City &amp; country</label>
     <input id="calloc" placeholder="e.g. Pune, India">
+    <label>Native language</label>
+    <input id="callang" placeholder="e.g. Marathi">
+    <label>Anything specific? (optional)</label>
+    <div id="calmicro"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input id="calmk" placeholder="e.g. commute" style="flex:1">
+      <input id="calmv" placeholder="e.g. drives 40 min daily" style="flex:1.4">
+      <button class="btn ghost" onclick="Calib.addMicro()">Add</button>
+    </div>
     <div style="display:flex;gap:10px;margin-top:26px">
       <button class="btn primary" onclick="Calib.save()">Start understanding</button>
       <button class="btn ghost" onclick="Calib.skip()">Skip for now</button>
@@ -423,10 +488,15 @@ const GOOGLE_CLIENT_ID = _qsGid || localStorage.getItem('bl_gid')
   || '50298747849-q9kj8dhgueogu7l8feugstur5su10tmh.apps.googleusercontent.com';
 const S = {
   online: true, stories: [], trends: [], signals: [], topic: 'all',
+  feedmode: 'recent',
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
   eng: JSON.parse(localStorage.getItem('bl_eng') || '{"streak":1,"lastDay":"","understood":0,"topics":[]}'),
-  currentStory: null, opened: new Set()
+  live: JSON.parse(localStorage.getItem('bl_live') || '{"enabled":true,"categories":["breaking","events","sports","finance"]}'),
+  currentStory: null, opened: new Set(), saved: new Set()
 };
+
+/* Free story reads per day for guests before the sign-in wall (metered access). */
+const FREE_READS_PER_DAY = 5;
 
 /* ================= Demo fallback data ================= */
 const DEMO = {
@@ -502,18 +572,51 @@ const ICONS = {
 
 /* ================= Router ================= */
 function route(){
+  // If a static host served a clean share path (/s/ /t/ /g/), forward into the SPA.
+  const p = location.pathname.match(/^\/(s|t|g)\/([\w-]+)/);
+  if (p){ const m={s:'story',t:'trend',g:'signal'}; location.replace('#/'+m[p[1]]+'/'+p[2]); return; }
   const h = location.hash || '#/';
-  document.querySelectorAll('#navlinks a').forEach(a=>a.classList.toggle('active', h.startsWith('#/'+a.dataset.r)));
-  $('#fab').classList.add('hidden'); Ask.close();
+  const isHome = h === '#/' || h.startsWith('#/brief');
+  document.querySelectorAll('#navlinks a').forEach(a=>{
+    const on = a.dataset.r === 'home' ? isHome : h.startsWith('#/'+a.dataset.r);
+    a.classList.toggle('active', on);
+  });
+  $('#fab').classList.add('hidden'); Ask.close(); Gate.close();
   if (h.startsWith('#/story/')) return Story.render(h.slice(8));
   if (h.startsWith('#/signal/')) return SignalPage.render(h.slice(9));
   if (h.startsWith('#/trend/')) return TrendPage.render(h.slice(8));
   if (h.startsWith('#/trends')) return Trends.render();
-  if (h.startsWith('#/brief')) return Brief.render();
+  if (h.startsWith('#/saved')) return Saved.render();
   if (h.startsWith('#/profile')) return Profile.render();
-  Landing.render();
+  Brief.render();            // the feed is the landing page
 }
 window.addEventListener('hashchange', route);
+
+/* ============ Event delegation (no inline onclick → no HTML-injection sink) ============ */
+document.addEventListener('click', e=>{
+  const el = e.target.closest('[data-act]'); if(!el) return;
+  const act = el.dataset.act;
+  switch(act){
+    case 'dismiss-welcome': localStorage.setItem('bl_welcome_dismissed','1');
+      { const b=$('#welcomebar'); if(b) b.remove(); } break;
+    case 'topic': S.topic = el.dataset.topic; Brief.render(); break;
+    case 'feedmode': S.feedmode = el.dataset.mode; Brief.render(); break;
+    case 'go': if(el.dataset.hash) location.hash = el.dataset.hash; break;
+    case 'refresh': loadData().then(()=>Brief.render()); break;
+    case 'signin': Auth.trigger(); break;
+    case 'unlock-foryou': Gate.require('personalize'); break;
+    case 'save': Story.toggleSave(); break;
+    case 'personalize': Gate.require('personalize'); break;
+    case 'ask': if(Gate.require('ask')) Ask.open(); break;
+    case 'hero-config': LiveHero.openConfig(); break;
+    case 'load-new': Feed.loadNew(); break;
+    case 'copylink':
+      { const link = API+'/s/'+el.dataset.id;
+        (navigator.clipboard?.writeText(link)||Promise.reject()).then(()=>toast('Link copied'))
+          .catch(()=>toast(link)); } break;
+    case 'wall-close': Gate.close(); break;
+  }
+});
 
 /* ================= Data ================= */
 async function loadData(){
@@ -524,7 +627,7 @@ async function loadData(){
       api('/signals').catch(()=>({items:[]}))
     ]);
     S.stories = st.items; S.trends = tr.items; S.signals = sg.items || [];
-    S.online = true;
+    S.online = true; S.lastLoaded = Date.now();
   }catch(e){
     S.online = false; S.stories = DEMO.stories; S.trends = DEMO.trends;
     S.signals = DEMO.signals;
@@ -532,67 +635,89 @@ async function loadData(){
   $('#offline').classList.toggle('hidden', S.online);
 }
 
-/* ================= Landing ================= */
-const Landing = { render(){
-  /* Ticker reflects the actually-loaded data (demo data only when offline). */
-  const macro = S.trends.filter(t=>t.kind==='macro'), micro = S.trends.filter(t=>t.kind==='micro');
-  const top = S.stories[0], tick = [];
-  if (macro[0]) tick.push(`<b>Trend</b> ${esc(cleanName(macro[0].name))} ▲`);
-  if (top) tick.push(`<b>Story</b> ${esc(top.headline)} · ${Math.round(top.credibility||0)}%`);
-  if (micro[0]) tick.push(`<b>Early signal</b> ${esc(cleanName(micro[0].name))}`);
-  if (S.signals[0]) tick.push(`<b>Foresight</b> ${esc(S.signals[0].title)}`);
-  if (S.stories.length) tick.push(`<b>Brief</b> ${S.stories.length} stories · ${Math.max(2,Math.round(S.stories.length*0.45))} min to understand today`);
-  if (!tick.length) tick.push('<b>Descry</b> Run the backend pipeline to fill this ticker with live intelligence');
-  $('#view').innerHTML = `
-  <div class="landing">
-    <div class="rise"><span class="chip ai">AI News Intelligence</span></div>
-    <h1 class="rise" style="animation-delay:.06s">Understand the news.<br><em>Not just read it.</em></h1>
-    <p class="tagline rise" style="animation-delay:.1s">News that tell stories, stories that matter.</p>
-    <p class="sub rise" style="animation-delay:.14s">Descry turns information overload into understanding — every story arrives with its context, trends, hidden connections and a verified-claims check. In 30 seconds you know <b>what happened, why, why it matters, and what's next</b>.</p>
-    <div class="ctas rise" style="animation-delay:.18s">
-      <a class="btn primary" href="#/brief">Open today's brief →</a>
-      <a class="btn ghost" href="#/trends">Explore the Trend Radar</a>
-    </div>
-    <div class="ticker rise" style="animation-delay:.28s" aria-hidden="true"><div class="row">${(tick.concat(tick)).map(t=>`<span>${t}</span>`).join('')}</div></div>
-    <div class="pillars">
-      ${[['#4D9FFF','story','Story Intelligence','Every story is a modular journey — what happened, why it matters, the bigger picture — not a wall of text.'],
-         ['#B48CFF','radar','Trend Radar','Macro trends and 72-hour early signals, linked from global forces down to your city.'],
-         ['#3DDC97','shield','Truth Meter','Claim-by-claim verification with a corroboration score you can inspect — never a bare number.'],
-         ['#FFC24D','lens','Your Lens','Tell it your profession and city once; every story explains what it means for you.']]
-        .map(([c,_,h,p],i)=>`<div class="pillar glass rise" style="animation-delay:${.3+i*.07}s">
-          <div class="ic" style="background:${c}1f;color:${c}">${ICONS.big}</div><h3>${h}</h3><p>${p}</p></div>`).join('')}
-    </div>
-  </div>`;
-}};
+/* Merge a patch into the signed-in user's saved context and PUT it (whole-object
+   replace on the backend, so we send the full context). Guests: no-op server-side. */
+/* Turn story headlines that appear inline in linkified prose into tappable links.
+   Everything is escaped first; only a controlled <a> is injected (XSS-safe). */
+function linkifyRefs(text, refs){
+  let out = esc(text || '');
+  (refs || []).slice().sort((a,b)=>(b.headline||'').length-(a.headline||'').length).forEach(r=>{
+    if(!r.headline) return;
+    const needle = esc(r.headline);
+    out = out.split(needle).join(`<a href="#/story/${esc(r.story_id)}" class="storylink">${needle}</a>`);
+  });
+  return out;
+}
 
-/* ================= Daily Brief ================= */
+async function saveContextPatch(patch){
+  if(!(S.creds && S.creds.token)) return;
+  let cur = S.ctx;
+  if(!cur){ try{ cur = await api('/users/'+S.creds.user_id+'/context'); }catch(e){ cur = {}; } }
+  const body = Object.assign({
+    interests:[], profession:'', line_of_business:'', role_seniority:'',
+    location:{}, native_language:'', preferred_language:'English', micro:{}, live_prefs:{}
+  }, cur, patch);
+  S.ctx = body;
+  try{ await api('/users/'+S.creds.user_id+'/context',{method:'PUT',body:JSON.stringify(body)}); }catch(e){}
+}
+
+/* ============ Logged-out welcome banner (feed is the landing page) ============ */
+/* Slim, dismissible value-prop + Google sign-up, shown atop the feed only to
+   guests who haven't dismissed it. Signing up is the primary conversion goal. */
+function welcomeBannerHTML(){
+  if (S.creds && S.creds.token) return '';
+  if (localStorage.getItem('bl_welcome_dismissed')) return '';
+  return `<div class="welcomebar glass rise" id="welcomebar">
+    <div class="wb-copy">
+      <b>Understand the news, not just read it.</b>
+      <span>Sign up free to save stories, personalize your feed, and read without limits.</span>
+    </div>
+    <div class="wb-actions"><span id="wb-signin"></span>
+      <button class="wb-x" aria-label="Dismiss" data-act="dismiss-welcome">✕</button></div>
+  </div>`;
+}
+
+/* ================= Feed (home / landing) ================= */
 const Brief = { async render(){
   $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div><br><div class="skel" style="height:200px"></div></div>`;
   if (!S.stories.length) await loadData();
   bumpStreak();
+  const signedIn = !!(S.creds && S.creds.token);
+  const personalized = signedIn && S.creds.has_context;
   const topics = ['all', ...new Set(S.stories.map(s=>s.topic))];
-  const list = S.stories.filter(s=>S.topic==='all'||s.topic===S.topic);
+  let list = S.stories.filter(s=>S.topic==='all'||s.topic===S.topic);
+  if (S.feedmode==='foryou' && personalized)
+    list = [...list].sort((a,b)=>(b.impact_score||0)-(a.impact_score||0));
   const macro = S.trends.filter(t=>t.kind==='macro').slice(0,5);
-  const micro = S.trends.filter(t=>t.kind==='micro').slice(0,3);
   const mins = Math.max(2, Math.round(list.length*0.45));
   const hr = new Date().getHours(), greet = hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
+  const cardsHTML = list.map((s,i)=>this.card(s,i)).join('') ||
+    `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">No stories yet — run the backend pipeline, then refresh.<br><br><button class="btn ghost" data-act="refresh">Refresh</button></div>`;
+  // For You selected but not personalized → show the unlock prompt instead of cards.
+  const cardsOrUnlock = (S.feedmode==='foryou' && !personalized) ? forYouUnlockHTML() : cardsHTML;
   $('#view').innerHTML = `
   <div class="wrap">
+    ${welcomeBannerHTML()}
+    <div id="livehero"></div>
     <div class="brief-head rise"><h2>${greet}. Here's what matters.</h2>
       <span class="date">${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span></div>
     <p class="brief-sum rise" style="animation-delay:.05s"><b>${list.length} stories</b> · about <b>${mins} min</b> to understand ·
-      top signal: <b>${esc(cleanName(macro[0]?.name)||'—')}</b></p>
+      top signal: <b>${esc(cleanName(macro[0]?.name)||'—')}</b> · <span id="freshness"></span></p>
+    <div class="feedmodes rise" style="animation-delay:.06s">
+      <button class="chip ${S.feedmode!=='foryou'?'on':''}" data-act="feedmode" data-mode="recent">Latest</button>
+      <button class="chip ${S.feedmode==='foryou'?'on':''}" data-act="feedmode" data-mode="foryou">✨ For You</button>
+    </div>
+    <div id="newbanner"></div>
     <div class="topics rise" style="animation-delay:.08s">${topics.map(t=>
-      `<button class="chip ${t===S.topic?'on':''}" onclick="S.topic='${esc(t)}';Brief.render()">${esc(t)}</button>`).join('')}</div>
+      `<button class="chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}">${esc(t)}</button>`).join('')}</div>
     <div class="cols">
-      <div id="cards">${list.map((s,i)=>this.card(s,i)).join('') ||
-        `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">No stories yet — run the backend pipeline, then refresh.<br><br><button class="btn ghost" onclick="loadData().then(()=>Brief.render())">Refresh</button></div>`}</div>
+      <div id="cards">${cardsOrUnlock}</div>
       <aside class="rail">
         <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
-          ${macro.map(t=>`<div class="titem" style="cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
+          ${macro.map(t=>`<div class="titem" data-act="go" data-hash="#/trend/${esc(t.id)}" style="cursor:pointer">
             <span class="nm">${esc(cleanName(t.name))}</span><span class="cnt" style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">${t.article_count||0}</span></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
-          ${(S.signals||[]).map(g=>`<div class="signal" style="cursor:pointer" onclick="location.hash='#/signal/${g.id}'">
+          ${(S.signals||[]).map(g=>`<div class="signal" data-act="go" data-hash="#/signal/${esc(g.id)}" style="cursor:pointer">
             <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
             <div class="sg" style="color:var(--predict);margin-top:5px">${(g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence</div></div>`).join('')
           || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
@@ -604,6 +729,9 @@ const Brief = { async render(){
       </aside>
     </div>
   </div>`;
+  if (!signedIn) Auth.renderInto($('#wb-signin'));
+  LiveHero.mount();
+  Feed.startFreshness();
   $('#fab').classList.remove('hidden');
 },
 card(s,i){
@@ -615,6 +743,176 @@ card(s,i){
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
       <span class="tv">${cred}%</span>${impact}</div></a>`;
 }};
+
+/* Unlock prompt for the For You tab when the visitor isn't personalized yet. */
+function forYouUnlockHTML(){
+  return `<div class="glass" style="padding:36px 28px;text-align:center">
+    <div style="font-size:30px;margin-bottom:8px">✨</div>
+    <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Your personal news lens</h3>
+    <p style="color:var(--text-2);font-size:14px;max-width:420px;margin:0 auto 18px">
+      Sign in and tell Descry your world once — every story then explains what it means for
+      <b>you</b>, ranked by how much it affects you.</p>
+    <button class="btn primary" data-act="unlock-foryou">Sign in &amp; personalize</button>
+  </div>`;
+}
+
+/* ================= Live hero + live feed (SSE) ================= */
+const CAT_OF = {breaking:'breaking', event:'events', score:'sports', market:'finance'};
+function heroCardHTML(c){
+  const tint = {breaking:'var(--breaking)',event:'var(--warn)',score:'var(--accent)',market:'var(--trust)'}[c.type]||'var(--accent)';
+  const icon = {breaking:'⚡',event:'★',score:'🏆',market:'📈'}[c.type]||'•';
+  const tap = c.story_id ? `data-act="go" data-hash="#/story/${esc(c.story_id)}"` : '';
+  return `<div class="lh-card" ${tap} style="--tint:${tint}">
+      <span class="lh-ic">${icon}</span>
+      <div class="lh-body">${c.type==='breaking'?'<span class="lh-tag">BREAKING</span>':''}
+        <div class="lh-title">${esc(c.title)}</div>
+        ${c.subtitle?`<div class="lh-sub">${esc(c.subtitle)}</div>`:''}</div>
+      ${c.story_id?'<span class="lh-chev">›</span>':''}</div>`;
+}
+const LiveHero = {
+  idx:0, timer:null,
+  visible(){
+    const cats = new Set(S.live.categories||[]);
+    const rank = {breaking:0,event:1,score:2,market:3};
+    return (S.liveCards||[]).filter(c=>S.live.enabled && cats.has(CAT_OF[c.type]))
+      .sort((a,b)=>(rank[a.type]-rank[b.type])||((b.priority||0)-(a.priority||0)));
+  },
+  mount(){ this.render(); this.rotate(); },
+  render(){
+    const el = $('#livehero'); if(!el) return;
+    const cards = this.visible();
+    if(!cards.length){ el.innerHTML=''; return; }
+    if(this.idx>=cards.length) this.idx=0;
+    el.innerHTML = `<div class="livehero glass ${cards[this.idx].type==='breaking'?'brk':''}">
+      <div class="lh-dot"><span class="live-dot"></span>LIVE</div>
+      ${heroCardHTML(cards[this.idx])}
+      <button class="lh-gear" data-act="hero-config" aria-label="Configure live section">⚙</button></div>`;
+  },
+  rotate(){ clearInterval(this.timer);
+    if(this.visible().length>1) this.timer=setInterval(()=>{
+      const n=this.visible().length; if(!n){clearInterval(this.timer);return;}
+      // Breaking pinned first: if a breaking card is present, keep showing it.
+      this.idx = this.visible()[0].type==='breaking' ? 0 : (this.idx+1)%n; this.render();
+    }, 6000); },
+  openConfig(){ LiveConfig.open(); }
+};
+
+const Feed = {
+  es:null, marker:null, newCount:0,
+  startFreshness(){
+    S.lastLoaded = S.lastLoaded || Date.now();
+    this.freshness();
+    this.connect();
+    if(!S.liveCards) this.snapshot();   // immediate hero paint before SSE delivers
+  },
+  freshness(){ const el=$('#freshness'); if(!el) return;
+    const s=Math.floor((Date.now()-(S.lastLoaded||Date.now()))/1000);
+    el.textContent = 'updated '+(s<60?'just now':s<3600?Math.floor(s/60)+'m ago':Math.floor(s/3600)+'h ago'); },
+  connect(){
+    if(this.es || !S.online) return;
+    const cats = encodeURIComponent((S.live.categories||[]).join(','));
+    const uid = S.creds ? '&user_id='+encodeURIComponent(S.creds.user_id) : '';
+    try{
+      const es = new EventSource(API+'/live/stream?categories='+cats+uid);
+      es.addEventListener('live', ev=>{ try{ S.liveCards=(JSON.parse(ev.data).cards)||[]; LiveHero.render(); LiveHero.rotate(); }catch(e){} });
+      es.addEventListener('feed', ev=>{ try{ this.onMarker(JSON.parse(ev.data)); }catch(e){} });
+      es.onerror = ()=>{ /* EventSource auto-reconnects; snapshot keeps hero fresh */ this.snapshot(); };
+      this.es = es;
+    }catch(e){ this.snapshot(); }
+  },
+  reconnect(){ if(this.es){ this.es.close(); this.es=null; } this.connect(); },
+  async snapshot(){ try{
+    const cats=encodeURIComponent((S.live.categories||[]).join(','));
+    const uid=S.creds?'&user_id='+encodeURIComponent(S.creds.user_id):'';
+    const r=await api('/live?categories='+cats+uid); S.liveCards=r.items||[]; LiveHero.render();
+  }catch(e){} },
+  onMarker(m){
+    if(this.marker && m.newest_id && m.newest_id!==this.marker.newest_id){
+      this.newCount = Math.max(this.newCount+1, (m.count||0)-(this.marker.count||0));
+      this.renderNew();
+    }
+    this.marker = m;
+  },
+  renderNew(){ const el=$('#newbanner'); if(!el||this.newCount<1) return;
+    el.innerHTML = `<button class="newbanner" data-act="load-new">▲ ${this.newCount} new ${this.newCount===1?'story':'stories'} — tap to load</button>`; },
+  async loadNew(){ this.newCount=0; const el=$('#newbanner'); if(el) el.innerHTML='';
+    await loadData(); Brief.render(); }
+};
+
+/* Live-hero configuration (feature parity with the iOS config sheet). */
+const LiveConfig = {
+  open(){
+    const cats=['breaking','events','sports','finance'];
+    const label={breaking:'⚡ Breaking news',events:'★ Important events',sports:'🏆 Sports scores',finance:'📈 Finance'};
+    const on=new Set(S.live.categories||[]);
+    let el=$('#liveconfig');
+    if(!el){ el=document.createElement('div'); el.id='liveconfig'; el.className='modal';
+      document.body.appendChild(el);
+      el.addEventListener('click',ev=>{ if(ev.target.id==='liveconfig') el.classList.remove('on'); }); }
+    el.innerHTML=`<div class="mcard" style="max-width:420px">
+      <h2>Live section</h2>
+      <p class="sub">A calm, auto-updating strip at the top of your feed. Breaking news always takes priority.</p>
+      <label class="lc-master"><input type="checkbox" id="lc-enabled" ${S.live.enabled?'checked':''}> Show live section</label>
+      <div id="lc-rows">${cats.map(c=>`<label class="lc-row"><span>${label[c]}</span>
+        <input type="checkbox" data-cat="${c}" ${on.has(c)?'checked':''}></label>`).join('')}</div>
+      <div style="display:flex;gap:10px;margin-top:22px">
+        <button class="btn primary" id="lc-save">Done</button>
+        <button class="btn ghost" id="lc-cancel">Cancel</button></div></div>`;
+    el.classList.add('on');
+    el.querySelector('#lc-cancel').onclick=()=>el.classList.remove('on');
+    el.querySelector('#lc-save').onclick=()=>this.save(el);
+  },
+  save(el){
+    const cats=['breaking','events','sports','finance'];
+    const chosen=cats.filter(c=>el.querySelector(`[data-cat="${c}"]`).checked);
+    S.live={enabled:el.querySelector('#lc-enabled').checked, categories:chosen};
+    localStorage.setItem('bl_live',JSON.stringify(S.live));
+    saveContextPatch({live_prefs:S.live});
+    el.classList.remove('on');
+    Feed.reconnect(); LiveHero.idx=0; LiveHero.render(); LiveHero.rotate();
+  }
+};
+
+/* ================= Metered access + sign-in gate ================= */
+const Meter = {
+  key(){ return 'bl_meter_'+new Date().toISOString().slice(0,10); },
+  reads(){ try{ return JSON.parse(localStorage.getItem(this.key())||'[]'); }catch(e){ return []; } },
+  record(id){ const r=this.reads(); if(!r.includes(id)){ r.push(id); localStorage.setItem(this.key(),JSON.stringify(r)); } },
+  /* Signed-in: unlimited. Re-opening a counted story: free. First shared-link read: free. */
+  allow(id, shared){
+    if(S.creds && S.creds.token) return true;
+    const r=this.reads();
+    if(r.includes(id)) return true;
+    if(shared && r.length===0) return true;
+    return r.length < FREE_READS_PER_DAY;
+  }
+};
+
+const Gate = {
+  COPY:{
+    read:['Keep reading — it\'s free','You\'ve reached today\'s free stories. Sign up with Google to read without limits, save stories, and personalize your feed.'],
+    save:['Save this story','Sign up with Google to keep stories and sync them across your devices.'],
+    ask:['Ask the AI assistant','Sign up with Google to ask questions about any story and get answers tailored to you.'],
+    personalize:['Personalize your feed','Sign up with Google, then tell Descry your world once — every story explains what it means for you.']
+  },
+  wall(title, body){
+    let el=$('#wall');
+    if(!el){ el=document.createElement('div'); el.id='wall'; el.className='wall'; document.body.appendChild(el); }
+    el.innerHTML=`<div class="wcard">
+      <div style="font-size:32px;margin-bottom:8px">🔓</div>
+      <h2>${esc(title)}</h2><p>${esc(body)}</p>
+      <div class="wsignin" id="wall-signin"></div>
+      <div class="wskip" data-act="wall-close">Maybe later</div></div>`;
+    Auth.renderInto($('#wall-signin'));
+  },
+  close(){ const el=$('#wall'); if(el) el.remove(); },
+  /* Returns true if the action may proceed; otherwise shows the wall and returns false.
+     Signed-in users always proceed (personalize opens the calibrate modal). */
+  require(action){
+    if(S.creds && S.creds.token){ if(action==='personalize') Calib.show(S.ctx||{}); return true; }
+    const c=this.COPY[action]||this.COPY.read; this.wall(c[0],c[1]); return false;
+  }
+};
 
 /* ================= Story Reader ================= */
 const Story = { async render(id){
@@ -634,6 +932,9 @@ const Story = { async render(id){
     s = DEMO.detail(base);
   }
   S.currentStory = s; S.opened = new Set();
+  // Metered access: guests get FREE_READS_PER_DAY story reads, then a sign-in wall.
+  const wall = !Meter.allow(id, isShared());
+  if (!wall) Meter.record(id);
   if (!S.eng.topics.includes(s.topic)){ S.eng.topics.push(s.topic); saveEng(); }
   const sent = (s.credibility||0)>=75?['Balanced coverage','trust']:['Developing story','warn'];
   const paras = String(s.narrative||'').split(/\n+/).filter(Boolean);
@@ -655,8 +956,12 @@ const Story = { async render(id){
   ].filter(Boolean);
   $('#view').innerHTML = `
   <div class="wrap reader">
-    <div class="crumb rise"><a href="#/brief">← Brief</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span></div>
+    <div class="crumb rise"><a href="#/">← Feed</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span></div>
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
+    <div class="readerbar rise" style="animation-delay:.06s">
+      <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
+      <button class="btn ghost sm" data-act="copylink" data-id="${esc(s.id)}">🔗 Copy link</button>
+    </div>
     <p class="lede rise" style="animation-delay:.08s">${esc(what)}</p>
     <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
       <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
@@ -672,9 +977,28 @@ const Story = { async render(id){
         <div class="mbody"><div class="minner">${m[3]}</div></div>
       </div>`).join('')}
     </div>
+    <div id="endcta"></div>
   </div>`;
   $('#fab').classList.remove('hidden');
+  this.renderSaveBtn();
+  if (wall) { Gate.require('read'); return; }   // metered: teaser + sign-in wall
   setTimeout(()=>this.toggle('what',modules.length),400);
+},
+renderSaveBtn(){
+  const b=$('#savebtn'); if(!b) return;
+  const on = S.currentStory && S.saved.has(S.currentStory.id);
+  b.innerHTML = on ? '🔖 Saved' : '🔖 Save';
+  b.classList.toggle('on', !!on);
+},
+async toggleSave(){
+  const id = S.currentStory && S.currentStory.id; if(!id) return;
+  if(!Gate.require('save')) return;                 // guests → sign-in wall
+  try{
+    const q = '?user_id='+S.creds.user_id+'&story_id='+encodeURIComponent(id);
+    if(S.saved.has(id)){ await api('/bookmarks'+q,{method:'DELETE'}); S.saved.delete(id); toast('Removed from saved'); }
+    else { await api('/bookmarks'+q,{method:'POST'}); S.saved.add(id); toast('Saved for later'); }
+    this.renderSaveBtn();
+  }catch(e){ toast('Couldn\'t save — try again'); }
 },
 claims(s){
   const V = {corroborated:['#3DDC97','M9 12l2 2 4-4'], disputed:['#FF5D73','M15 9l-6 6M9 9l6 6'], unverified:['#FFC24D','M12 8v4m0 4h.01']};
@@ -693,8 +1017,21 @@ toggle(id, total){
     S.opened.add(id);
     const pct = Math.min(100, Math.round(10 + 90*S.opened.size/total));
     $('#uprog').style.width = pct+'%'; $('#upct').textContent = pct+'%';
-    if (pct>=100){ S.eng.understood++; saveEng(); toast('✓ Story understood — nicely done'); }
+    if (pct>=100){ S.eng.understood++; saveEng(); toast('✓ Story understood — nicely done');
+      this.endCTA(); }
   }
+},
+/* Conversion card shown to guests at the natural stopping point (story finished). */
+endCTA(){
+  if (S.creds && S.creds.token) return;
+  const el = $('#endcta'); if(!el || el.dataset.shown) return;
+  el.dataset.shown = '1';
+  el.innerHTML = `<div class="convcard glass">
+    <h3>Enjoying Descry?</h3>
+    <p>Sign up free with Google to save stories, unlock your personal <b>For You</b> feed, and read without limits.</p>
+    <div class="row"><span id="endcta-signin"></span>
+      <button class="btn ghost" data-act="personalize">Personalize my feed</button></div></div>`;
+  Auth.renderInto($('#endcta-signin'));
 }};
 
 /* ================= Trend Radar ================= */
@@ -780,9 +1117,9 @@ const SignalPage = { async render(id){
       ${g.horizon?`· <span class="chip">${esc(g.horizon)}</span>`:''}
       · <span class="chip">${Math.round(g.confidence*100)}% confidence</span></div>
     <h1 class="rise">${esc(g.title)}</h1>
-    <p class="lede rise">${esc(g.prediction)}</p>
+    <p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>
     <div class="module glass open" style="margin-top:14px"><div class="mbody" style="max-height:none"><div class="minner">
-      <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${esc(g.chain)}</p>
+      <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${linkifyRefs(g.chain, g.story_refs)}</p>
       ${g.watch?`<p><b style="color:var(--warn)">What to watch:</b> ${esc(g.watch)}</p>`:''}
       ${(g.affected||[]).length?`<p>${g.affected.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</p>`:''}
     </div></div></div>
@@ -808,10 +1145,35 @@ const TrendPage = { async render(id){
     <div class="crumb rise"><a href="#/trends">← Trends</a> ·
       <span class="chip ${t.kind==='micro'?'ai':'accent'}">${t.kind==='micro'?'Picking up speed':'Big trend'}</span></div>
     <h1 class="rise">${esc(cleanName(t.name))}</h1>
-    <p class="lede rise">${esc(t.narrative)}</p>
+    <p class="lede rise">${linkifyRefs(t.narrative, t.story_refs)}</p>
     ${(t.sectors||[]).length?`<div style="margin:12px 0">${t.sectors.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</div>`:''}
     <div class="grp" style="padding:16px 0 8px">THE STORIES BEHIND THIS TREND</div>
     ${(t.stories||[]).map(s=>Brief.card(s,0)).join('')}
+  </div>`;
+}};
+
+/* ================= Saved (bookmarks) ================= */
+async function loadBookmarks(){
+  if(!(S.creds && S.creds.token)) return;
+  try{ const r=await api('/bookmarks?user_id='+S.creds.user_id); S.saved=new Set((r.items||[]).map(x=>x.id)); }catch(e){}
+}
+const Saved = { async render(){
+  if(!(S.creds && S.creds.token)){
+    $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
+      <div style="font-size:30px;margin-bottom:8px">🔖</div>
+      <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Save stories to read later</h3>
+      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign up with Google to bookmark stories and sync them across your devices.</p>
+      <span id="saved-signin"></span></div></div>`;
+    Auth.renderInto($('#saved-signin'));
+    return;
+  }
+  $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div></div>`;
+  let items=[];
+  try{ const r=await api('/bookmarks?user_id='+S.creds.user_id); items=r.items||[]; S.saved=new Set(items.map(x=>x.id)); }catch(e){}
+  $('#view').innerHTML = `<div class="wrap">
+    <div class="brief-head rise"><h2>Saved</h2><span class="date">${items.length} ${items.length===1?'story':'stories'}</span></div>
+    <div style="margin-top:16px">${items.length? items.map((s,i)=>Brief.card(s,i)).join('')
+      : `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">Nothing saved yet — tap 🔖 Save on any story to keep it here.</div>`}</div>
   </div>`;
 }};
 
@@ -890,21 +1252,44 @@ $('#askin').addEventListener('keydown', e=>{ if(e.key==='Enter') Ask.send(); });
 
 /* ================= Personalization ================= */
 const Calib = {
-  ints: [],
+  ints: [], role: '', micro: {},
+  ROLES: ['Student','Employee','Manager','Executive','Business owner','Freelancer','Retired'],
   show(prefill){
     prefill = prefill || {};
     this.ints = Array.isArray(prefill.interests) ? [...prefill.interests] : [];
+    this.role = prefill.role_seniority || '';
+    this.micro = Object.assign({}, prefill.micro || {});
     const opts=['AI','Technology','Business','World','Health','Energy','Finance','Science','India','Sports'];
     $('#calints').innerHTML = opts.map(o=>
       `<button class="chip${this.ints.includes(o)?' on':''}" onclick="Calib.tog(this,'${o}')">${o}</button>`).join('');
+    $('#calrole').innerHTML = this.ROLES.map(r=>
+      `<button class="chip${this.role.toLowerCase()===r.toLowerCase()?' on':''}" onclick="Calib.pickRole(this,'${r}')">${r}</button>`).join('');
     if ($('#calprof')) $('#calprof').value = prefill.profession || '';
     if ($('#calloc')) $('#calloc').value =
       [prefill.location&&prefill.location.city, prefill.location&&prefill.location.country]
         .filter(Boolean).join(', ');
+    if ($('#callang')) $('#callang').value = prefill.native_language || '';
+    this.renderMicro();
     $('#calib').classList.add('on');
   },
   tog(el,v){ el.classList.toggle('on');
     this.ints.includes(v)?this.ints=this.ints.filter(x=>x!==v):this.ints.push(v); },
+  pickRole(el,v){
+    const was = this.role.toLowerCase()===v.toLowerCase();
+    document.querySelectorAll('#calrole .chip').forEach(c=>c.classList.remove('on'));
+    if(was){ this.role=''; } else { this.role=v; el.classList.add('on'); }
+  },
+  renderMicro(){
+    const el=$('#calmicro'); if(!el) return;
+    el.innerHTML = Object.entries(this.micro).map(([k,v])=>
+      `<div class="microrow"><span><b>${esc(k)}</b>: ${esc(v)}</span>
+        <button data-mk="${esc(k)}" onclick="Calib.delMicro(this.dataset.mk)">✕</button></div>`).join('');
+  },
+  addMicro(){
+    const k=$('#calmk').value.trim(), v=$('#calmv').value.trim();
+    if(k&&v){ this.micro[k]=v; $('#calmk').value=''; $('#calmv').value=''; this.renderMicro(); }
+  },
+  delMicro(k){ delete this.micro[k]; this.renderMicro(); },
   async save(){
     try{
       // Reuse the signed-in account; only mint an anonymous user if not signed in.
@@ -919,12 +1304,13 @@ const Calib = {
         interests: this.ints,
         profession: $('#calprof').value,
         line_of_business: cur.line_of_business || '',
-        role_seniority: cur.role_seniority || '',
+        role_seniority: this.role || '',
         location: { city: loc[0]||'', region:(cur.location&&cur.location.region)||'',
                     country: loc[1]||'' },
-        native_language: cur.native_language || '',
+        native_language: $('#callang').value.trim(),
         preferred_language: cur.preferred_language || 'English',
-        micro: cur.micro || {}
+        micro: this.micro,
+        live_prefs: cur.live_prefs || S.live
       };
       await api(`/users/${S.creds.user_id}/context`,{method:'PUT',body:JSON.stringify(body)});
       S.ctx = body; if (S.creds) S.creds.has_context = true;
@@ -1076,6 +1462,9 @@ const Auth = {
       `</svg>Sign in with Google</button>`;
   },
   initial(){ return (S.creds && (S.creds.name || S.creds.email) || 'U').trim().charAt(0).toUpperCase(); },
+  // Programmatic entry point (nav "Sign up" fallback / data-act="signin").
+  trigger(){ if(this.ready){ try{ google.accounts.id.prompt(); }catch(e){ this.fallbackClick(); } }
+    else { this.fallbackClick(); } },
   fallbackClick(){
     const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
     if (configured){ toast('Google sign-in is still loading — one moment…'); Auth.init(); }
@@ -1086,42 +1475,38 @@ const Auth = {
       const u = await api('/auth/google', {method:'POST',
         body: JSON.stringify({ id_token: resp.credential })});
       S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
-      toast('Signed in as '+(u.name || u.email || 'you'));
+      toast('Welcome'+(u.name?', '+String(u.name).split(' ')[0]:'')+' — you\'re signed in');
+      Gate.close();                       // dismiss any sign-in wall
       Auth.render();
+      await loadBookmarks();
+      Feed.reconnect();                   // re-open SSE with the user's id
       await loadData(); route();
       // Offer personalization only if they've never set it — and never on a shared link.
       if (!u.has_context && !localStorage.getItem('bl_seen') && !isShared()) Calib.show();
     }catch(e){ toast('Sign-in failed — check the API URL and client ID'); }
   },
   signout(){
-    S.creds = null; localStorage.removeItem('bl_creds');
+    S.creds = null; S.saved = new Set(); localStorage.removeItem('bl_creds');
     try{ google.accounts.id.disableAutoSelect(); }catch(e){}
-    Auth.render(); loadData().then(route); toast('Signed out');
+    Auth.render(); Feed.reconnect(); loadData().then(route); toast('Signed out');
   }
 };
 
 /* ================= Boot ================= */
-function maybeOnboard(){
-  // Don't force onboarding on: signed-in users, returning visitors, the home
-  // page, or a shared deep link. Sign-in (or the modal) stays available on demand.
-  if (localStorage.getItem('bl_seen') || S.creds) return;
-  const h = location.hash || '#/';
-  if (h === '#/' || isShared()) return;
-  Calib.show();
-}
-
 (async function(){
   await loadData();
+  if (S.creds && S.creds.token) await loadBookmarks();
   route();
   Auth.render();                 // show avatar immediately if already signed in
   // GIS loads async; poll briefly so the "Sign in with Google" button can render.
   let tries = 0;
   (function waitForGsi(){
     Auth.init();
+    // Re-render the feed once GIS is ready so inline sign-in buttons upgrade from
+    // the fallback to the official Google button.
+    if (Auth.ready && (location.hash==='#/'||location.hash===''||location.hash.startsWith('#/brief'))) Brief.render();
     if (!Auth.ready && tries++ < 20) setTimeout(waitForGsi, 300);
   })();
-  maybeOnboard();
-  window.addEventListener('hashchange', maybeOnboard, {once:true});
 })();
 </script>
 </body>
