@@ -567,7 +567,8 @@ const ICONS = {
   conn:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7 7.5l3.5 8M17 7.5l-3.5 8M7.5 6h9"/></svg>',
   verify:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.4-3 8.4-7 10-4-1.6-7-5.6-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>',
   src:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>',
-  lens:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>'
+  lens:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+  foryou:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>'
 };
 
 /* ================= Router ================= */
@@ -942,6 +943,12 @@ const Story = { async render(id){
   const modules = [
     ['what','What happened','#4D9FFF',`<p>${esc(what)}</p>`],
     ['why','Why it matters','#FFC24D',`<p>${esc(why)}</p>`],
+    // Personalized take sits right after what → why, as its own collapsible card
+    // (collapsed by default), mirroring the iOS story reader.
+    s.impact_text ? ['foryou','What this means for you','#4D9FFF',
+      `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
+        background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
+        border:1px solid rgba(77,159,255,.25)">${esc(s.impact_text)}</div>`] : null,
     s.trends?.length ? ['big','The bigger picture','#B48CFF',
       s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
         <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
@@ -965,7 +972,6 @@ const Story = { async render(id){
     <p class="lede rise" style="animation-delay:.08s">${esc(what)}</p>
     <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
       <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
-    ${s.impact_text?`<div class="foryou rise" style="animation-delay:.16s"><div class="lbl">${ICONS.lens||''}What this means for you</div>${esc(s.impact_text)}</div>`:''}
     <div class="understand"><span>Understanding</span><div class="meter"><i id="uprog" style="width:10%"></i></div><span id="upct">10%</span></div>
     <div id="mods">${modules.map((m,i)=>`
       <div class="module glass" id="mod-${m[0]}">
