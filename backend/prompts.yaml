@@ -84,6 +84,9 @@ connection: |
 
 claims: |
   List the 1-4 most important checkable factual claims in this story.
+  The text may be a merged multi-source brief: prefer claims that appear under
+  CORE FACTS (corroborated), and where a DISCREPANCIES section shows outlets
+  disagreeing, phrase that claim to reflect the range rather than one outlet's figure.
   Reply ONLY with JSON: {{"claims": ["...", "..."]}}
   Story: {text}
 
@@ -105,9 +108,29 @@ story: |
   a concrete stake, or a sharp question — while staying strictly true to the verified
   claims below: every factual element in the headline must appear in the claims. Make sure the what happened is clearly providing story in a narrative format and painting a picture to the reader, and the why it matters is clearly explaining the implications.
   Never use generic templates like "What Just Changed and Why It Matters".
+  The source material below is a MERGED BRIEF built from every outlet that covered
+  this event, already de-duplicated. Use it as follows:
+  - CORE FACTS are corroborated by several outlets — these are the spine of the story.
+  - ADDITIONAL DETAIL was reported by only ONE outlet. Include what genuinely adds to
+    the story and attribute it in the prose ("according to <outlet>"). Do not drop a
+    detail merely because a single outlet carried it — that detail is often the story.
+  - DISCREPANCIES are points where outlets disagree. NEVER silently pick one number or
+    version: state the disagreement plainly (e.g. "reports put the toll at 12 to 14").
   Verified claims: {claims}
-  Source items: {items}
+  Merged brief: {items}
   Reply ONLY with JSON: {{"headline": "...", "narrative": "..."}}
+
+same_story: |
+  You are de-duplicating a news feed. Below are numbered PAIRS of headlines.
+  For each pair decide whether the two headlines report THE SAME underlying news
+  event — the same incident, announcement or development — rather than merely the
+  same topic, company or beat.
+  Same event: two outlets covering one earnings release; two reports of one crash.
+  NOT the same event: two different product launches by one company; two separate
+  studies from one field; a news event and a market reaction to it.
+  {pairs}
+  Reply ONLY with JSON listing the indices that ARE the same event:
+  {{"same": [0, 2]}}
 
 signals: |
   You are the foresight engine of a news-intelligence service. Below are {n} rich

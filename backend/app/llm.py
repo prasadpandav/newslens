@@ -340,6 +340,10 @@ def _mock(task, prompt):
             "signal": f"Coverage of {label.lower()} is picking up over the last "
                       f"72 hours — worth watching.",
             "members": idxs[:3]}]}
+    if task == "same_story":
+        # Mock cannot judge whether two headlines are the same event; answering
+        # "none" keeps borderline pairs unmerged, which is the safe default.
+        return {"same": []}
     if task == "connection":
         return {"chain": f"Both stories touch {label.lower()}; a shift in one can move "
                          f"costs, policy or sentiment that feeds the other.",

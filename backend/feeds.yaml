@@ -5,9 +5,31 @@ world:
 business:
   - https://feeds.bbci.co.uk/news/business/rss.xml
   - https://www.cnbc.com/id/10001147/device/rss/rss.html
+# Finance is India-weighted by design (markets, economy, corporate + CFO desk),
+# with two global feeds for international context. Note this is the largest topic
+# by feed count, so it contributes the most articles per Scout run.
 finance:
+  # global
   - https://www.cnbc.com/id/10000664/device/rss/rss.html
   - https://feeds.bbci.co.uk/news/business/economy/rss.xml
+  # India — markets & money
+  - https://www.livemint.com/rss/money
+  - https://www.livemint.com/rss/companies
+  - https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms
+  - https://www.thehindubusinessline.com/markets/feeder/default.rss
+  - https://www.thehindu.com/business/Economy/feeder/default.rss
+  - https://www.thehindu.com/business/markets/feeder/default.rss
+  # India — CNBC TV18 (economy / market / business / latest)
+  - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/economy.xml
+  - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml
+  - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/business.xml
+  - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/latest.xml
+  # India — ET CFO desk (corporate finance / strategy / CFO tech)
+  - https://cfo.economictimes.indiatimes.com/rss/lateststories
+  - https://cfo.economictimes.indiatimes.com/rss/economy
+  - https://cfo.economictimes.indiatimes.com/rss/strategy-operations
+  - https://cfo.economictimes.indiatimes.com/rss/cfo-tech
+  - https://cfo.economictimes.indiatimes.com/rss/corporate-finance
 sports:
   - https://feeds.bbci.co.uk/sport/rss.xml
   - https://www.espn.com/espn/rss/news

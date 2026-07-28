@@ -8,7 +8,7 @@ import math
 import re
 import time
 import yaml
-from . import config, db, llm
+from . import config, db, llm, textmerge, fulltext
 
 PROMPTS = yaml.safe_load(config.PROMPTS_FILE.read_text())
 
@@ -205,6 +205,8 @@ class Scout:
         feeds = yaml.safe_load(config.FEEDS_FILE.read_text())
         added = 0
         skipped_dups = 0
+        skipped_old = 0
+        max_age = config.INGEST_MAX_AGE_HOURS
         for topic, urls in feeds.items():
             if topics and topic not in topics:
                 continue
@@ -228,13 +230,23 @@ class Scout:
                     if self._is_same_source_dup(con, source, title):
                         skipped_dups += 1
                         continue
-                    pub = time.time()
+                    pub, dated = time.time(), False
                     for attr in ("published_parsed", "updated_parsed"):
                         st = getattr(e, attr, None)
                         if st:  # feed timestamps are UTC struct_times
                             import calendar
                             pub = calendar.timegm(st)
+                            dated = True
                             break
+                    # Freshness gate: skip entries the feed says are old. Feeds carry
+                    # a long tail (some hold 200 items), so without this every run
+                    # re-considers week-old news. Only applied when the entry actually
+                    # carries a date — an undated entry's age is unknown, and dropping
+                    # it would silently lose whole feeds.
+                    if (max_age and dated
+                            and pub < db.now() - max_age * 3600):
+                        skipped_old += 1
+                        continue
                     try:
                         con.execute(
                             "INSERT INTO articles (id,url,title,summary,source,topic,"
@@ -245,9 +257,11 @@ class Scout:
                     except Exception:
                         pass  # duplicate url
         con.commit()
-        if skipped_dups:
-            db.log_run(con, "scout_dedup", "ok",
-                       f"{skipped_dups} same-source repeats skipped")
+        if skipped_dups or skipped_old:
+            note = f"{skipped_dups} same-source repeats skipped"
+            if max_age:
+                note += f", {skipped_old} older than {max_age:g}h skipped"
+            db.log_run(con, "scout_dedup", "ok", note)
         return added
 
     def _load_samples(self, con):
@@ -268,33 +282,58 @@ class Scout:
 
 # ------------------------------------------------------- Entity extraction
 # --------------------------------------------------- Near-duplicate merging
+def _verify_same_story(pairs):
+    """Resolve borderline pairs with ONE batched LLM call.
+
+    `pairs` is [(titleA, titleB), ...]; returns the set of indices the model says
+    describe the same event. Any failure returns an empty set, which simply leaves
+    those pairs unmerged.
+    """
+    if not pairs:
+        return set()
+    listing = "\n".join(f"[{i}] A: {a}\n    B: {b}" for i, (a, b) in enumerate(pairs))
+    out = llm.complete_json("same_story", prompt("same_story", pairs=listing))
+    if not out:
+        return set()
+    accepted = set()
+    for i in out.get("same", []) or []:
+        try:
+            accepted.add(int(i))
+        except (TypeError, ValueError):
+            continue
+    return accepted
+
+
 def assign_groups(con):
-    """Group near-duplicate articles — the SAME story reported by different sources —
-    so the LLM stages process each real-world event ONCE instead of once per source.
-    Titles are clustered by cosine similarity (>= DEDUPE_SIMILARITY); every member is
-    stamped with a shared group_id = the earliest member (the representative). No LLM
-    calls. Cross-source rows are kept (corroboration still counts distinct sources);
-    only the redundant LLM work is removed."""
+    """Group articles reporting the SAME event so the LLM stages process each
+    real-world story ONCE instead of once per outlet.
+
+    Uses textmerge.group_articles: TF-IDF over title+summary combined with
+    proper-noun/number anchors and a time window. The previous title-only
+    term-frequency match was effectively inert — on a 269-article corpus it found
+    a single cross-source pair, because two newsrooms rarely word a headline alike.
+    Every member is stamped with a shared group_id (the earliest member).
+    Cross-source rows are kept — corroboration still counts distinct sources; only
+    the redundant LLM work is removed."""
     cutoff = db.now() - config.DEDUPE_WINDOW_DAYS * 86400
     rows = con.execute(
-        "SELECT id, title FROM articles WHERE fetched_at > ? ORDER BY fetched_at ASC",
-        (cutoff,)).fetchall()
+        "SELECT id, title, summary, source, published, fetched_at FROM articles "
+        "WHERE fetched_at > ? ORDER BY fetched_at ASC", (cutoff,)).fetchall()
     if not rows:
         db.log_run(con, "dedupe", "ok", "no recent articles to group")
         return 0
-    # Earliest-first ordering makes the first article in each cluster its stable rep.
-    clusters = greedy_cluster([(r["id"], r["title"] or "") for r in rows],
-                              config.DEDUPE_SIMILARITY)
+    clusters, stats = textmerge.group_articles(rows, verify=_verify_same_story)
     merged = 0
     for cluster in clusters:
-        rep = cluster[0]
+        rep = cluster[0]        # earliest member is the stable representative
         for aid in cluster:
             con.execute("UPDATE articles SET group_id=? WHERE id=?", (rep, aid))
         merged += len(cluster) - 1
     con.commit()
     db.log_run(con, "dedupe", "ok",
                f"{len(clusters)} groups from {len(rows)} articles, "
-               f"{merged} cross-source duplicates merged")
+               f"{merged} cross-source duplicates merged "
+               f"({stats['borderline']} borderline, {stats['verified']} LLM-confirmed)")
     return merged
 
 
@@ -659,10 +698,17 @@ class Storyteller:
             arts = [a for a in arts if a]
             if not arts:
                 continue
-            # Annotate each line with its source so a single LLM call over a merged,
-            # multi-source cluster knows the corroborating outlets.
-            items = "\n".join(
-                f"- [{a['source']}] {a['title']}: {a['summary'][:200]}" for a in arts)
+            # Merge the group's articles into ONE attributed storyline: corroborated
+            # facts, details only a single outlet carried, and numeric disagreements.
+            # Fuller article text (transient, never stored) gives the merge real
+            # material — RSS summaries alone average ~150 characters.
+            texts = fulltext.fetch_for_articles(arts) if len(arts) > 1 else {}
+            items, bstats = textmerge.build_brief(
+                arts, texts=texts, tier_of=verifier.source_tier)
+            if not items:       # nothing usable survived cleaning — keep the old shape
+                items = "\n".join(
+                    f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}"
+                    for a in arts)
             verified = verifier.run(con, ids, items)
             if verified is None:
                 continue  # LLM unavailable — article kept for next run

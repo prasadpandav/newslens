@@ -100,7 +100,13 @@ WEB_BASE_URL = os.environ.get("WEB_BASE_URL", "https://descry.onrender.com").rst
 # 1200x630 preview image for social/OG cards. Replace the placeholder with a real
 # hosted PNG. Blank = omit og:image.
 OG_IMAGE_URL = os.environ.get("OG_IMAGE_URL", f"{WEB_BASE_URL}/og.png")
-PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "3"))
+PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "6"))
+# Ingest freshness: skip feed entries published more than this many hours ago.
+# Feeds carry a long tail (some hold 200 items), so without a gate every run
+# re-considers week-old news. Keep it comfortably WIDER than the pipeline
+# interval so nothing falls through a gap when a run is late or skipped.
+# 0 disables the gate. Entries with no date are always kept (age unknown).
+INGEST_MAX_AGE_HOURS = float(os.environ.get("INGEST_MAX_AGE_HOURS", "12"))
 # Max stories built per run — keeps a single run inside LLM budgets.
 MAX_STORIES_PER_RUN = int(os.environ.get("MAX_STORIES_PER_RUN", "20"))
 
@@ -113,6 +119,37 @@ LLM_MAX_CALLS_PER_MIN = int(os.environ.get("LLM_MAX_CALLS_PER_MIN", "30"))
 # the event ONCE (with all sources annotated) instead of once per source.
 DEDUPE_SIMILARITY = float(os.environ.get("DEDUPE_SIMILARITY", "0.62"))
 DEDUPE_WINDOW_DAYS = float(os.environ.get("DEDUPE_WINDOW_DAYS", "7"))
+
+# --- Grouping v2: TF-IDF + proper-noun anchors (see app/textmerge.py) ---
+# Combined score = 0.55*tfidf_cos + 0.35*anchor_overlap + 0.10*time_proximity.
+# A pair may only merge when BOTH floors are cleared AND it is inside the time
+# window — the guards that let "Nintendo stops selling Switch" match a differently
+# worded report of the same event while rejecting an unrelated "SwitchBot" story.
+# Some genuine lexical relatedness is required even when anchors match: two
+# stories can share "Meta"/"AI" and still be unrelated events (cos ~0.09).
+DEDUPE_COS_FLOOR = float(os.environ.get("DEDUPE_COS_FLOOR", "0.10"))
+DEDUPE_ANCHOR_FLOOR = float(os.environ.get("DEDUPE_ANCHOR_FLOOR", "0.50"))
+DEDUPE_HIGH = float(os.environ.get("DEDUPE_HIGH", "0.52"))   # >= this: merge outright
+DEDUPE_LOW = float(os.environ.get("DEDUPE_LOW", "0.34"))     # [LOW,HIGH): borderline
+DEDUPE_WINDOW_HOURS = float(os.environ.get("DEDUPE_WINDOW_HOURS", "48"))
+# A cluster member whose mean similarity to the rest falls below this is split
+# back out — the anti-chaining guard (A~B, B~C must not silently merge A and C).
+DEDUPE_COHESION = float(os.environ.get("DEDUPE_COHESION", "0.34"))
+
+# Borderline pairs resolved by ONE batched LLM call ("same event?"). Off = those
+# pairs simply stay unmerged (fully deterministic, zero added cost).
+SAMESTORY_VERIFY = os.environ.get("SAMESTORY_VERIFY", "1").lower() not in ("0", "false", "no")
+SAMESTORY_MAX_PAIRS = int(os.environ.get("SAMESTORY_MAX_PAIRS", "15"))
+
+# Fuller article text for grouped stories: fetched transiently for the prompt and
+# NOT stored (ARCHITECTURE.md keeps only headline/summary/link). robots.txt is
+# honoured. Disable to fall back to RSS summaries everywhere.
+FULLTEXT_ENABLED = os.environ.get("FULLTEXT_ENABLED", "1").lower() not in ("0", "false", "no")
+FULLTEXT_TIMEOUT = float(os.environ.get("FULLTEXT_TIMEOUT", "8"))
+FULLTEXT_MAX_CHARS = int(os.environ.get("FULLTEXT_MAX_CHARS", "6000"))
+FULLTEXT_MAX_PER_STORY = int(os.environ.get("FULLTEXT_MAX_PER_STORY", "4"))
+# Hard cap on the merged-fact brief handed to the LLM (token control).
+BRIEF_MAX_CHARS = int(os.environ.get("BRIEF_MAX_CHARS", "2600"))
 DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))
 FEEDS_FILE = ROOT / "feeds.yaml"
 SOURCES_FILE = ROOT / "sources.yaml"
