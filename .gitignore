@@ -2,3 +2,22 @@
 __pycache__/
 .env
 *.db
+# Added by code-review-graph
+.code-review-graph/
+.claude/
+.codebuddy/
+.cursor/
+.cursorrules
+.gemini/
+.github/
+.kiro/
+.mcp.json
+.qoder/
+.vscode/mcp.json
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+CODEBUDDY.md
+GEMINI.md
+QODER.md
+opencode.jsonc

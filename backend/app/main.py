@@ -142,6 +142,10 @@ class ContextIn(BaseModel):
     # Dynamic-hero config (open bag — no migration): which categories show, order,
     # master on/off, followed sports. Read by /live and /live/stream.
     live_prefs: dict = {}
+    # UI theme — "default" | "journal" | "signal". A personalization like anything
+    # else in this bag: signed-in only, synced across devices. The client never
+    # needs the server to interpret this value, only to hold and return it.
+    theme: str = "default"
 
 
 def _auth(con, user_id, authorization):

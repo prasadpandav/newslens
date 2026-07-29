@@ -83,7 +83,7 @@
   --accent:#4D9FFF; --ai-2:#7C5CFF;
   --trust:#3DDC97; --warn:#FFC24D; --breaking:#FF5D73; --predict:#B48CFF;
   --grad-ai:linear-gradient(135deg,#4D9FFF,#7C5CFF);
-  --r-lg:18px; --r-md:12px; --r-sm:8px;
+  --r-lg:18px; --r-md:12px; --r-sm:8px; --r-pill:100px;
   /* Nav height. Seeded with the measured value and re-measured on load/resize
      (see setNavHeight) so anything pinned under the nav stays flush when the
      nav grows — larger text, a wrapped account row. */
@@ -123,6 +123,70 @@
   }
   .gbtn-fallback{border-color:transparent}
 }
+
+/* ============ Themes (signed-in personalization — see Theme.apply) ============
+   Both adapted from design/redesign-a-journal.html and redesign-b-signal.html,
+   which were themselves built as small, disciplined token systems — one accent
+   color, one or two typefaces. That is what makes them work as themes and not
+   just wallpaper: nearly everything in this file already renders from the
+   :root custom properties above, so redeclaring those same properties here
+   reskins every existing screen — chips, cards, the story reader, trend radar,
+   profile — without a second copy of any layout. :root[data-skin=".."] beats a
+   plain :root (higher specificity from the attribute selector), so this wins
+   over the light/dark block above regardless of the visitor's OS setting —
+   deliberate: a picked theme is a fixed, deliberate palette, not one more thing
+   prefers-color-scheme gets to override. */
+:root[data-skin="journal"]{
+  --bg:#F5F1E8; --bg-2:#EFEADD; --surface:rgb(25 21 17 / .035);
+  --surface-2:rgb(25 21 17 / .06); --border:#C9C1B2; --border-2:#191511;
+  --text:#191511; --text-2:#5C544A; --text-3:#8C8478;
+  /* "The one accent" (mockup's own words) — carmine stands in for every hue
+     the default theme spreads across accent/ai-2/predict. Trust/warn stay
+     inked: an editorial page signals "fine" with restraint, not a green light. */
+  --accent:#8E2B1E; --ai-2:#8E2B1E;
+  --trust:#191511; --warn:#5C544A; --breaking:#8E2B1E; --predict:#191511;
+  --grad-ai:#8E2B1E;
+  --r-lg:3px; --r-md:2px; --r-sm:2px; --r-pill:3px;
+  --font-ui:'Archivo',system-ui,sans-serif;
+  --font-ed:'Newsreader',Georgia,serif;
+  --shadow:0 1px 0 #191511;
+  --modal-bg:#F5F1E8;
+  --nav-bg:rgb(245 241 232 / .92); --pill-bg:rgb(245 241 232 / .94);
+  --track:rgb(25 21 17 / .1);
+  --chip-blue:#5C544A; --chip-green:#5C544A; --chip-amber:#8E2B1E;
+  --chip-red:#8E2B1E; --chip-purple:#5C544A;
+}
+:root[data-skin="signal"]{
+  --bg:#FBFBF9; --bg-2:#FFFFFF; --surface:rgb(18 18 16 / .03);
+  --surface-2:rgb(18 18 16 / .05); --border:#DDDCD4; --border-2:#121210;
+  --text:#121210; --text-2:#6E6D66; --text-3:#9B9A92;
+  /* Vermilion "used sparingly" (mockup's own words) — reserved for breaking/
+     alert states. Everything else stays ink or gray; distinction comes from
+     weight and the mono numerals, not color. Zero radius, zero shadow,
+     zero gradient — stated design goals in the mockup, carried through
+     literally rather than softened back in. */
+  --accent:#D8371C; --ai-2:#D8371C;
+  --trust:#121210; --warn:#6E6D66; --breaking:#D8371C; --predict:#121210;
+  --grad-ai:#D8371C;
+  --r-lg:0px; --r-md:0px; --r-sm:0px; --r-pill:0px;
+  --font-ui:'Archivo',system-ui,sans-serif;
+  --font-ed:'Archivo',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  --shadow:none;
+  --modal-bg:#FFFFFF;
+  --nav-bg:rgb(251 251 249 / .94); --pill-bg:#FFFFFF;
+  --track:rgb(18 18 16 / .08);
+  --chip-blue:#6E6D66; --chip-green:#6E6D66; --chip-amber:#D8371C;
+  --chip-red:#D8371C; --chip-purple:#6E6D66;
+}
+/* Paper doesn't blur, and a floating glow is the one visual habit both skins
+   exist to get away from. */
+:root[data-skin="journal"] .frost, :root[data-skin="signal"] .frost,
+:root[data-skin="journal"] body::before, :root[data-skin="signal"] body::before{
+  backdrop-filter:none; background:none;
+}
+:root[data-skin="journal"] .fab{box-shadow:var(--shadow)}
+:root[data-skin="signal"] .fab{box-shadow:none}
 *{margin:0;padding:0;box-sizing:border-box}
 /* Smooth scrolling only where it was asked for (anchor jumps), not globally —
    a global rule also hijacks scroll restoration on every hash route change,
@@ -131,11 +195,11 @@ html{scroll-behavior:auto}
 body{background:var(--bg);color:var(--text);font-family:var(--font-ui);
   font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:radial-gradient(900px 500px at 80% -10%,rgba(77,159,255,.10),transparent 60%),
-             radial-gradient(700px 500px at 10% 110%,rgba(124,92,255,.08),transparent 60%)}
+  background:radial-gradient(900px 500px at 80% -10%,rgb(from var(--accent) r g b / .10),transparent 60%),
+             radial-gradient(700px 500px at 10% 110%,rgb(from var(--ai-2) r g b / .08),transparent 60%)}
 a{color:var(--accent);text-decoration:none}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
-::selection{background:rgba(77,159,255,.35)}
+::selection{background:rgb(from var(--accent) r g b / .35)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 
@@ -151,21 +215,21 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 /* Opt-in blur for the functional layer only. */
 .frost{backdrop-filter:blur(14px)}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;
-  border-radius:100px;font-size:12px;font-weight:600;letter-spacing:.02em;
+  border-radius:var(--r-pill);font-size:12px;font-weight:600;letter-spacing:.02em;
   background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
-.chip.accent{color:var(--chip-blue);background:rgba(77,159,255,.14);border-color:rgba(77,159,255,.3)}
-.chip.trust{color:var(--chip-green);background:rgba(61,220,151,.12);border-color:rgba(61,220,151,.3)}
-.chip.warn{color:var(--chip-amber);background:rgba(255,194,77,.12);border-color:rgba(255,194,77,.3)}
-.chip.breaking{color:var(--chip-red);background:rgba(255,93,115,.12);border-color:rgba(255,93,115,.35)}
-.chip.ai{color:var(--chip-purple);background:rgba(124,92,255,.14);border-color:rgba(124,92,255,.35)}
+.chip.accent{color:var(--chip-blue);background:rgb(from var(--accent) r g b / .14);border-color:rgb(from var(--accent) r g b / .3)}
+.chip.trust{color:var(--chip-green);background:rgb(from var(--trust) r g b / .12);border-color:rgb(from var(--trust) r g b / .3)}
+.chip.warn{color:var(--chip-amber);background:rgb(from var(--warn) r g b / .12);border-color:rgb(from var(--warn) r g b / .3)}
+.chip.breaking{color:var(--chip-red);background:rgb(from var(--breaking) r g b / .12);border-color:rgb(from var(--breaking) r g b / .35)}
+.chip.ai{color:var(--chip-purple);background:rgb(from var(--ai-2) r g b / .14);border-color:rgb(from var(--ai-2) r g b / .35)}
 .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:12px;
   font-weight:600;font-size:14px;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
-.btn.primary{background:var(--grad-ai);color:#fff;box-shadow:0 6px 24px rgba(77,159,255,.35)}
-.btn.primary:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(77,159,255,.45)}
+.btn.primary{background:var(--grad-ai);color:#fff;box-shadow:0 6px 24px rgb(from var(--accent) r g b / .35)}
+.btn.primary:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgb(from var(--accent) r g b / .45)}
 .btn.ghost{border:1px solid var(--border-2);color:var(--text)}
 .btn.ghost:hover{background:var(--surface-2)}
-.meter{height:5px;border-radius:100px;background:var(--track);overflow:hidden}
-.meter>i{display:block;height:100%;border-radius:100px;background:var(--trust);
+.meter{height:5px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}
+.meter>i{display:block;height:100%;border-radius:var(--r-pill);background:var(--trust);
   transition:width 1s var(--ease)}
 .skel{position:relative;overflow:hidden;background:var(--surface);border-radius:var(--r-md);min-height:90px}
 .skel::after{content:"";position:absolute;inset:0;
@@ -193,13 +257,13 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .searchbtn:hover{border-color:var(--border-2);color:var(--text)}
 .searchbtn kbd{font-family:var(--font-mono);font-size:11px;padding:2px 6px;border-radius:5px;
   background:var(--surface-2);border:1px solid var(--border)}
-.offline{font-size:11px;padding:4px 10px;border-radius:100px;background:rgba(255,194,77,.12);
-  color:var(--chip-amber);border:1px solid rgba(255,194,77,.3)}
+.offline{font-size:11px;padding:4px 10px;border-radius:var(--r-pill);background:rgb(from var(--warn) r g b / .12);
+  color:var(--chip-amber);border:1px solid rgb(from var(--warn) r g b / .3)}
 
 /* ============ Logged-out welcome banner ============ */
 .welcomebar{display:flex;align-items:center;gap:16px;padding:14px 18px;margin-bottom:20px;
-  background:linear-gradient(135deg,rgba(77,159,255,.12),rgba(124,92,255,.12));
-  border:1px solid rgba(77,159,255,.28)}
+  background:linear-gradient(135deg,rgb(from var(--accent) r g b / .12),rgb(from var(--ai-2) r g b / .12));
+  border:1px solid rgb(from var(--accent) r g b / .28)}
 .welcomebar .wb-copy{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
 .welcomebar .wb-copy b{font-size:14.5px}
 .welcomebar .wb-copy span{font-size:13px;color:var(--text-2)}
@@ -211,9 +275,9 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 /* ============ Feed mode toggle + live hero + new banner ============ */
 .feedmodes{display:flex;gap:8px;margin-bottom:16px}
 .feedmodes .chip{cursor:pointer}
-.feedmodes .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
+.feedmodes .chip.on{color:var(--chip-blue);background:rgb(from var(--accent) r g b / .16);border-color:rgb(from var(--accent) r g b / .4)}
 .livehero{position:relative;padding:12px 14px 10px;margin-bottom:18px}
-.livehero.brk{border-color:rgba(255,93,115,.4)}
+.livehero.brk{border-color:rgb(from var(--breaking) r g b / .4)}
 .livehero .lh-dot{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
   letter-spacing:1px;color:var(--text-2);margin-bottom:8px}
 .live-dot{width:7px;height:7px;border-radius:50%;background:var(--breaking);animation:pulse 1.4s infinite}
@@ -235,7 +299,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
    place while you scroll, costs no layout, and can be ignored. */
 .newbanner{position:fixed;top:calc(var(--navh,57px) + 14px);left:50%;z-index:45;
   display:inline-flex;align-items:center;gap:9px;
-  padding:7px 7px 7px 14px;border-radius:100px;cursor:pointer;
+  padding:7px 7px 7px 14px;border-radius:var(--r-pill);cursor:pointer;
   background:var(--pill-bg);border:1px solid var(--border-2);color:var(--text);
   box-shadow:0 8px 26px rgba(15,23,42,.16);backdrop-filter:blur(14px);
   font-size:13px;font-weight:600;letter-spacing:-.005em;
@@ -248,9 +312,9 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   background:var(--grad-ai);color:#fff;font-size:12px;line-height:1;flex-shrink:0}
 @keyframes newpop{from{opacity:0;transform:translate(-50%,-10px)}
                   to{opacity:1;transform:translate(-50%,0)}}
-@keyframes newpulse{0%{box-shadow:0 0 0 0 rgba(255,93,115,.5)}
-                    70%{box-shadow:0 0 0 7px rgba(255,93,115,0)}
-                    100%{box-shadow:0 0 0 0 rgba(255,93,115,0)}}
+@keyframes newpulse{0%{box-shadow:0 0 0 0 rgb(from var(--breaking) r g b / .5)}
+                    70%{box-shadow:0 0 0 7px rgb(from var(--breaking) r g b / 0)}
+                    100%{box-shadow:0 0 0 0 rgb(from var(--breaking) r g b / 0)}}
 @media (prefers-reduced-motion:reduce){
   .newbanner{animation:none;transform:translateX(-50%)}
   .newbanner .pulse{animation:none}}
@@ -263,8 +327,35 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .wall .wcard h2{font-family:var(--font-ed);font-size:26px;margin-bottom:8px}
 .wall .wcard p{color:var(--text-2);font-size:14px;margin-bottom:20px}
 .wall .wsignin{display:flex;justify-content:center;margin-bottom:12px}
-.wall .wskip{color:var(--text-2);font-size:13px;cursor:pointer}
+.wall .wskip{color:var(--text-2);font-size:13px;cursor:pointer;margin-top:4px}
 .savebtn{cursor:pointer}
+/* A themed wall card gets the current theme's own corner treatment (sharp for
+   Journal/Signal) instead of the sign-in wall's fixed rounded default — the
+   picker is the one moment a theme ought to look like itself even before
+   you've chosen it. */
+:root[data-skin="journal"] .wall .wcard, :root[data-skin="signal"] .wall .wcard{
+  border-radius:var(--r-lg);
+}
+
+/* ---- Theme picker ---- */
+.themecard{width:min(560px,94vw)!important;text-align:left!important}
+.themecard h2{text-align:center}
+.themecard>p{text-align:center}
+.themegrid{display:grid;gap:10px;margin-bottom:16px}
+.themeopt{display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;
+  border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);
+  text-align:left;transition:border-color .2s,background .2s}
+.themeopt:hover{border-color:var(--border-2)}
+.themeopt.on{border-color:var(--accent);background:rgb(from var(--accent) r g b / .08)}
+.themeopt b{display:block;font-size:14px;color:var(--text)}
+/* .desc, not a bare `span` selector — the swatch below is also a <span>, and
+   an element-selector match beats a same-specificity class match, which was
+   quietly forcing the swatch's display back to block and collapsing it to 0
+   height (flex:1 on a block box does nothing without a flex parent). */
+.themeopt .desc{display:block;font-size:12.5px;color:var(--text-2);margin-top:2px;line-height:1.4}
+.tswatch{display:flex;flex-shrink:0;width:44px;height:44px;border-radius:var(--r-sm);
+  overflow:hidden;border:1px solid var(--border)}
+.tswatch i{flex:1;display:block}
 .lc-master{display:flex;align-items:center;gap:10px;font-size:14px;margin:6px 0 14px;cursor:pointer}
 .lc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;
   border-top:1px solid var(--border);font-size:14px;cursor:pointer}
@@ -283,15 +374,15 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .locked-teaser{filter:blur(3px);opacity:.55;pointer-events:none;user-select:none}
 .locked-cta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
   margin-top:-6px;padding:14px 16px;border-radius:var(--r-md);
-  background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
-  border:1px solid rgba(77,159,255,.25)}
+  background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
+  border:1px solid rgb(from var(--accent) r g b / .25)}
 .locked-pitch{flex:1;min-width:180px;font-size:13.5px;color:var(--text-2);
   display:flex;align-items:center;gap:8px}
 .locked-ic{font-size:14px}
 .locked-cta .btn.sm{padding:8px 16px;font-size:13px;white-space:nowrap}
 .convcard{padding:22px 24px;margin-top:24px;text-align:center;
-  background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
-  border:1px solid rgba(77,159,255,.25)}
+  background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
+  border:1px solid rgb(from var(--accent) r g b / .25)}
 .convcard h3{font-family:var(--font-ed);font-size:20px;margin-bottom:6px}
 .convcard p{color:var(--text-2);font-size:13.5px;margin-bottom:14px}
 .convcard .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
@@ -315,7 +406,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .topics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
 .topics .chip{cursor:pointer;transition:all .2s}
 .topics .chip:hover{border-color:var(--border-2);color:var(--text)}
-.topics .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
+.topics .chip.on{color:var(--chip-blue);background:rgb(from var(--accent) r g b / .16);border-color:rgb(from var(--accent) r g b / .4)}
 
 /* story card */
 /* content-visibility lets the browser skip layout+paint entirely for cards that
@@ -343,8 +434,8 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .titem:first-of-type{border-top:none}
 .titem .nm{font-size:13.5px;font-weight:500;flex:1}
 .titem svg{flex-shrink:0}
-.signal{padding:10px 12px;border-radius:var(--r-sm);background:rgba(124,92,255,.08);
-  border:1px solid rgba(124,92,255,.2);margin-bottom:8px}
+.signal{padding:10px 12px;border-radius:var(--r-sm);background:rgb(from var(--ai-2) r g b / .08);
+  border:1px solid rgb(from var(--ai-2) r g b / .2);margin-bottom:8px}
 .signal .nm{font-size:13px;font-weight:600;color:var(--chip-purple)}
 .signal .sg{font-size:12px;color:var(--text-2);margin-top:3px}
 .stat{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);font-size:13.5px}
@@ -377,9 +468,9 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   gap:11px;pointer-events:none;-webkit-user-select:none;user-select:none}
 .uprog .ulbl{writing-mode:vertical-rl;font-size:9.5px;letter-spacing:.16em;
   text-transform:uppercase;color:var(--text-3);white-space:nowrap}
-.uprog .utrack{width:3px;height:132px;border-radius:100px;background:var(--track);
+.uprog .utrack{width:3px;height:132px;border-radius:var(--r-pill);background:var(--track);
   overflow:hidden}
-.uprog .utrack>i{display:block;width:100%;height:var(--up);border-radius:100px;
+.uprog .utrack>i{display:block;width:100%;height:var(--up);border-radius:var(--r-pill);
   background:var(--grad-ai);transition:height .6s var(--ease)}
 .uprog .upct{font-family:var(--font-mono);font-size:11px;color:var(--text-2);
   font-variant-numeric:tabular-nums}
@@ -416,8 +507,8 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .claim .vd{flex-shrink:0;margin-top:2px}
 .claim .cx{font-size:14px;color:var(--text)}
 .claim .nt{font-size:12.5px;color:var(--text-2);margin-top:2px}
-.connection{padding:14px 16px;border-radius:var(--r-md);background:rgba(124,92,255,.07);
-  border:1px solid rgba(124,92,255,.2);margin-bottom:10px}
+.connection{padding:14px 16px;border-radius:var(--r-md);background:rgb(from var(--ai-2) r g b / .07);
+  border:1px solid rgb(from var(--ai-2) r g b / .2);margin-bottom:10px}
 .connection .oth{font-weight:600;font-size:14px;color:var(--chip-purple)}
 .connection .ch{font-size:13.5px;margin-top:6px;color:var(--text-2)}
 .connection .cf{font-family:var(--font-mono);font-size:11.5px;color:var(--predict);margin-top:8px}
@@ -427,8 +518,8 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .srcrow a{color:var(--text);font-size:14px}
 .srcrow .host{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:var(--text-2)}
 .foryou{padding:18px 22px;margin-bottom:14px;border-radius:var(--r-lg);
-  background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
-  border:1px solid rgba(77,159,255,.25)}
+  background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
+  border:1px solid rgb(from var(--accent) r g b / .25)}
 .foryou .lbl{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;
   text-transform:uppercase;letter-spacing:.09em;color:var(--chip-blue);margin-bottom:8px}
 
@@ -516,8 +607,8 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 
 /* ============ Ask AI ============ */
 .fab{position:fixed;right:26px;bottom:26px;z-index:60;display:flex;align-items:center;gap:9px;
-  padding:13px 20px;border-radius:100px;background:var(--grad-ai);color:#fff;font-weight:600;
-  font-size:14px;box-shadow:0 10px 34px rgba(94,120,255,.45);transition:transform .25s var(--ease)}
+  padding:13px 20px;border-radius:var(--r-pill);background:var(--grad-ai);color:#fff;font-weight:600;
+  font-size:14px;box-shadow:0 10px 34px rgb(from var(--accent) r g b / .45);transition:transform .25s var(--ease)}
 .fab:hover{transform:translateY(-3px) scale(1.02)}
 .askpanel{position:fixed;right:26px;bottom:26px;z-index:70;width:min(400px,92vw);max-height:70vh;
   display:flex;flex-direction:column;border-radius:20px;background:var(--modal-bg);
@@ -525,22 +616,23 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   transform:translateY(16px);opacity:0;pointer-events:none;transition:all .35s var(--ease)}
 .askpanel.on{transform:none;opacity:1;pointer-events:auto}
 .askpanel .ah{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--border)}
+.askpanel .ah svg{color:var(--ai-2)}
 .askpanel .ah b{font-size:14px}
 .askpanel .ah button{margin-left:auto;color:var(--text-2);padding:4px}
 .msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:120px}
 .msg{max-width:88%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.55}
-.msg.user{align-self:flex-end;background:rgba(77,159,255,.18);border:1px solid rgba(77,159,255,.3)}
+.msg.user{align-self:flex-end;background:rgb(from var(--accent) r g b / .18);border:1px solid rgb(from var(--accent) r g b / .3)}
 .msg.ai{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border)}
 .msg.ai.think i{display:inline-block;animation:blink 1s infinite}
 @keyframes blink{50%{opacity:.2}}
 .askrow{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
 .askrow input{flex:1;padding:11px 14px;border-radius:12px;background:var(--surface-2);
   border:1px solid var(--border);color:var(--text);font-size:13.5px;outline:none}
-.askrow input:focus{border-color:rgba(77,159,255,.5)}
+.askrow input:focus{border-color:rgb(from var(--accent) r g b / .5)}
 .askrow button{padding:0 16px;border-radius:12px;background:var(--grad-ai);color:#fff;font-weight:600}
 .sugchips{display:flex;gap:7px;flex-wrap:wrap;padding:0 16px 12px}
 .sugchips .chip{cursor:pointer}
-.sugchips .chip:hover{border-color:rgba(77,159,255,.4);color:var(--text)}
+.sugchips .chip:hover{border-color:rgb(from var(--accent) r g b / .4);color:var(--text)}
 
 /* modal */
 .modal{position:fixed;inset:0;z-index:110;background:rgba(4,7,14,.75);backdrop-filter:blur(10px);
@@ -554,12 +646,12 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   letter-spacing:.07em;color:var(--text-2);margin:16px 0 8px}
 .mcard input{width:100%;padding:11px 14px;border-radius:12px;background:var(--surface-2);
   border:1px solid var(--border);color:var(--text);font-size:14px;outline:none}
-.mcard input:focus{border-color:rgba(77,159,255,.5)}
+.mcard input:focus{border-color:rgb(from var(--accent) r g b / .5)}
 .ichips{display:flex;gap:8px;flex-wrap:wrap}
 .ichips .chip{cursor:pointer;padding:7px 14px;font-size:13px}
-.ichips .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.45)}
+.ichips .chip.on{color:var(--chip-blue);background:rgb(from var(--accent) r g b / .16);border-color:rgb(from var(--accent) r g b / .45)}
 .toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%) translateY(20px);
-  z-index:120;padding:11px 20px;border-radius:100px;background:var(--modal-bg);border:1px solid var(--border-2);
+  z-index:120;padding:11px 20px;border-radius:var(--r-pill);background:var(--modal-bg);border:1px solid var(--border-2);
   font-size:13.5px;opacity:0;transition:all .35s var(--ease);pointer-events:none;box-shadow:var(--shadow)}
 .toast.on{opacity:1;transform:translateX(-50%)}
 footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12.5px}
@@ -600,7 +692,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
   Ask AI</button>
 <div class="askpanel" id="askpanel" role="dialog" aria-label="Ask AI">
   <div class="ah">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C5CFF" stroke-width="2"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/></svg>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/></svg>
     <b>Intelligence Assistant</b>
     <button onclick="Ask.close()" aria-label="Close">✕</button>
   </div>
@@ -644,6 +736,15 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 <div class="toast" id="toast"></div>
 
 <script>
+/* Applied before anything else in this file runs, so a signed-in user who
+   picked a theme never sees a flash of the default one first. The account's
+   own copy (fetched once signed in) is the source of truth; this local cache
+   just paints correctly before that round trip can finish. */
+(function(){
+  var t = localStorage.getItem('bl_skin');
+  if (t && t !== 'default') document.documentElement.setAttribute('data-skin', t);
+})();
+
 /* ================= Config & state ================= */
 // API base resolves in order: ?api=<url> query param -> saved localStorage ->
 // default backend. The query param is also persisted for later visits.
@@ -739,6 +840,13 @@ const DEMO = {
 /* ================= Utilities ================= */
 const $ = q => document.querySelector(q);
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* Resolves a CSS custom property to its current value (e.g. cssVar('--accent')).
+   A handful of spots build color into a JS string — an inline style's hex+alpha
+   suffix trick, an SVG stroke attribute — where a CSS var() can't go. Reading the
+   live value here means those spots repaint correctly under Theme.apply() same
+   as everything driven by var() directly, instead of carrying their own frozen
+   hex literals that skins would have no way to reach. */
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 /* strip legacy label prefixes from trend names generated before the prompt fix */
 const cleanName = s => String(s??'').replace(/^(early signal:|rising focus:|trend:)\s*/i,'').replace(/^./, c=>c.toUpperCase());
 /* Category display label: sentence case, except "ai" which stays fully capital.
@@ -775,7 +883,7 @@ async function api(path, opts={}){
 }
 function ring(score){
   const r=17, c=2*Math.PI*r, off=c*(1-score/100);
-  const col = score>=75?'#3DDC97':score>=50?'#FFC24D':'#FF5D73';
+  const col = score>=75?cssVar('--trust'):score>=50?cssVar('--warn'):cssVar('--breaking');
   return `<svg width="44" height="44" viewBox="0 0 44 44" role="img" aria-label="Corroboration ${Math.round(score)} percent">
     <circle cx="22" cy="22" r="${r}" fill="none" style="stroke:var(--track)" stroke-width="4"/>
     <circle cx="22" cy="22" r="${r}" fill="none" stroke="${col}" stroke-width="4" stroke-linecap="round"
@@ -955,7 +1063,8 @@ document.addEventListener('click', e=>{
         const link = Nav.url('/'+kind+'/'+el.dataset.id);
         (navigator.clipboard?.writeText(link)||Promise.reject()).then(()=>toast('Link copied'))
           .catch(()=>toast(link)); } break;
-    case 'wall-close': Gate.close(); break;
+    case 'wall-close': Gate.close(); Theme.close(); break;
+    case 'pick-theme': Theme.choose(el.dataset.theme); break;
   }
 });
 
@@ -1015,7 +1124,8 @@ async function saveContextPatch(patch){
   if(!cur){ try{ cur = await api('/users/'+S.creds.user_id+'/context'); }catch(e){ cur = {}; } }
   const body = Object.assign({
     interests:[], profession:'', line_of_business:'', role_seniority:'',
-    location:{}, native_language:'', preferred_language:'English', micro:{}, live_prefs:{}
+    location:{}, native_language:'', preferred_language:'English', micro:{}, live_prefs:{},
+    theme:'default'
   }, cur, patch);
   S.ctx = body;
   try{ await api('/users/'+S.creds.user_id+'/context',{method:'PUT',body:JSON.stringify(body)}); }catch(e){}
@@ -1304,7 +1414,8 @@ const Gate = {
     ask:['Ask the AI assistant','Sign up free with Google to ask questions about any story and get answers tailored to you.'],
     personalize:['Personalize your feed','Sign up free with Google, then tell Descry your world once — every story explains what it means for you.'],
     forecast:['See what may happen next','Descry connects today\'s stories into forward-looking predictions — the reasoning, what to watch, and the stories behind each one. Sign up free with Google to read them.'],
-    connections:['Unlock hidden connections','Descry looks for links between stories that aren\'t obvious — a supply shock here, a policy shift there. Sign up free with Google to see them.']
+    connections:['Unlock hidden connections','Descry looks for links between stories that aren\'t obvious — a supply shock here, a policy shift there. Sign up free with Google to see them.'],
+    theme:['Make it yours','Sign up free with Google to choose a look for Descry and carry it to every device you sign into.']
   },
   wall(title, body){
     let el=$('#wall');
@@ -1320,9 +1431,77 @@ const Gate = {
   /* Returns true if the action may proceed; otherwise shows the wall and returns false.
      Signed-in users always proceed (personalize opens the calibrate modal). */
   require(action){
-    if(S.creds && S.creds.token){ if(action==='personalize') Calib.show(S.ctx||{}); return true; }
+    if(S.creds && S.creds.token){
+      if(action==='personalize') Calib.show(S.ctx||{});
+      if(action==='theme') Theme.show();
+      return true;
+    }
     const c=this.COPY[action]||this.COPY.read; this.wall(c[0],c[1]); return false;
   }
+};
+
+/* ================= Themes ================= (signed-in personalization —
+   Design A "The Journal" and Design B "The Signal" from the redesign study,
+   adopted as switchable skins. See the :root[data-skin] blocks for the actual
+   palette/type — this object only ever toggles which one is active. */
+const Theme = {
+  KEY: 'bl_skin',
+  OPTIONS: [
+    {id:'default', name:'Descry', desc:'The standard look.', sw:['#4D9FFF','#7C5CFF','#F5F7FB']},
+    {id:'journal', name:'The Journal', desc:'Warm editorial broadsheet — serif headlines, cream paper, one carmine accent.', sw:['#8E2B1E','#191511','#F5F1E8']},
+    {id:'signal', name:'The Signal', desc:'Swiss precision instrument — mono numerals, flat white, one vermilion accent.', sw:['#D8371C','#121210','#FBFBF9']}
+  ],
+  current(){ return localStorage.getItem(this.KEY) || 'default'; },
+  apply(id){
+    if (id === 'default') document.documentElement.removeAttribute('data-skin');
+    else document.documentElement.setAttribute('data-skin', id);
+  },
+  /* Local-only switch — no round trip, no account write. Used for the instant
+     preview when picking, and to fall back to default on sign-out. */
+  set(id){ localStorage.setItem(this.KEY, id); this.apply(id); },
+  reset(){ localStorage.removeItem(this.KEY); this.apply('default'); },
+  /* Persists the choice (signed-in only — callers gate this via Gate.require
+     first) and redraws whatever's on screen so the handful of colors computed
+     at render time (module icons, the corroboration ring, claim verdicts —
+     see cssVar()) pick up the new palette immediately instead of on next nav. */
+  async choose(id){
+    this.set(id);
+    this.close();
+    // Persist (updates S.ctx synchronously, then PUTs) BEFORE redrawing — the
+    // Profile page's Appearance label reads S.ctx.theme, and reversing this
+    // order let route() repaint from the value this call is about to replace.
+    await saveContextPatch({theme:id});
+    route();
+  },
+  /* Cross-device sync: adopt whatever this signed-in account saved elsewhere.
+     Never fights a choice made on THIS device in the same session — only runs
+     right after sign-in and at boot, before the visitor could have touched it. */
+  async syncFromAccount(){
+    if(!(S.creds && S.creds.token)) return;
+    try{
+      const ctx = await api('/users/'+S.creds.user_id+'/context');
+      S.ctx = ctx;
+      const id = ctx.theme || 'default';
+      if (id !== this.current()){ this.set(id); route(); }
+    }catch(e){}
+  },
+  show(){
+    let el = $('#themepicker');
+    if (!el){ el=document.createElement('div'); el.id='themepicker'; el.className='wall'; document.body.appendChild(el); }
+    const cur = this.current();
+    el.innerHTML = `<div class="wcard themecard">
+      <h2>Choose your look</h2>
+      <p>Same stories, your Descry. Switch anytime — this follows your account, not the device.</p>
+      <div class="themegrid">${this.OPTIONS.map(o=>`
+        <button class="themeopt${o.id===cur?' on':''}" data-act="pick-theme" data-theme="${o.id}">
+          <span class="tswatch">${o.sw.map(c=>`<i style="background:${c}"></i>`).join('')}</span>
+          <b>${esc(o.name)}</b>
+          <span class="desc">${esc(o.desc)}</span>
+        </button>`).join('')}
+      </div>
+      <div class="wskip" data-act="wall-close">Done</div></div>`;
+  },
+  close(){ const el=$('#themepicker'); if (el) el.remove(); }
 };
 
 /* ================= Story Reader ================= */
@@ -1383,27 +1562,27 @@ const Story = { async render(id){
   const paraHTML = t => String(t||'').split(/\n+/).filter(Boolean)
     .map(p=>`<p>${esc(p)}</p>`).join('') || `<p>${esc(t||'')}</p>`;
   const modules = [
-    ['what','What happened','#4D9FFF', paraHTML(what)],
-    ['why','Why it matters','#FFC24D', paraHTML(why)],
+    ['what','What happened',cssVar('--accent'), paraHTML(what)],
+    ['why','Why it matters',cssVar('--warn'), paraHTML(why)],
     // Personalized take sits right after what → why, as its own collapsible card
     // (collapsed by default), mirroring the iOS story reader. Guests see the card
     // too — locked, not hidden — because a feature nobody knows exists can't
     // persuade anyone to sign up.
-    ['foryou','What this means for you','#4D9FFF',
+    ['foryou','What this means for you',cssVar('--accent'),
       s.impact_text
         ? `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
-             background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
-             border:1px solid rgba(77,159,255,.25)">${esc(s.impact_text)}</div>`
+             background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
+             border:1px solid rgb(from var(--accent) r g b / .25)">${esc(s.impact_text)}</div>`
         : lockedHTML('personalize',
             'Descry can explain what this story means for your job, city and interests.',
             `<p>${esc(String(what).slice(0,150))}…</p>`)],
-    s.trends?.length ? ['big','The bigger picture','#B48CFF',
+    s.trends?.length ? ['big','The bigger picture',cssVar('--predict'),
       s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
         <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
         <div style="font-size:13px">${esc(t.narrative)}</div></div></div>`).join('')] : null,
     // Guests see that N connections were found and a blurred sample; the chains
     // (the actual insight) need an account.
-    s.connections?.length ? ['conn','Hidden connections','#7C5CFF',
+    s.connections?.length ? ['conn','Hidden connections',cssVar('--ai-2'),
       signedIn()
         ? `<p style="font-size:12.5px;margin-bottom:12px">AI-inferred hypotheses — links that aren't obvious but may matter. Treat as leads, not facts.</p>`+
           s.connections.map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
@@ -1414,7 +1593,7 @@ const Story = { async render(id){
             `Descry found ${s.connections.length} link${s.connections.length===1?'':'s'} between this and other stories.`,
             s.connections.slice(0,2).map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
               <div class="ch">Descry traced how this connects — sign in to read the reasoning.</div></div>`).join(''))] : null,
-    ['verify','Claim check','#3DDC97', this.claims(s)],
+    ['verify','Claim check',cssVar('--trust'), this.claims(s)],
     s.sources?.length ? ['src','Sources','#9AA5B8',
       s.sources.map(x=>`<div class="srcrow"><span class="dot"></span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title||x.url)}</a><span class="host">${esc(x.source||'')}</span></div>`).join('')] : null
   ].filter(Boolean);
@@ -1471,7 +1650,7 @@ async toggleSave(){
   }catch(e){ toast('Couldn\'t save — try again'); }
 },
 claims(s){
-  const V = {corroborated:['#3DDC97','M9 12l2 2 4-4'], disputed:['#FF5D73','M15 9l-6 6M9 9l6 6'], unverified:['#FFC24D','M12 8v4m0 4h.01']};
+  const V = {corroborated:[cssVar('--trust'),'M9 12l2 2 4-4'], disputed:[cssVar('--breaking'),'M15 9l-6 6M9 9l6 6'], unverified:[cssVar('--warn'),'M12 8v4m0 4h.01']};
   const verdicts = s.claims?.verdicts?.length ? s.claims.verdicts :
     (s.claims?.claims||[]).map(c=>({claim:c,verdict:'unverified',note:'Not yet assessed'}));
   return verdicts.map(v=>{const [col,path]=V[v.verdict]||V.unverified;
@@ -1784,7 +1963,7 @@ const TrendPage = { async render(id){
       · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise">${esc(cleanName(t.name))}</h1>
     ${gone?`<div class="glass rise" style="display:flex;gap:12px;align-items:flex-start;padding:14px 16px;
-      margin:14px 0 4px;border-color:rgba(255,194,77,.3);background:rgba(255,194,77,.07)">
+      margin:14px 0 4px;border-color:rgb(from var(--warn) r g b / .3);background:rgb(from var(--warn) r g b / .07)">
       <span style="font-size:16px;line-height:1.2">🗄️</span>
       <div style="font-size:13.5px;color:var(--text-2)">
         <b style="color:var(--text)">No longer an active trend.</b>
@@ -2046,6 +2225,16 @@ const Profile = {
         </div>
       </section>
 
+      <section class="glass prof-card rise" style="animation-delay:.08s">
+        <div class="prof-head">
+          <span class="prof-label">APPEARANCE</span>
+          <button class="btn ghost sm" onclick="Theme.show()">Change</button>
+        </div>
+        <div class="prof-interests">
+          <span class="chip accent">${esc((Theme.OPTIONS.find(o=>o.id===(ctx.theme||'default'))||Theme.OPTIONS[0]).name)}</span>
+        </div>
+      </section>
+
       <section class="glass prof-card rise" style="animation-delay:.1s">
         <span class="prof-label">YOUR INTELLIGENCE</span>
         <div class="stat-grid">
@@ -2143,12 +2332,14 @@ const Auth = {
       await loadBookmarks();
       Feed.reconnect();                   // re-open SSE with the user's id
       await loadData(); route();
+      Theme.syncFromAccount();    // adopt whatever theme this account saved elsewhere
       // Offer personalization only if they've never set it — and never on a shared link.
       if (!u.has_context && !localStorage.getItem('bl_seen') && !isShared()) Calib.show();
     }catch(e){ toast('Sign-in failed — check the API URL and client ID'); }
   },
   signout(){
     S.creds = null; S.saved = new Set(); localStorage.removeItem('bl_creds');
+    Theme.reset();     // theming is a signed-in feature — don't keep showing it signed out
     try{ google.accounts.id.disableAutoSelect(); }catch(e){}
     Auth.render(); Feed.reconnect(); loadData().then(route); toast('Signed out');
   }
@@ -2168,7 +2359,7 @@ addEventListener('resize', setNavHeight);
   ENTRY.path = Nav.path();       // before anything can navigate away from it
   setNavHeight();
   await loadData();
-  if (S.creds && S.creds.token) await loadBookmarks();
+  if (S.creds && S.creds.token){ await loadBookmarks(); Theme.syncFromAccount(); }
   route();
   Auth.render();                 // show avatar immediately if already signed in
   // GIS loads async; poll briefly so the "Sign in with Google" button can render.
