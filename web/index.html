@@ -564,6 +564,16 @@ const $ = q => document.querySelector(q);
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* strip legacy label prefixes from trend names generated before the prompt fix */
 const cleanName = s => String(s??'').replace(/^(early signal:|rising focus:|trend:)\s*/i,'').replace(/^./, c=>c.toUpperCase());
+/* "Last told" — created_at doubles as the retelling time when a developing
+   story is refreshed with new facts (see agents.py Storyteller), so this one
+   timestamp covers both a story's debut and its latest retelling. */
+function lastTold(epochSeconds){
+  if (!epochSeconds) return '';
+  const d = new Date(epochSeconds*1000), s = Math.floor((Date.now()-d)/1000);
+  const rel = s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago'
+    :s<7*86400?Math.floor(s/86400)+'d ago':d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  return {rel, full: d.toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})};
+}
 function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('on'); setTimeout(()=>el.classList.remove('on'),2600); }
 function saveEng(){ localStorage.setItem('bl_eng', JSON.stringify(S.eng)); }
 function bumpStreak(){
@@ -769,8 +779,9 @@ const Brief = { async render(){
 card(s,i){
   const cred = Math.round(s.credibility||0);
   const impact = s.impact_score>0 ? `<span class="chip ${s.impact_score>=3?'breaking':s.impact_score>=2?'warn':'accent'} impact">${['','For you','Affects you','High impact'][Math.min(s.impact_score,3)]}</span>`:'';
+  const told = lastTold(s.created_at);
   return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="#/story/${s.id}">
-    <div class="top"><span class="chip">${esc(s.topic)}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}</div>
+    <div class="top"><span class="chip">${esc(s.topic)}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
       <span class="tv">${cred}%</span>${impact}</div></a>`;
@@ -969,6 +980,7 @@ const Story = { async render(id){
   if (!wall) Meter.record(id);
   if (!S.eng.topics.includes(s.topic)){ S.eng.topics.push(s.topic); saveEng(); }
   const sent = (s.credibility||0)>=75?['Balanced coverage','trust']:['Developing story','warn'];
+  const told = lastTold(s.created_at);
   const paras = String(s.narrative||'').split(/\n+/).filter(Boolean);
   const what = paras[0]||s.narrative, why = paras.slice(1).join(' ')||'This story links to wider forces covered in "The bigger picture" below — open it to see which trends it feeds and who is affected.';
   const modules = [
@@ -994,7 +1006,7 @@ const Story = { async render(id){
   ].filter(Boolean);
   $('#view').innerHTML = `
   <div class="wrap reader">
-    <div class="crumb rise"><a href="#/">← Feed</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span></div>
+    <div class="crumb rise"><a href="#/">← Feed</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>

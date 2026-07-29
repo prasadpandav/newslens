@@ -285,7 +285,7 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
     return {"id": s["id"], "headline": s["headline"], "narrative": s["narrative"],
             "credibility": s["credibility"], "credibility_note": s["credibility_note"],
             "claims": db.uj(s["claims"]), "topic": s["topic"], "sources": articles,
-            "trends": trends, "connections": conns,
+            "trends": trends, "connections": conns, "created_at": s["created_at"],
             "impact_text": fi["impact_text"] if fi else "",
             "impact_score": fi["impact_score"] if fi else 0}
 
