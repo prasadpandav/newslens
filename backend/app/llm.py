@@ -358,12 +358,16 @@ def _mock(task, prompt):
                 "note": "Mock estimate based on source count; add an LLM key for real verification."}
     if task == "story":
         return {"headline": f"{label}: The Shift No One Priced In",
-                "narrative": f"Reports centred on {label.lower()} emerged across several "
-                             f"sources today. The core development is summarised in the "
-                             f"linked articles, and momentum has been building in this "
-                             f"space. Watch for follow-up coverage and official responses "
-                             f"in the coming days. (Placeholder text — this story was "
-                             f"generated without an LLM key or after hitting a rate limit.)"}
+                "what_happened": f"Reports centred on {label.lower()} emerged across "
+                                 f"several sources today. The core development is "
+                                 f"summarised in the linked articles, and momentum has "
+                                 f"been building in this space over recent days. "
+                                 f"(Placeholder text — this story was generated without "
+                                 f"an LLM key or after hitting a rate limit.)",
+                "why_it_matters": f"If it holds, this reshapes how {label.lower()} is "
+                                  f"priced and who carries the cost. Watch for follow-up "
+                                  f"coverage and official responses in the coming days. "
+                                  f"(Placeholder text.)"}
     if task in ("signals", "signals_unit"):
         # Parse two story ids from digest lines so mock demos still work.
         ids = re.findall(r"^([0-9a-f]{12}) \|", prompt, re.M)[:3]

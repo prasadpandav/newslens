@@ -744,6 +744,16 @@ class Storyteller:
             if out is None:
                 continue
             headline = out.get("headline", arts[0]["title"])
+            # The prompt returns the storyline and the implications as separate
+            # fields. `narrative` keeps its original meaning (the story body), so
+            # feed previews / OG / search are unaffected; "why it matters" gets
+            # its own column instead of being recovered by splitting paragraphs,
+            # which is what previously left "What happened" as just the hook and
+            # dumped the whole storyline into "Why it matters".
+            # `narrative` is still accepted as a fallback key so a model that
+            # answers in the old single-field shape degrades instead of failing.
+            narrative = out.get("what_happened") or out.get("narrative") or items
+            why_matters = out.get("why_it_matters", "")
             conn_ids = [r["id"] for r in con.execute(
                 "SELECT id FROM connections WHERE confidence >= 0.6 AND "
                 "(article_a IN (%s) OR article_b IN (%s))"
@@ -751,10 +761,10 @@ class Storyteller:
                 ids + ids).fetchall()]
             if mine:  # developing story: refresh content, bump to top of the feed
                 con.execute(
-                    "UPDATE stories SET headline=?,narrative=?,credibility=?,"
+                    "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
                     "connection_ids=?,created_at=? WHERE id=?",
-                    (headline, out.get("narrative", items), score, note,
+                    (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
                      db.j(sorted(mine["tids"] | {trend["id"]})), db.j(conn_ids),
                      db.now(), mine["id"]))
@@ -762,10 +772,10 @@ class Storyteller:
                 upd_ct += 1
             else:
                 con.execute(
-                    "INSERT INTO stories (id,headline,narrative,credibility,credibility_note,"
-                    "claims,topic,article_ids,trend_ids,connection_ids,created_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (db.new_id(), headline, out.get("narrative", items), score, note,
+                    "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
+                    "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
+                    "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (db.new_id(), headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
                      db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids), db.now()))
                 new_ct += 1

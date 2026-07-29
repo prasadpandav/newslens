@@ -270,10 +270,11 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # cheap incremental fetch behind the "N new stories" banner. created_at is
     # exposed so the client can diff/merge without a second call.
     floor = max(since, db.now() - 7 * 86400)
-    # No SQL-side ORDER BY/LIMIT here on purpose: ranking.sort_by_rank needs the
-    # full candidate set to blend recency with impact (see module docstring) —
-    # limiting in SQL first would silently drop older-but-more-impactful stories
-    # before they ever got a chance to be ranked.
+    # Candidate pool capped generously above realistic 7-day volume (a few
+    # hundred at most — MAX_STORIES_PER_RUN * runs/week), so ranking still sees
+    # every real candidate and can blend recency with impact (see module
+    # docstring), while a future bug can't turn this into an unbounded scan the
+    # way the un-capped /trends and /signals queries just did in production.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
                   s.topic, s.created_at, s.article_ids,
@@ -281,7 +282,8 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
            LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
-           WHERE s.created_at > ?""",
+           WHERE s.created_at > ?
+           ORDER BY s.created_at DESC LIMIT 1000""",
         (user_id, floor)).fetchall()
     con.close()
     items = [dict(r) for r in rows]
@@ -329,6 +331,10 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
                      "WHERE user_id=? AND story_id=?", (user_id, story_id)).fetchone()
     con.close()
     return {"id": s["id"], "headline": s["headline"], "narrative": s["narrative"],
+            # Separate field, not a paragraph split of `narrative` — see the
+            # Storyteller. Empty on stories written before the split existed;
+            # clients fall back to the old behaviour when it is.
+            "why_matters": s["why_matters"] or "",
             "credibility": s["credibility"], "credibility_note": s["credibility_note"],
             "claims": db.uj(s["claims"]), "topic": s["topic"], "sources": articles,
             "trends": trends, "connections": conns, "created_at": s["created_at"],
@@ -394,14 +400,19 @@ def track(body: TrackIn, request: Request):
 def trends():
     # Ranked per kind: macro velocity is an article count while micro velocity is
     # a small ratio, so one mixed velocity sort would push every micro trend
-    # (the portal's "Early signals" tab) out of a shared limit. Fetched without a
-    # SQL ORDER BY/LIMIT so ranking sees every live candidate before slicing —
-    # see backend/app/ranking.py.
+    # (the portal's "Early signals" tab) out of a shared limit. The candidate
+    # cap (500) is generous relative to the live-trend count reconciliation
+    # actually maintains — a circuit breaker, not a normal-path constraint — so
+    # ranking still sees every real candidate before slicing to 40/20; see
+    # backend/app/ranking.py.
     con = db.connect()
     # retired_at IS NULL: trends the newest run no longer sees leave the radar,
-    # but their rows (and links) survive — see _reconcile_trends.
+    # but their rows (and links) survive — see _reconcile_trends. Indexed
+    # (trends_kind_retired) so this stays fast as retired rows accumulate over
+    # their TREND_RETIRE_PURGE_DAYS retention window instead of being deleted.
     q = ("SELECT id, kind, name, narrative, sectors, regions, article_ids, velocity, "
-         "created_at FROM trends WHERE kind=? AND retired_at IS NULL")
+         "created_at FROM trends WHERE kind=? AND retired_at IS NULL "
+         "ORDER BY created_at DESC LIMIT 500")
     macro = ranking.sort_by_rank(
         [dict(r) for r in con.execute(q, ("macro",)).fetchall()],
         impact_of=lambda t: t["velocity"] or 0.0)[:40]
@@ -419,16 +430,29 @@ def trends():
     return {"items": out}
 
 
-def _signal_payload(con, g):
-    """Shape one forecast row for the API. Shared by /signals and /signal/{id} so
-    a deep-linked forecast is byte-for-byte what the list would have shown."""
+def _fetch_stories_by_id(con, ids):
+    """Batch story lookup: one query for however many ids are needed, instead of
+    one query per id. /signals used to call this once PER STORY PER SIGNAL —
+    harmless for a single forecast (/signal/{id}) but a real N+1 for the list."""
+    ids = sorted({i for i in ids if i})
+    if not ids:
+        return {}
+    rows = con.execute(
+        "SELECT id, headline, narrative, credibility, credibility_note, topic, "
+        f"created_at FROM stories WHERE id IN ({','.join('?' * len(ids))})",
+        ids).fetchall()
+    return {r["id"]: dict(r) for r in rows}
+
+
+def _shape_signal(g, story_of):
+    """Shape one forecast row for the API from a pre-fetched {id: story} lookup.
+    Shared by /signals and /signal/{id} so a deep-linked forecast is
+    byte-for-byte what the list would have shown."""
     stories, id_head = [], {}
     for sid in db.uj(g["story_ids"], []):
-        s = con.execute(
-            "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-            "created_at FROM stories WHERE id=?", (sid,)).fetchone()
+        s = story_of.get(sid)
         if s:
-            stories.append(dict(s))
+            stories.append(s)
             id_head[sid] = s["headline"]
     return {"id": g["id"],
             "title": linkify(g["title"], id_head),
@@ -440,16 +464,28 @@ def _signal_payload(con, g):
             "stories": stories, "story_refs": story_refs(id_head)}
 
 
+def _signal_payload(con, g):
+    """Single-forecast shape (/signal/{id}) — only ever needs one batch lookup."""
+    return _shape_signal(g, _fetch_stories_by_id(con, db.uj(g["story_ids"], [])))
+
+
 @app.get("/signals")
 def signals():
     """Foresight signals: cross-domain predictions with their supporting stories.
     Raw 12-hex story ids the model cited inline are rewritten to the story's
     headline (linkify), and story_refs lets clients make those spans tappable."""
     con = db.connect()
+    # Defensive cap, same reasoning as /trends: Foresight already prunes this
+    # table to WINDOW_DAYS, so 200 is generous headroom, not a normal-path limit.
     rows = ranking.sort_by_rank(
-        [dict(r) for r in con.execute("SELECT * FROM signals").fetchall()],
+        [dict(r) for r in con.execute(
+            "SELECT * FROM signals ORDER BY created_at DESC LIMIT 200").fetchall()],
         impact_of=lambda g: g["confidence"] or 0.0)
-    out = [_signal_payload(con, g) for g in rows]
+    # One batched lookup for every story any signal in this list references,
+    # instead of a query per (signal, story) pair.
+    story_of = _fetch_stories_by_id(
+        con, (sid for g in rows for sid in db.uj(g["story_ids"], [])))
+    out = [_shape_signal(g, story_of) for g in rows]
     con.close()
     return {"items": out}
 
@@ -548,10 +584,13 @@ def search(q: str):
     """Simple LIKE search over stories and trends. Upgrade path: embeddings."""
     like = f"%{q.strip()}%"
     con = db.connect()
+    # why_matters is searched too: the implications half of a story is now its
+    # own column, so leaving it out would quietly shrink what search can find.
     story_rows = con.execute(
         "SELECT id, headline, narrative, credibility, topic FROM stories "
         "WHERE headline LIKE ? OR narrative LIKE ? OR topic LIKE ? "
-        "ORDER BY created_at DESC LIMIT 15", (like, like, like)).fetchall()
+        "OR COALESCE(why_matters,'') LIKE ? "
+        "ORDER BY created_at DESC LIMIT 15", (like, like, like, like)).fetchall()
     trend_rows = con.execute(
         "SELECT id, kind, name, narrative, velocity FROM trends "
         "WHERE (name LIKE ? OR narrative LIKE ?) AND retired_at IS NULL "

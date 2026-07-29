@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS visits (
   country TEXT, user_id TEXT, created_at REAL);
 CREATE INDEX IF NOT EXISTS visits_day ON visits(day);
 CREATE INDEX IF NOT EXISTS visits_device ON visits(device);
+-- /feed and /signals filter or order by these; without an index each call
+-- full-scans the table. (trends' index is created after its ALTER TABLE below,
+-- since it covers a column that doesn't exist in this CREATE TABLE.)
+CREATE INDEX IF NOT EXISTS stories_created ON stories(created_at);
+CREATE INDEX IF NOT EXISTS signals_created ON signals(created_at);
 -- Pre-aggregated request counts: one row per (day, route), incremented in place.
 -- Keeps overall-traffic reporting O(days) instead of one row per request.
 CREATE TABLE IF NOT EXISTS traffic (
@@ -88,6 +93,21 @@ def connect():
             con.execute("ALTER TABLE trends ADD COLUMN retired_at REAL")
         except sqlite3.OperationalError:
             pass  # column already exists
+        # Story bodies are two distinct pieces: `narrative` holds the full
+        # "what happened" storyline (unchanged meaning, so every existing reader
+        # — feed previews, OG descriptions, search — keeps working), and this
+        # holds "why it matters". Older rows have NULL here and fall back to the
+        # legacy first-paragraph/rest split on the client.
+        try:
+            con.execute("ALTER TABLE stories ADD COLUMN why_matters TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # /trends filters WHERE kind=? AND retired_at IS NULL on every request.
+        # Retired rows are now kept (not deleted) for TREND_RETIRE_PURGE_DAYS, so
+        # without this index that scan gets slower every day instead of staying
+        # flat — must run after the ALTER TABLE above, since it covers that column.
+        con.execute("CREATE INDEX IF NOT EXISTS trends_kind_retired "
+                   "ON trends(kind, retired_at)")
         _schema_ready = True
     return con
 

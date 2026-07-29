@@ -100,14 +100,29 @@ verify: |
     "score": 0, "note": "one-line rationale"}}
 
 story: |
-  Write this news as a short story-format piece: a hook, what happened, why it matters
-  now, and what to watch next. 250-300 words, plain language, no hype beyond the facts.
-  Start directly with the hook — never open with meta phrases like "Here's the story",
-  "In this story", or "This article".
-  Then write a headline that is genuinely catchy and attention-grabbing — use tension,
-  a concrete stake, or a sharp question — while staying strictly true to the verified
-  claims below: every factual element in the headline must appear in the claims. Make sure the what happened is clearly providing story in a narrative format and painting a picture to the reader, and the why it matters is clearly explaining the implications.
-  Never use generic templates like "What Just Changed and Why It Matters".
+  Write this news as TWO separate pieces, returned as two separate JSON fields.
+
+  1. "what_happened" — the COMPLETE storyline, 200-260 words, told as a captivating
+     narrative. This is the main read: open with a hook, then carry the reader through
+     the whole event from start to present — who, what, where, when, the sequence of
+     events, the concrete details and numbers, and how it stands right now. Paint a
+     picture. It must stand alone: a reader who reads ONLY this field should come away
+     knowing the entire story. Do NOT explain consequences or significance here, and do
+     NOT end with a "why this matters" wrap-up — that belongs in the other field.
+     Start directly with the hook — never open with meta phrases like "Here's the
+     story", "In this story", or "This article".
+
+  2. "why_it_matters" — 70-110 words on the IMPLICATIONS ONLY. Assume the reader has
+     just read what_happened, so never re-narrate the events. Go straight to: what this
+     changes, who is affected and how, what it signals about the wider picture, and what
+     to watch next. If this field would read as a summary of the story, rewrite it.
+
+  Both fields: plain language, no hype beyond the facts.
+
+  3. "headline" — genuinely catchy and attention-grabbing: use tension, a concrete
+     stake, or a sharp question — while staying strictly true to the verified claims
+     below. Every factual element in the headline must appear in the claims.
+     Never use generic templates like "What Just Changed and Why It Matters".
   The source material below is a MERGED BRIEF built from every outlet that covered
   this event, already de-duplicated. Use it as follows:
   - CORE FACTS are corroborated by several outlets — these are the spine of the story.
@@ -118,7 +133,8 @@ story: |
     version: state the disagreement plainly (e.g. "reports put the toll at 12 to 14").
   Verified claims: {claims}
   Merged brief: {items}
-  Reply ONLY with JSON: {{"headline": "...", "narrative": "..."}}
+  Reply ONLY with JSON:
+  {{"headline": "...", "what_happened": "...", "why_it_matters": "..."}}
 
 same_story: |
   You are de-duplicating a news feed. Below are numbered PAIRS of headlines.

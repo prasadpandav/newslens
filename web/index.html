@@ -120,7 +120,10 @@
   .gbtn-fallback{border-color:transparent}
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
+/* Smooth scrolling only where it was asked for (anchor jumps), not globally —
+   a global rule also hijacks scroll restoration on every hash route change,
+   which is what made navigating between views feel laggy. */
+html{scroll-behavior:auto}
 body{background:var(--bg);color:var(--text);font-family:var(--font-ui);
   font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
@@ -133,8 +136,16 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 
 /* ============ Primitives ============ */
+/* Surface for content cards. Deliberately NO backdrop-filter: per DESIGN-IOS.md
+   glass belongs to the *functional* layer (nav, overlays, sticky pill) — things
+   with content scrolling beneath them — never to content itself. A blur on every
+   card means one compositing layer per card, each re-sampling its backdrop every
+   scroll frame; with 30+ cards that is the main cause of scroll stutter, and it
+   buys nothing visually here because the backdrop is a near-flat gradient. */
 .glass{background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--r-lg);backdrop-filter:blur(14px)}
+  border-radius:var(--r-lg)}
+/* Opt-in blur for the functional layer only. */
+.frost{backdrop-filter:blur(14px)}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;
   border-radius:100px;font-size:12px;font-weight:600;letter-spacing:.02em;
   background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
@@ -262,8 +273,14 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .topics .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
 
 /* story card */
+/* content-visibility lets the browser skip layout+paint entirely for cards that
+   are scrolled off-screen; contain-intrinsic-size gives it a size estimate so
+   the scrollbar stays stable. Matters most on the long feed (30-100 cards).
+   Only `transform` is transitioned — animating background/border-color on hover
+   repaints the card, and on a long list those repaints land mid-scroll. */
 .scard{display:block;padding:22px 24px;margin-bottom:16px;color:var(--text);
-  transition:transform .3s var(--ease),border-color .3s,background .3s;cursor:pointer}
+  content-visibility:auto;contain-intrinsic-size:auto 220px;
+  transition:transform .25s var(--ease);cursor:pointer}
 .scard:hover{transform:translateY(-3px);border-color:var(--border-2);background:var(--surface-2)}
 .scard .top{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .scard h3{font-family:var(--font-ed);font-size:22px;font-weight:600;line-height:1.25;margin-bottom:8px}
@@ -318,8 +335,14 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .module .mhead h3{font-size:15px;font-weight:600;flex:1}
 .module .mhead .chev{transition:transform .35s var(--ease);color:var(--text-2)}
 .module.open .mhead .chev{transform:rotate(180deg)}
-.module .mbody{max-height:0;overflow:hidden;transition:max-height .5s var(--ease)}
-.module.open .mbody{max-height:1600px}
+/* Expand/collapse. The tidy grid-template-rows:0fr->1fr technique was tried here
+   and rejected: a module opened from the initial HTML sized correctly, but one
+   toggled later stayed collapsed because 0fr->1fr does not interpolate reliably
+   once the track has resolved to a pixel value. max-height is the version that
+   actually works; the cap is simply set well above any real module so nothing
+   clips. Only the height eases — no blur or shadow rides along with it. */
+.module .mbody{max-height:0;overflow:hidden;transition:max-height .45s var(--ease)}
+.module.open .mbody{max-height:4000px}
 .module .minner{padding:2px 22px 22px;color:var(--text-2);font-size:14.5px}
 .module .minner p+p{margin-top:10px}
 .claim{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--border)}
@@ -348,7 +371,8 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .tabs button{padding:8px 18px;border-radius:10px;font-weight:600;font-size:14px;color:var(--text-2);transition:all .2s}
 .tabs button.on{background:var(--surface-2);color:var(--text);border:1px solid var(--border-2)}
 .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
-.tcard{padding:22px;transition:transform .3s var(--ease),border-color .3s;cursor:default}
+.tcard{padding:22px;content-visibility:auto;contain-intrinsic-size:auto 200px;
+  transition:transform .25s var(--ease);cursor:default}
 .tcard:hover{transform:translateY(-3px);border-color:var(--border-2)}
 .tcard .th{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
 .tcard h3{font-size:16.5px;font-weight:600;line-height:1.3;flex:1}
@@ -702,20 +726,39 @@ document.addEventListener('click', e=>{
 });
 
 /* ================= Data ================= */
-async function loadData(){
+/* Stories are the page; trends and signals are the rail. Each is loaded on its
+   own so a slow or failing sidebar call can neither hold up the feed nor drag
+   the whole page into demo mode — previously ONE Promise.all awaited all three,
+   so /trends alone could block the render, and because it had no .catch() a
+   trends failure replaced real, already-fetched stories with DEMO content. */
+async function loadStories(){
   try{
-    const [st, tr, sg] = await Promise.all([
-      S.creds ? api('/feed?user_id='+S.creds.user_id).catch(()=>api('/stories?limit=100')) : api('/stories?limit=30'),
-      api('/trends'),
-      api('/signals').catch(()=>({items:[]}))
-    ]);
-    S.stories = st.items; S.trends = tr.items; S.signals = sg.items || [];
-    S.online = true; S.lastLoaded = Date.now();
+    const st = S.creds
+      ? await api('/feed?user_id='+S.creds.user_id).catch(()=>api('/stories?limit=100'))
+      : await api('/stories?limit=30');
+    S.stories = st.items; S.online = true; S.lastLoaded = Date.now();
   }catch(e){
-    S.online = false; S.stories = DEMO.stories; S.trends = DEMO.trends;
-    S.signals = DEMO.signals;
+    S.online = false; S.stories = DEMO.stories;   // demo only when the FEED itself fails
   }
   $('#offline').classList.toggle('hidden', S.online);
+}
+
+/* Sidebar data. Never throws, never flips the page into demo mode: an empty
+   rail is honest, whereas fabricated trends next to real stories are not. */
+async function loadRail(){
+  const [tr, sg] = await Promise.all([
+    api('/trends').catch(()=>null),
+    api('/signals').catch(()=>null)
+  ]);
+  if (tr) S.trends = tr.items || [];
+  else if (!S.online) S.trends = DEMO.trends;
+  if (sg) S.signals = sg.items || [];
+  else if (!S.online) S.signals = DEMO.signals;
+}
+
+async function loadData(){
+  await loadStories();
+  await loadRail();
 }
 
 /* Merge a patch into the signed-in user's saved context and PUT it (whole-object
@@ -763,7 +806,13 @@ function welcomeBannerHTML(){
 /* ================= Feed (home / landing) ================= */
 const Brief = { async render(){
   $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div><br><div class="skel" style="height:200px"></div></div>`;
-  if (!S.stories.length) await loadData();
+  if (!S.stories.length){
+    // Paint as soon as the stories land; the rail (trends/forecasts) streams in
+    // behind it and re-renders once, so a slow sidebar never delays the news.
+    await loadStories();
+    if (!S.trends.length && !S.signals.length)
+      loadRail().then(()=>{ if (location.hash==='#/'||location.hash===''||location.hash.startsWith('#/brief')) Brief.render(); });
+  }
   bumpStreak();
   const signedIn = !!(S.creds && S.creds.token);
   const personalized = signedIn && S.creds.has_context;
@@ -1022,11 +1071,20 @@ const Story = { async render(id){
   if (!S.eng.topics.includes(s.topic)){ S.eng.topics.push(s.topic); saveEng(); }
   const sent = (s.credibility||0)>=75?['Balanced coverage','trust']:['Developing story','warn'];
   const told = lastTold(s.created_at);
+  // Stories written since the narrative split carry `why_matters` as its own
+  // field, so `narrative` is the complete storyline. Older stories don't, and
+  // for those we keep the legacy behaviour: first paragraph = what, rest = why.
   const paras = String(s.narrative||'').split(/\n+/).filter(Boolean);
-  const what = paras[0]||s.narrative, why = paras.slice(1).join(' ')||'This story links to wider forces covered in "The bigger picture" below — open it to see which trends it feeds and who is affected.';
+  const split = !s.why_matters;
+  const what = split ? (paras[0]||s.narrative) : s.narrative;
+  const why  = s.why_matters || paras.slice(1).join(' ')
+    || 'This story links to wider forces covered in "The bigger picture" below — open it to see which trends it feeds and who is affected.';
+  // Multi-paragraph storylines render as real paragraphs, not one wall of text.
+  const paraHTML = t => String(t||'').split(/\n+/).filter(Boolean)
+    .map(p=>`<p>${esc(p)}</p>`).join('') || `<p>${esc(t||'')}</p>`;
   const modules = [
-    ['what','What happened','#4D9FFF',`<p>${esc(what)}</p>`],
-    ['why','Why it matters','#FFC24D',`<p>${esc(why)}</p>`],
+    ['what','What happened','#4D9FFF', paraHTML(what)],
+    ['why','Why it matters','#FFC24D', paraHTML(why)],
     // Personalized take sits right after what → why, as its own collapsible card
     // (collapsed by default), mirroring the iOS story reader.
     s.impact_text ? ['foryou','What this means for you','#4D9FFF',
@@ -1053,13 +1111,12 @@ const Story = { async render(id){
       <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
       <button class="btn ghost sm" data-act="copylink" data-kind="story" data-id="${esc(s.id)}">🔗 Copy link</button>
     </div>
-    <p class="lede rise" style="animation-delay:.08s">${esc(what)}</p>
     <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
       <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
     <div class="understand"><span>Understanding</span><div class="meter"><i id="uprog" style="width:10%"></i></div><span id="upct">10%</span></div>
     <div id="mods">${modules.map((m,i)=>`
-      <div class="module glass" id="mod-${m[0]}">
-        <button class="mhead" onclick="Story.toggle('${m[0]}',${modules.length})" aria-expanded="false">
+      <div class="module glass${m[0]==='what'?' open':''}" id="mod-${m[0]}">
+        <button class="mhead" onclick="Story.toggle('${m[0]}',${modules.length})" aria-expanded="${m[0]==='what'}">
           <span class="ic" style="background:${m[2]}1c;color:${m[2]}">${ICONS[m[0]]||ICONS.what}</span>
           <h3>${m[1]}</h3>
           <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
@@ -1072,7 +1129,10 @@ const Story = { async render(id){
   $('#fab').classList.remove('hidden');
   this.renderSaveBtn();
   if (wall) { Gate.require('read'); return; }   // metered: teaser + sign-in wall
-  setTimeout(()=>this.toggle('what',modules.length),400);
+  // "What happened" is already open in the markup (it is the story itself, and
+  // the reader shouldn't have to click to read it) — so only credit it toward
+  // the understanding meter. Calling toggle() here would close it.
+  this.markOpened('what', modules.length);
 },
 renderSaveBtn(){
   const b=$('#savebtn'); if(!b) return;
@@ -1103,13 +1163,19 @@ toggle(id, total){
   const el = $('#mod-'+id); if(!el) return;
   const open = el.classList.toggle('open');
   el.querySelector('.mhead').setAttribute('aria-expanded', open);
-  if (open && !S.opened.has(id)){
-    S.opened.add(id);
-    const pct = Math.min(100, Math.round(10 + 90*S.opened.size/total));
-    $('#uprog').style.width = pct+'%'; $('#upct').textContent = pct+'%';
-    if (pct>=100){ S.eng.understood++; saveEng(); toast('✓ Story understood — nicely done');
-      this.endCTA(); }
-  }
+  if (open) this.markOpened(id, total);
+},
+/* Credit a module toward the understanding meter. Split out from toggle() so a
+   module that starts open can count without being flipped shut. */
+markOpened(id, total){
+  if (S.opened.has(id)) return;
+  S.opened.add(id);
+  const pct = Math.min(100, Math.round(10 + 90*S.opened.size/total));
+  const bar = $('#uprog'), lbl = $('#upct');
+  if (bar) bar.style.width = pct+'%';
+  if (lbl) lbl.textContent = pct+'%';
+  if (pct>=100){ S.eng.understood++; saveEng(); toast('✓ Story understood — nicely done');
+    this.endCTA(); }
 },
 /* Conversion card shown to guests at the natural stopping point (story finished). */
 endCTA(){
@@ -1217,7 +1283,7 @@ const SignalPage = { async render(id){
       <button class="btn ghost sm" data-act="copylink" data-kind="signal" data-id="${esc(g.id)}">🔗 Copy link</button>
     </div>
     <p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>
-    <div class="module glass open" style="margin-top:14px"><div class="mbody" style="max-height:none"><div class="minner">
+    <div class="module glass open" style="margin-top:14px"><div class="mbody"><div class="minner">
       <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${linkifyRefs(g.chain, g.story_refs)}</p>
       ${g.watch?`<p><b style="color:var(--warn)">What to watch:</b> ${esc(g.watch)}</p>`:''}
       ${(g.affected||[]).length?`<p>${g.affected.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</p>`:''}
