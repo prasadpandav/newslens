@@ -8,14 +8,19 @@ struct StoryDetailView: View {
     @StateObject private var eng = Engagement.shared
     @State private var story: StoryDetail?
     @State private var error: String?
+    /// Which modules are expanded right now — pure UI state, goes up and down.
     @State private var opened: Set<String> = []
+    /// Which modules the reader has ever opened. Progress reads from this, never
+    /// from `opened`: collapsing a card you've already read is tidying up, not
+    /// un-reading it, so the meter must not fall back.
+    @State private var credited: Set<String> = []
     @State private var moduleCount = 1
     @State private var toastMsg: String?
     @State private var showAsk = false
     @State private var celebrated = false
 
     private var progress: Double {
-        min(1, 0.1 + 0.9 * Double(opened.count) / Double(max(moduleCount, 1)))
+        min(1, 0.1 + 0.9 * Double(credited.count) / Double(max(moduleCount, 1)))
     }
 
     var body: some View {
@@ -32,6 +37,34 @@ struct StoryDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let s = story {
+                    ShareLink(item: api.shareURL("story/\(s.id)"),
+                              subject: Text(s.headline),
+                              message: Text("\(s.headline) — via Descry")) {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(BL.accent)
+                    }
+                    .accessibilityLabel("Share this story")
+                }
+                Button {
+                    Task {
+                        await api.toggleBookmark(storyID: storyID)
+                        toastMsg = api.savedStoryIDs.contains(storyID)
+                            ? "Saved for later" : "Removed from saved"
+                    }
+                } label: {
+                    Image(systemName: api.savedStoryIDs.contains(storyID)
+                          ? "bookmark.fill" : "bookmark")
+                        .foregroundStyle(BL.accent)
+                }
+                .accessibilityLabel(api.savedStoryIDs.contains(storyID)
+                                    ? "Remove from saved" : "Save for later")
+                .sensoryFeedback(.impact(weight: .light),
+                                 trigger: api.savedStoryIDs.contains(storyID))
+            }
+        }
         .toast($toastMsg)
         .sensoryFeedback(.success, trigger: celebrated)
         .overlay(alignment: .bottomTrailing) { askButton }
@@ -44,10 +77,13 @@ struct StoryDetailView: View {
                 story = s
                 moduleCount = modules(for: s).count
                 eng.explored(topic: s.topic)
+                // Open "What happened" by default so the reader gets the story
+                // in one go; the rest stays collapsed to invite exploration.
+                withAnimation(BL.spring.delay(0.3)) { _ = opened.insert("what") }
+                credit("what")
             } catch { self.error = "Server unreachable." }
             await api.sendFeedback(storyID: storyID, action: "open")
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Layout
@@ -56,8 +92,6 @@ struct StoryDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 hero(s)
-                if let impact = s.impactText, !impact.isEmpty { forYou(impact) }
-                understandingPill
                 ForEach(modules(for: s), id: \.id) { m in
                     ModuleCard(module: m, isOpen: opened.contains(m.id)) {
                         toggle(m.id)
@@ -71,20 +105,30 @@ struct StoryDetailView: View {
             .padding(.bottom, 90)
         }
         .scrollIndicators(.hidden)
+        // Pinned above the content: always-visible reading progress.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            understandingPill
+                .padding(.horizontal, 40)
+                .padding(.vertical, 4)
+        }
     }
 
     private func hero(_ s: StoryDetail) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Chip(text: s.topic.capitalized)
+            // Wrapping layout: with the timestamp added these no longer fit on
+            // one line at larger text sizes.
+            BLFlow(spacing: 8) {
+                Chip(text: s.topic.topicLabel)
                 Chip(text: s.credibility >= 75 ? "Balanced coverage" : "Developing story",
                      color: s.credibility >= 75 ? BL.trust : BL.warning, filled: true)
-                Spacer()
+                LastToldChip(at: s.createdAt)
                 ImpactBadge(score: s.impactScore ?? 0)
             }
             Text(s.headline)
-                .font(.system(.largeTitle, design: .serif, weight: .semibold))
+                .font(.system(.title, design: .serif, weight: .semibold))
                 .lineSpacing(2)
+                .lineLimit(4)
+                .minimumScaleFactor(0.8)
             HStack(spacing: 14) {
                 TrustRing(score: s.credibility)
                 VStack(alignment: .leading, spacing: 2) {
@@ -102,24 +146,9 @@ struct StoryDetailView: View {
         .padding(.top, 8)
     }
 
-    private func forYou(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("WHAT THIS MEANS FOR YOU", systemImage: "scope")
-                .font(.caption2.weight(.bold)).kerning(1)
-                .foregroundStyle(BL.accent)
-            Text(text).font(.subheadline)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(BL.aiGradient.opacity(0.13))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(BL.accent.opacity(0.3), lineWidth: 1)))
-    }
-
     private var understandingPill: some View {
         HStack(spacing: 10) {
-            Text("Understanding").font(.caption2).foregroundStyle(BL.text2)
+            Text("Story completed").font(.caption2).foregroundStyle(BL.text2)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.white.opacity(0.09))
@@ -157,19 +186,33 @@ struct StoryDetailView: View {
         withAnimation(BL.spring) {
             if opened.contains(id) { opened.remove(id) } else {
                 opened.insert(id)
-                if opened.count >= moduleCount, !celebrated {
-                    celebrated = true
-                    eng.storyUnderstood()
-                    toastMsg = "✓ Story understood — nicely done"
-                }
+                credit(id)
             }
         }
     }
 
+    /// Count a module toward the meter. Separate from `toggle` so a module that
+    /// starts expanded ("What happened") can count without being flipped shut,
+    /// and so collapsing never takes the credit back.
+    private func credit(_ id: String) {
+        guard !credited.contains(id) else { return }
+        credited.insert(id)
+        if credited.count >= moduleCount, !celebrated {
+            celebrated = true
+            eng.storyUnderstood()
+            toastMsg = "✓ Story completed — nicely done"
+        }
+    }
+
     private func modules(for s: StoryDetail) -> [StoryModule] {
+        // Stories written since the narrative split carry `whyMatters` as its own
+        // field, so `narrative` is the complete storyline. Older stories don't,
+        // and for those the legacy split still applies: first paragraph = what,
+        // the rest = why.
         let paras = s.narrative.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
-        let what = paras.first ?? s.narrative
-        let why = paras.dropFirst().joined(separator: "\n\n")
+        let stored = s.whyMatters ?? ""
+        let what = stored.isEmpty ? (paras.first ?? s.narrative) : s.narrative
+        let why = stored.isEmpty ? paras.dropFirst().joined(separator: "\n\n") : stored
         var mods: [StoryModule] = [
             .init(id: "what", title: "What happened", icon: "clock", tint: BL.accent,
                   content: .text(what)),
@@ -178,6 +221,12 @@ struct StoryDetailView: View {
                       ? "This story links to wider forces — open “The bigger picture” to see which trends it feeds and who is affected."
                       : why)),
         ]
+        // Personalized take sits right after the story is told (what -> why),
+        // as its own collapsible card, collapsed by default like the rest.
+        if let impact = s.impactText, !impact.isEmpty {
+            mods.append(.init(id: "foryou", title: "What this means for you",
+                              icon: "scope", tint: BL.accent, content: .forYou(impact)))
+        }
         if let trends = s.trends, !trends.isEmpty {
             mods.append(.init(id: "big", title: "The bigger picture", icon: "chart.line.uptrend.xyaxis",
                               tint: BL.prediction, content: .trends(trends)))
@@ -201,6 +250,7 @@ struct StoryDetailView: View {
 struct StoryModule: Identifiable {
     enum Content {
         case text(String)
+        case forYou(String)
         case trends([StoryDetail.StoryTrend])
         case connections([StoryDetail.Connection])
         case claims(StoryDetail.Claims?)
@@ -257,6 +307,17 @@ struct ModuleCard: View {
         switch content {
         case .text(let t):
             Text(t).font(.subheadline).foregroundStyle(BL.text2).lineSpacing(3)
+
+        case .forYou(let t):
+            Text(t)
+                .font(.subheadline)
+                .lineSpacing(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(BL.aiGradient.opacity(0.13))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(BL.accent.opacity(0.3), lineWidth: 1)))
 
         case .trends(let trends):
             VStack(spacing: 10) {
@@ -446,7 +507,6 @@ struct AskAISheet: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private func bubble(_ m: Message) -> some View {

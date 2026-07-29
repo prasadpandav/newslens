@@ -1,24 +1,120 @@
 import SwiftUI
+import CoreLocation
+
+/// One-shot location fetch + reverse geocode for onboarding autofill.
+/// Requires NSLocationWhenInUseUsageDescription in Info.plist.
+final class LocationOnce: NSObject, CLLocationManagerDelegate {
+    static let shared = LocationOnce()
+    private let manager = CLLocationManager()
+    private var completion: ((CLPlacemark?) -> Void)?
+    private var timeout: DispatchWorkItem?
+
+    func request(_ done: @escaping (CLPlacemark?) -> Void) {
+        completion = done
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
+
+        // Never leave the UI hanging: resolve as "not found" after 12s.
+        timeout?.cancel()
+        let t = DispatchWorkItem { [weak self] in self?.finish(nil) }
+        timeout = t
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: t)
+
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()   // location requested on grant
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.requestLocation()
+        default:
+            finish(nil)                               // denied — user types it instead
+        }
+    }
+
+    private func finish(_ placemark: CLPlacemark?) {
+        DispatchQueue.main.async {
+            self.timeout?.cancel()
+            self.completion?(placemark)
+            self.completion = nil                      // one-shot
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
+        guard completion != nil else { return }
+        switch m.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            m.requestLocation()
+        case .denied, .restricted:
+            finish(nil)
+        default:
+            break   // .notDetermined — waiting for the user's answer
+        }
+    }
+
+    // Only ever invoked by CLLocationManager via delegate dispatch, never called
+    // directly — marking it deprecated is safe (nothing else references it by
+    // name) and lets it call the isolated legacy geocoder below without
+    // re-surfacing the warning here.
+    @available(*, deprecated, message: "delegate callback; calls the isolated legacy geocoder")
+    func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
+        guard let loc = locs.first else { finish(nil); return }
+        Self.legacyReverseGeocode(loc) { [weak self] placemark in
+            self?.finish(placemark)
+        }
+    }
+
+    func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        finish(nil)
+    }
+
+    /// CLGeocoder / reverseGeocodeLocation have no structured replacement as of
+    /// iOS 26: the suggested MKReverseGeocodingRequest only returns
+    /// MKAddressRepresentations (formatted address strings via fullAddress/
+    /// shortAddress) — there is no supported way left to get discrete
+    /// city/administrativeArea/country fields, which onboarding's location step
+    /// and the backend's UserContext both require (confirmed via Apple DTS
+    /// engineer response on the developer forums; open feedback FB20007974).
+    /// Isolated in its own deprecated declaration so the warning is contained to
+    /// one call instead of surfacing at every caller. Revisit if Apple ships a
+    /// structured replacement.
+    @available(*, deprecated, message: "isolates the CLGeocoder deprecation to this one call")
+    private static func legacyReverseGeocode(_ location: CLLocation,
+                                             completion: @escaping (CLPlacemark?) -> Void) {
+        CLGeocoder().reverseGeocodeLocation(location) { placemarks, _ in
+            completion(placemarks?.first)
+        }
+    }
+}
 
 /// "Calibrate your lens" — conversational, optional-everything context capture,
 /// rebuilt with the Bluelligent Native design language.
 struct OnboardingView: View {
     @EnvironmentObject var api: APIClient
+    var initial: UserContext? = nil   // existing prefs to prefill when editing
     var onDone: () -> Void
 
     @State private var step = 0
+    @State private var seeded = false
     @State private var ctx = UserContext()
     @State private var customInterest = ""
     @State private var microKey = ""
     @State private var microValue = ""
     @State private var saving = false
     @State private var error: String?
+    @State private var locating = false
+    @State private var locationNote: String?
+    @State private var fields: [String] = []
+    @State private var role: [String] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let interestOptions = ["Technology", "Business", "World", "Science",
+    private let interestOptions = ["AI", "Technology", "Business", "World", "Science",
                                    "Health", "Energy", "Sports", "Politics",
                                    "Finance", "India"]
-    private let seniorities = ["Student", "Employee", "Manager", "Executive", "Owner"]
+    private let fieldOptions = ["Software & IT", "Healthcare", "Finance", "Retail",
+                                "Manufacturing", "Education", "Marketing & Sales",
+                                "Engineering", "Legal", "Government", "Agriculture",
+                                "Creative & Media", "Hospitality", "Logistics"]
+    private let roleOptions = ["Student", "Employee", "Manager", "Executive",
+                               "Business owner", "Freelancer", "Retired"]
     private let languages = ["English", "Hindi", "Marathi", "Tamil", "Telugu",
                              "Bengali", "Spanish", "French", "German", "Other"]
     private let totalSteps = 6
@@ -42,7 +138,21 @@ struct OnboardingView: View {
                 controls
             }
         }
-        .preferredColorScheme(.dark)
+        .onAppear(perform: seedFromExisting)
+    }
+
+    /// Prefill the form with the user's already-saved preferences (edit mode), so
+    /// nothing is lost: the final PUT replaces the whole context, so we must start
+    /// from the current values rather than a blank slate.
+    private func seedFromExisting() {
+        guard !seeded else { return }
+        seeded = true
+        guard let c = initial else { return }
+        ctx = c
+        fields = c.profession
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { fieldOptions.contains($0) }
+        role = roleOptions.filter { $0.lowercased() == c.roleSeniority.lowercased() }
     }
 
     // MARK: - Ambient orbs (skip when reduce-motion)
@@ -70,7 +180,7 @@ struct OnboardingView: View {
         HStack(spacing: 7) {
             ForEach(0..<totalSteps, id: \.self) { i in
                 Capsule()
-                    .fill(i <= step ? AnyShapeStyle(BL.aiGradient) : AnyShapeStyle(Color.white.opacity(0.12)))
+                    .fill(i <= step ? AnyShapeStyle(BL.aiGradient) : AnyShapeStyle(BL.surface2))
                     .frame(width: i == step ? 22 : 7, height: 7)
                     .animation(BL.spring, value: step)
             }
@@ -99,21 +209,67 @@ struct OnboardingView: View {
     }
 
     private var professionStep: some View {
-        StepCard(title: "What do you do?",
-                 subtitle: "So every story can explain what it means for your work.") {
-            field("Profession (e.g. pharmacist)", text: $ctx.profession)
-            field("Line of business (e.g. retail pharmacy, 3 stores)", text: $ctx.lineOfBusiness)
-            Picker("Role", selection: $ctx.roleSeniority) {
-                Text("Prefer not to say").tag("")
-                ForEach(seniorities, id: \.self) { Text($0).tag($0.lowercased()) }
-            }
-            .pickerStyle(.segmented)
+        StepCard(title: "What's your world of work?",
+                 subtitle: "Tap what fits — every story can then explain what it means for your work. Pick more than one if you like.") {
+            Text("YOUR FIELD").font(.caption2.weight(.bold)).kerning(1)
+                .foregroundStyle(BL.text2)
+            FlowChips(options: fieldOptions, selected: $fields)
+            Text("YOUR ROLE").font(.caption2.weight(.bold)).kerning(1)
+                .foregroundStyle(BL.text2).padding(.top, 6)
+            FlowChips(options: roleOptions, selected: $role)
+            Text("ANYTHING SPECIFIC? (OPTIONAL)").font(.caption2.weight(.bold)).kerning(1)
+                .foregroundStyle(BL.text2).padding(.top, 6)
+            field("e.g. retail pharmacy chain, 3 stores", text: $ctx.lineOfBusiness)
         }
+        .onChange(of: fields) { syncProfession() }
+        .onChange(of: role) { syncProfession() }
+    }
+
+    private func syncProfession() {
+        ctx.profession = fields.joined(separator: ", ")
+        ctx.roleSeniority = role.first?.lowercased() ?? ""
     }
 
     private var locationStep: some View {
         StepCard(title: "Where are you?",
-                 subtitle: "We link global trends to your city and region.") {
+                 subtitle: "We link global trends to your city and region. One tap — or type it if you prefer.") {
+            Button {
+                // Self-diagnose the most common failure: without this Info.plist
+                // key, iOS silently ignores the permission request (no popup).
+                if Bundle.main.object(forInfoDictionaryKey: "NSLocationWhenInUseUsageDescription") == nil {
+                    locationNote = "Setup needed: add “Privacy – Location When In Use Usage Description” to the app target's Info, then rebuild. iOS silently ignores location requests without it."
+                    return
+                }
+                locating = true
+                locationNote = nil
+                LocationOnce.shared.request { placemark in
+                    locating = false
+                    if let p = placemark {
+                        ctx.location.city = p.locality ?? p.subLocality
+                            ?? p.subAdministrativeArea ?? ""
+                        ctx.location.region = p.administrativeArea
+                            ?? p.subAdministrativeArea ?? ""
+                        ctx.location.country = p.country ?? ""
+                    } else {
+                        locationNote = "Couldn't detect automatically — you can type it below."
+                    }
+                }
+            } label: {
+                Label(locating ? "Detecting…" : "Use my current location",
+                      systemImage: "location.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundStyle(.white)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(BL.aiGradient))
+            }
+            .disabled(locating)
+            if let locationNote {
+                Text(locationNote).font(.caption).foregroundStyle(BL.warning)
+            }
+            Text("Your precise location never leaves the phone — only the city name is saved.")
+                .font(.caption2).foregroundStyle(BL.text2)
             field("City", text: $ctx.location.city)
             field("State / Region", text: $ctx.location.region)
             field("Country", text: $ctx.location.country)

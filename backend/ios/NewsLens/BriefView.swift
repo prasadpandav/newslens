@@ -1,19 +1,44 @@
 import SwiftUI
+import Combine
 
 /// Daily Brief — the redesigned home. Greeting, intelligence summary, glass topic
 /// filter, story cards with scroll-driven motion and zoom hero transitions.
 struct BriefView: View {
     @EnvironmentObject var api: APIClient
     @StateObject private var eng = Engagement.shared
+    // Live SSE channel for the hero + feed-freshness. Seeded with the shared client
+    // (same instance the environment injects) so it needs no environment at init.
+    @StateObject private var live = LiveStream(
+        api: .shared, categories: LiveCategory.allCases.map(\.rawValue))
     @State private var items: [FeedItem] = []
     @State private var trends: [Trend] = []
+    @State private var signals: [Signal] = []
     @State private var topic = "all"
     @State private var loading = true
     @State private var error: String?
+    @State private var showPersonalize = false
+    @State private var livePrefs = LivePrefs.default
+    @State private var newItems: [FeedItem] = []      // staged for the "N new" banner
+    @State private var lastLoaded = Date()
+    @AppStorage("onboarded") private var onboarded = false
+    @Environment(\.scenePhase) private var scenePhase
     @Namespace private var zoomNS
+    private let refreshTick = Timer.publish(every: 90, on: .main, in: .common).autoconnect()
 
-    private var topics: [String] { ["all"] + Array(Set(items.map(\.topic))).sorted() }
+    /// "All" first, then the user's chosen interests, then everything else.
+    private var topics: [String] {
+        let all = Set(items.map { $0.topic.lowercased() })
+        let mine = (UserDefaults.standard.stringArray(forKey: "user_interests") ?? [])
+            .map { $0.lowercased() }.filter { all.contains($0) }
+        let rest = all.subtracting(mine).sorted()
+        return ["all"] + mine + rest
+    }
     private var filtered: [FeedItem] { topic == "all" ? items : items.filter { $0.topic == topic } }
+    /// Already-saved preferences, so re-opening "Personalize" edits (not resets) them.
+    private var savedContext: UserContext? {
+        guard let d = UserDefaults.standard.data(forKey: "saved_context") else { return nil }
+        return try? JSONDecoder().decode(UserContext.self, from: d)
+    }
     private var greeting: String {
         let h = Calendar.current.component(.hour, from: .now)
         return h < 12 ? "Good morning." : h < 17 ? "Good afternoon." : "Good evening."
@@ -26,9 +51,17 @@ struct BriefView: View {
                 if loading {
                     ProgressView("Building your lens…").tint(BL.accent)
                 } else if let error {
-                    ContentUnavailableView("Can't reach the backend",
-                                           systemImage: "wifi.exclamationmark",
-                                           description: Text(error))
+                    ContentUnavailableView {
+                        Label("Can't load your brief", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Try again") {
+                            loading = true
+                            Task { await load() }
+                        }
+                        .buttonStyle(.borderedProminent).tint(BL.accent)
+                    }
                 } else {
                     content
                 }
@@ -42,17 +75,46 @@ struct BriefView: View {
             .navigationDestination(for: Trend.self) { trend in
                 TrendDetailView(trend: trend)
             }
-            .task { await load() }
+            .navigationDestination(for: Signal.self) { sig in
+                SignalDetailView(signal: sig)
+            }
+            .navigationDestination(for: LiveCard.self) { card in
+                StoryDetailView(storyID: card.storyID ?? "")
+            }
+            .task {
+                loadLivePrefs()
+                live.start()
+                await load()
+            }
             .refreshable { await load() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    live.start()
+                    Task { await checkNew() }
+                } else {
+                    live.stop()
+                }
+            }
+            .onReceive(refreshTick) { _ in
+                if scenePhase == .active { Task { await checkNew() } }
+            }
+            // The SSE feed marker flips when new stories land → stage the banner.
+            .onChange(of: live.feed?.newestID) { Task { await checkNew() } }
         }
-        .preferredColorScheme(.dark)
     }
 
     private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            // 12, not 18. Everything above the feed is preamble; on a 390pt-wide
+            // phone the old stack pushed the first story card entirely off-screen.
+            VStack(alignment: .leading, spacing: 12) {
+                LiveHeroView(stream: live, prefs: $livePrefs) {
+                    live.reconfigure(categories: livePrefs.categories)
+                }
                 header
-                if !microTrends.isEmpty { signalsStrip }
+                if !newItems.isEmpty { newStoriesBanner }
+                if !onboarded { personalizeBanner }
+                if !signals.isEmpty { signalsStrip }
                 topicBar
                 LazyVStack(spacing: 14) {
                     ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, item in
@@ -76,63 +138,114 @@ struct BriefView: View {
         .scrollIndicators(.hidden)
     }
 
-    private var microTrends: [Trend] { trends.filter { $0.kind == "micro" }.prefix(4).map { $0 } }
-    private var topSignal: String {
-        trends.first(where: { $0.kind == "macro" }).map { Self.cleanName($0.name) } ?? "—"
+    /// Masthead. Trimmed to two lines total: the greeting, and one meta line that
+    /// absorbed what used to be a chip row plus a separate freshness row. The
+    /// streak still has a home in the stats card at the foot of the feed, and the
+    /// date is carried by the meta line, so nothing was actually lost.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(greeting + " Here's what matters.")
+                .font(.system(.title2, design: .serif, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Circle().fill(live.connected ? BL.trust : BL.text2).frame(width: 5, height: 5)
+                Text(metaLine)
+                    .font(.caption2)
+                    .foregroundStyle(BL.text2)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.top, 2)
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(greeting + " Here's what matters.")
-                    .font(.system(.largeTitle, design: .serif, weight: .semibold))
-                Spacer()
+    private var metaLine: String {
+        let date = Date.now.formatted(.dateTime.weekday(.abbreviated).month().day())
+        let state = live.connected ? "Live" : "Updated \(relative(lastLoaded))"
+        return "\(date) · \(filtered.count) stories · ~\(max(2, filtered.count / 2)) min · \(state)"
+    }
+
+    private func relative(_ date: Date) -> String {
+        let s = Int(Date().timeIntervalSince(date))
+        if s < 60 { return "just now" }
+        if s < 3600 { return "\(s / 60)m ago" }
+        return "\(s / 3600)h ago"
+    }
+
+    /// "N new stories" pill — merges staged items at the top without disturbing scroll.
+    private var newStoriesBanner: some View {
+        Button {
+            withAnimation(BL.spring) {
+                let existing = Set(items.map(\.id))
+                items = (newItems.filter { !existing.contains($0.id) } + items)
+                    .sorted { ($0.createdAt ?? 0) > ($1.createdAt ?? 0) }
+                newItems = []
+                lastLoaded = Date()
             }
-            HStack(spacing: 8) {
-                Chip(text: Date.now.formatted(.dateTime.weekday(.wide).month().day()))
-                Chip(text: "🔥 \(eng.streak)-day streak", color: BL.warning, filled: true)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.up.circle.fill")
+                Text("\(newItems.count) new \(newItems.count == 1 ? "story" : "stories")")
+                    .font(.footnote.weight(.semibold))
             }
-            Text("**\(filtered.count) stories** · ~\(max(2, filtered.count / 2)) min to understand · top signal: **\(topSignal)**")
-                .font(.footnote)
-                .foregroundStyle(BL.text2)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16).padding(.vertical, 9)
+            .background(Capsule().fill(BL.aiGradient))
+            .frame(maxWidth: .infinity)
         }
-        .padding(.top, 8)
+        .buttonStyle(.plain)
+    }
+
+    /// Opt-in personalization: shown until the user completes "Calibrate your lens".
+    private var personalizeBanner: some View {
+        Button { showPersonalize = true } label: {
+            // One line, not three. It sits between the reader and the news, so it
+            // makes its offer and gets out of the way; the full pitch is on the
+            // sheet it opens.
+            HStack(spacing: 9) {
+                Image(systemName: "scope")
+                    .font(.caption.weight(.semibold)).foregroundStyle(BL.accent)
+                Text("Personalize my news")
+                    .font(.footnote.weight(.semibold))
+                Text("— what each story means for you")
+                    .font(.caption2).foregroundStyle(BL.text2)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(BL.text2)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(Capsule()
+                .fill(BL.aiGradient.opacity(0.12))
+                .overlay(Capsule().stroke(BL.accent.opacity(0.3), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showPersonalize) {
+            OnboardingView(initial: savedContext) {
+                onboarded = true
+                showPersonalize = false
+                Task { await load() }
+            }
+            .environmentObject(api)
+        }
     }
 
     private var signalsStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("EARLY SIGNALS · 72H", systemImage: "waveform.path.ecg")
+        VStack(alignment: .leading, spacing: 6) {
+            Text("WHAT MAY HAPPEN NEXT")
                 .font(.caption2.weight(.bold)).kerning(1)
                 .foregroundStyle(BL.prediction)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(microTrends) { t in
-                        NavigationLink(value: t) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(Self.cleanName(t.name))
-                                    .font(.footnote.weight(.semibold))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                Text(t.narrative)
-                                    .font(.caption2).foregroundStyle(BL.text2)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                HStack(spacing: 4) {
-                                    Text("Explore").font(.caption2.weight(.semibold))
-                                    Image(systemName: "chevron.right").font(.caption2)
-                                }
-                                .foregroundStyle(BL.prediction)
-                            }
-                            .padding(12)
-                            .frame(width: 210, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(BL.prediction.opacity(0.08))
-                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(BL.prediction.opacity(0.25), lineWidth: 1)))
+                    ForEach(signals) { sig in
+                        NavigationLink(value: sig) {
+                            SignalCard(signal: sig, compact: true)
                         }
                         .buttonStyle(.plain)
                     }
                 }
+                // The cards decide the strip's height; without this the horizontal
+                // ScrollView takes the tallest card and leaves the rest as padding.
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -155,7 +268,7 @@ struct BriefView: View {
                     Button {
                         withAnimation(BL.spring) { topic = t }
                     } label: {
-                        Chip(text: t.capitalized,
+                        Chip(text: t == "all" ? "All" : t.topicLabel,
                              color: t == topic ? BL.accent : BL.text2,
                              filled: t == topic)
                     }
@@ -169,7 +282,7 @@ struct BriefView: View {
         HStack {
             stat("flame.fill", "\(eng.streak)", "day streak", BL.warning)
             Divider().frame(height: 34).overlay(BL.hairline)
-            stat("checkmark.seal.fill", "\(eng.understood)", "understood", BL.trust)
+            stat("checkmark.seal.fill", "\(eng.understood)", "completed", BL.trust)
             Divider().frame(height: 34).overlay(BL.hairline)
             stat("safari.fill", "\(eng.topics.count)", "topics", BL.accent)
         }
@@ -189,16 +302,48 @@ struct BriefView: View {
     }
 
     private func load() async {
-        do {
-            async let f = api.fetchFeed()
-            async let t = api.fetchTrends()
-            items = try await f
-            trends = (try? await t) ?? []
-            error = nil
-        } catch {
-            self.error = "Start the backend (uvicorn app.main:app) and check APIClient.baseURL."
+        // Two attempts: free-tier servers can take up to a minute to wake
+        // from idle, so one failure often just means "still waking up".
+        for attempt in 0..<2 {
+            do {
+                async let f = api.fetchFeed()
+                async let t = api.fetchTrends()
+                async let g = api.fetchSignals()
+                items = try await f
+                trends = (try? await t) ?? []
+                signals = (try? await g) ?? []
+                error = nil
+                loading = false
+                newItems = []
+                lastLoaded = Date()
+                return
+            } catch {
+                if attempt == 0 { try? await Task.sleep(for: .seconds(4)) }
+            }
         }
+        error = "The server may just be waking up — it naps when idle and takes up to a minute to return. Wait a moment and tap Try again."
         loading = false
+    }
+
+    /// Load the hero config from the saved context (falls back to defaults).
+    private func loadLivePrefs() {
+        if let data = UserDefaults.standard.data(forKey: "saved_context"),
+           let ctx = try? JSONDecoder().decode(UserContext.self, from: data),
+           let p = ctx.livePrefs {
+            livePrefs = p
+            live.reconfigure(categories: p.categories)
+        }
+    }
+
+    /// Fetch only stories newer than what we're showing and stage them for the
+    /// banner — never auto-merges, so the reader's scroll position is preserved.
+    private func checkNew() async {
+        guard !loading, !items.isEmpty else { return }
+        let newest = items.compactMap(\.createdAt).max() ?? 0
+        guard newest > 0, let fresh = try? await api.fetchFeed(since: newest) else { return }
+        let known = Set(items.map(\.id))
+        let staged = fresh.filter { !known.contains($0.id) }
+        if !staged.isEmpty { withAnimation(BL.spring) { newItems = staged } }
     }
 }
 
@@ -210,10 +355,10 @@ struct StoryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Chip(text: item.topic.capitalized)
-                if item.credibility >= 85 { Chip(text: "Highly corroborated", color: BL.trust, filled: true) }
+                Chip(text: item.topic.topicLabel)
                 Spacer()
                 ImpactBadge(score: item.impactScore ?? 0)
+                LastToldLabel(at: item.createdAt)
             }
             Text(item.headline)
                 .font(.system(.title3, design: .serif, weight: .semibold))

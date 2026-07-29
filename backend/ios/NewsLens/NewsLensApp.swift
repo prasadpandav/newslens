@@ -1,34 +1,48 @@
 import SwiftUI
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 @main
-struct NewsLensApp: App {
+struct DescryApp: App {
     @StateObject private var api = APIClient.shared
-    @AppStorage("onboarded") private var onboarded = false
+    @AppStorage("welcomed") private var welcomed = false
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if onboarded {
+                if welcomed || api.userID != nil {
                     RootTabs()
                 } else {
-                    OnboardingView { onboarded = true }
+                    WelcomeView { welcomed = true }
                 }
             }
             .environmentObject(api)
-            .preferredColorScheme(.dark)   // dark-first design language
+            .onOpenURL { url in
+                #if canImport(GoogleSignIn)
+                GIDSignIn.sharedInstance.handle(url)
+                #endif
+            }
         }
     }
 }
 
 struct RootTabs: View {
+    @EnvironmentObject var api: APIClient
+
     var body: some View {
         // On iOS 26 the system tab bar renders in Liquid Glass automatically.
         TabView {
             BriefView()
                 .tabItem { Label("Brief", systemImage: "sun.max") }
             TrendsView()
-                .tabItem { Label("Radar", systemImage: "chart.line.uptrend.xyaxis") }
+                .tabItem { Label("Trends", systemImage: "chart.line.uptrend.xyaxis") }
+            SavedView()
+                .tabItem { Label("Saved", systemImage: "bookmark") }
+            ProfileView()
+                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
         }
         .tint(BL.accent)
+        .task { await api.loadBookmarks() }
     }
 }
