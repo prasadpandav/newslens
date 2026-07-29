@@ -136,6 +136,18 @@ def _auth(con, user_id, authorization):
         raise HTTPException(401, "bad token")
 
 
+def _is_authed(con, user_id, authorization):
+    """True when the caller proved they own `user_id`. Unlike _auth this never
+    raises — it answers "may this caller see signed-in-only content?" so an
+    anonymous request still gets a normal response, just without the premium
+    payload. Gating in the client alone only blurs pixels; the withheld fields
+    have to actually not be sent."""
+    if not user_id or not authorization:
+        return False
+    row = con.execute("SELECT token FROM users WHERE id=?", (user_id,)).fetchone()
+    return bool(row) and secrets.compare_digest(authorization, f"Bearer {row['token']}")
+
+
 class GoogleAuthIn(BaseModel):
     id_token: str
 
@@ -318,15 +330,22 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
         "WHERE retired_at IS NULL AND id IN (%s)" %
         ",".join("?" * len(db.uj(s["trend_ids"], []))),
         db.uj(s["trend_ids"], [])).fetchall()] if db.uj(s["trend_ids"], []) else []
+    # Hidden connections are a signed-in feature. Guests still learn that N
+    # connections exist and to which stories (enough for the client to show a
+    # real, honest teaser) but the CHAIN — the actual inference, which is the
+    # thing worth signing up for — is never put on the wire.
+    authed = _is_authed(con, user_id, authorization)
     conns = []
     for cid in db.uj(s["connection_ids"], []):
         c = con.execute("SELECT * FROM connections WHERE id=?", (cid,)).fetchone()
         if c:
             other = c["article_b"] if c["article_a"] in art_ids else c["article_a"]
             oa = con.execute("SELECT title,url FROM articles WHERE id=?", (other,)).fetchone()
-            conns.append({"chain": c["chain"], "confidence": c["confidence"],
+            conns.append({"chain": c["chain"] if authed else "",
+                          "confidence": c["confidence"] if authed else None,
+                          "locked": not authed,
                           "other_title": oa["title"] if oa else "",
-                          "other_url": oa["url"] if oa else ""})
+                          "other_url": (oa["url"] if oa else "") if authed else ""})
     fi = con.execute("SELECT impact_text,impact_score FROM feed_items "
                      "WHERE user_id=? AND story_id=?", (user_id, story_id)).fetchone()
     con.close()
@@ -444,37 +463,52 @@ def _fetch_stories_by_id(con, ids):
     return {r["id"]: dict(r) for r in rows}
 
 
-def _shape_signal(g, story_of):
+def _shape_signal(g, story_of, authed=True):
     """Shape one forecast row for the API from a pre-fetched {id: story} lookup.
     Shared by /signals and /signal/{id} so a deep-linked forecast is
-    byte-for-byte what the list would have shown."""
+    byte-for-byte what the list would have shown.
+
+    Forecasts are a signed-in feature. Guests get the hook — the title, the
+    prediction itself, its confidence and how many stories back it — because
+    that is what makes signing up worth it. The reasoning (`chain`), the
+    watch-list and the supporting stories are withheld server-side, not merely
+    hidden in the UI. `story_count` replaces the story list so the client can
+    still say "built from 5 stories" without receiving them."""
     stories, id_head = [], {}
     for sid in db.uj(g["story_ids"], []):
         s = story_of.get(sid)
         if s:
             stories.append(s)
             id_head[sid] = s["headline"]
-    return {"id": g["id"],
-            "title": linkify(g["title"], id_head),
-            "prediction": linkify(g["prediction"], id_head),
-            "chain": linkify(g["chain"], id_head),
-            "watch": linkify(g["watch"], id_head),
-            "affected": db.uj(g["affected"], []), "horizon": g["horizon"],
-            "confidence": g["confidence"], "created_at": g["created_at"],
-            "stories": stories, "story_refs": story_refs(id_head)}
+    out = {"id": g["id"],
+           "title": linkify(g["title"], id_head),
+           "prediction": linkify(g["prediction"], id_head),
+           "affected": db.uj(g["affected"], []), "horizon": g["horizon"],
+           "confidence": g["confidence"], "created_at": g["created_at"],
+           "story_count": len(stories), "locked": not authed}
+    if authed:
+        out.update({"chain": linkify(g["chain"], id_head),
+                    "watch": linkify(g["watch"], id_head),
+                    "stories": stories, "story_refs": story_refs(id_head)})
+    else:
+        out.update({"chain": "", "watch": "", "stories": [], "story_refs": []})
+    return out
 
 
-def _signal_payload(con, g):
+def _signal_payload(con, g, authed=True):
     """Single-forecast shape (/signal/{id}) — only ever needs one batch lookup."""
-    return _shape_signal(g, _fetch_stories_by_id(con, db.uj(g["story_ids"], [])))
+    return _shape_signal(g, _fetch_stories_by_id(con, db.uj(g["story_ids"], [])),
+                         authed=authed)
 
 
 @app.get("/signals")
-def signals():
+def signals(user_id: str = "", authorization: str = Header("")):
     """Foresight signals: cross-domain predictions with their supporting stories.
     Raw 12-hex story ids the model cited inline are rewritten to the story's
-    headline (linkify), and story_refs lets clients make those spans tappable."""
+    headline (linkify), and story_refs lets clients make those spans tappable.
+    Anonymous callers get the hook only — see _shape_signal."""
     con = db.connect()
+    authed = _is_authed(con, user_id, authorization)
     # Defensive cap, same reasoning as /trends: Foresight already prunes this
     # table to WINDOW_DAYS, so 200 is generous headroom, not a normal-path limit.
     rows = ranking.sort_by_rank(
@@ -485,7 +519,7 @@ def signals():
     # instead of a query per (signal, story) pair.
     story_of = _fetch_stories_by_id(
         con, (sid for g in rows for sid in db.uj(g["story_ids"], [])))
-    out = [_shape_signal(g, story_of) for g in rows]
+    out = [_shape_signal(g, story_of, authed=authed) for g in rows]
     con.close()
     return {"items": out}
 
@@ -565,7 +599,7 @@ def trend_detail(trend_id: str):
 
 
 @app.get("/signal/{signal_id}")
-def signal_detail(signal_id: str):
+def signal_detail(signal_id: str, user_id: str = "", authorization: str = Header("")):
     """One forecast by id. Without this a shared forecast link could only be
     resolved from whatever /signals happened to return, so any prediction that
     had dropped out of that list read as deleted while its row still existed."""
@@ -574,7 +608,7 @@ def signal_detail(signal_id: str):
     if not g:
         con.close()
         raise HTTPException(404, "signal not found")
-    out = _signal_payload(con, g)
+    out = _signal_payload(con, g, authed=_is_authed(con, user_id, authorization))
     con.close()
     return out
 

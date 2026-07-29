@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Descry — Understand the news, not just read it</title>
-<meta name="description" content="Descry turns the day's news into understanding — every story with its context, trends, hidden connections and a verified-claims corroboration score.">
+<meta name="description" content="Descry helps you understand the news, not just read it — every story explained with context, hidden connections and the deeper meaning behind it. Always free.">
 <!-- Default social/OG preview for the homepage; per-story previews are server-rendered at /s /t /g -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Descry">
@@ -247,6 +247,22 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .storylink:hover{color:var(--chip-blue)}
 .readerbar{display:flex;gap:10px;align-items:center;margin:18px 0 4px}
 .readerbar .btn.sm{padding:7px 14px;font-size:13px}
+/* ---- Locked premium feature (visible, not readable, until sign-in) ---- */
+.locked{position:relative}
+.locked-body{position:relative;max-height:104px;overflow:hidden;border-radius:var(--r-md)}
+/* The veil fades the teaser into the card rather than cutting it off, so it
+   reads as "there is more here" instead of "this is broken". */
+.locked-veil{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent 0%,transparent 30%,var(--bg) 96%)}
+.locked-teaser{filter:blur(3px);opacity:.55;pointer-events:none;user-select:none}
+.locked-cta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:-6px;padding:14px 16px;border-radius:var(--r-md);
+  background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
+  border:1px solid rgba(77,159,255,.25)}
+.locked-pitch{flex:1;min-width:180px;font-size:13.5px;color:var(--text-2);
+  display:flex;align-items:center;gap:8px}
+.locked-ic{font-size:14px}
+.locked-cta .btn.sm{padding:8px 16px;font-size:13px;white-space:nowrap}
 .convcard{padding:22px 24px;margin-top:24px;text-align:center;
   background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
   border:1px solid rgba(77,159,255,.25)}
@@ -469,7 +485,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 </nav>
 
 <main id="view"></main>
-<footer>Descry — News that tell stories, stories that matter · A Bluelligent product · AI-generated intelligence from linked sources · Corroboration scores measure source agreement, not absolute truth.</footer>
+<footer>Descry — News that tell stories, stories that matter · Free to use, always — no payment, ever · A Bluelligent product · AI-generated intelligence from linked sources · Corroboration scores measure source agreement, not absolute truth.</footer>
 
 <!-- Search overlay -->
 <div class="overlay" id="searchov" role="dialog" aria-label="Search">
@@ -628,6 +644,12 @@ const $ = q => document.querySelector(q);
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* strip legacy label prefixes from trend names generated before the prompt fix */
 const cleanName = s => String(s??'').replace(/^(early signal:|rising focus:|trend:)\s*/i,'').replace(/^./, c=>c.toUpperCase());
+/* Category display label: sentence case, except "ai" which stays fully capital.
+   The raw topic string (from feeds.yaml: world/business/finance/ai/...) is kept
+   as-is everywhere it's used for filtering/comparison — this only affects what
+   text is shown to the reader. */
+const topicLabel = t => { t = String(t||''); return t.toLowerCase()==='ai' ? 'AI'
+  : t.charAt(0).toUpperCase() + t.slice(1).toLowerCase(); };
 /* "Last told" — created_at doubles as the retelling time when a developing
    story is refreshed with new facts (see agents.py Storyteller), so this one
    timestamp covers both a story's debut and its latest retelling. */
@@ -711,6 +733,7 @@ document.addEventListener('click', e=>{
     case 'refresh': loadData().then(()=>Brief.render()); break;
     case 'signin': Auth.trigger(); break;
     case 'unlock-foryou': Gate.require('personalize'); break;
+    case 'unlock': Gate.require(el.dataset.gate || 'read'); break;
     case 'save': Story.toggleSave(); break;
     case 'personalize': Gate.require('personalize'); break;
     case 'ask': if(Gate.require('ask')) Ask.open(); break;
@@ -748,7 +771,7 @@ async function loadStories(){
 async function loadRail(){
   const [tr, sg] = await Promise.all([
     api('/trends').catch(()=>null),
-    api('/signals').catch(()=>null)
+    api(withUser('/signals')).catch(()=>null)
   ]);
   if (tr) S.trends = tr.items || [];
   else if (!S.online) S.trends = DEMO.trends;
@@ -796,7 +819,7 @@ function welcomeBannerHTML(){
   return `<div class="welcomebar glass rise" id="welcomebar">
     <div class="wb-copy">
       <b>Understand the news, not just read it.</b>
-      <span>Sign up free to save stories, personalize your feed, and read without limits.</span>
+      <span>Descry explains the deeper meaning behind every story — always free. Sign up to save stories, personalize your feed, and read without limits.</span>
     </div>
     <div class="wb-actions"><span id="wb-signin"></span>
       <button class="wb-x" aria-label="Dismiss" data-act="dismiss-welcome">✕</button></div>
@@ -841,7 +864,7 @@ const Brief = { async render(){
     </div>
     <div id="newbanner"></div>
     <div class="topics rise" style="animation-delay:.08s">${topics.map(t=>
-      `<button class="chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      `<button class="chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}">${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
     <div class="cols">
       <div id="cards">${cardsOrUnlock}</div>
       <aside class="rail">
@@ -851,7 +874,7 @@ const Brief = { async render(){
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
           ${(S.signals||[]).map(g=>{ const told = lastTold(g.created_at); return `<div class="signal" data-act="go" data-hash="#/signal/${esc(g.id)}" style="cursor:pointer">
             <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
-            <div class="sg" style="color:var(--predict);margin-top:5px">${(g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence${told?` · ${esc(told.rel)}`:''}</div></div>`;}).join('')
+            <div class="sg" style="color:var(--predict);margin-top:5px">${g.story_count ?? (g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence${told?` · ${esc(told.rel)}`:''}</div></div>`;}).join('')
           || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
         <div class="glass rise" style="animation-delay:.25s"><h4>Your intelligence</h4>
           <div class="stat"><span>Learning streak</span><b>${S.eng.streak} day${S.eng.streak>1?'s':''}</b></div>
@@ -871,7 +894,7 @@ card(s,i){
   const impact = s.impact_score>0 ? `<span class="chip ${s.impact_score>=3?'breaking':s.impact_score>=2?'warn':'accent'} impact">${['','For you','Affects you','High impact'][Math.min(s.impact_score,3)]}</span>`:'';
   const told = lastTold(s.created_at);
   return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="#/story/${s.id}">
-    <div class="top"><span class="chip">${esc(s.topic)}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
+    <div class="top"><span class="chip">${esc(topicLabel(s.topic))}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
       <span class="tv">${cred}%</span>${impact}</div></a>`;
@@ -886,6 +909,30 @@ function forYouUnlockHTML(){
       Sign in and tell Descry your world once — every story then explains what it means for
       <b>you</b>, ranked by how much it affects you.</p>
     <button class="btn primary" data-act="unlock-foryou">Sign in &amp; personalize</button>
+  </div>`;
+}
+
+const signedIn = () => !!(S.creds && S.creds.token);
+/* Append the signed-in user's id to a URL. The Authorization header rides along
+   from api(); the id tells the server WHICH user's token to verify, which is how
+   it decides whether to send signed-in-only content at all. */
+const withUser = (path) => !signedIn() ? path
+  : path + (path.includes('?') ? '&' : '?') + 'user_id=' + encodeURIComponent(S.creds.user_id);
+
+/* A premium feature shown to EVERYONE but readable only once signed in. The
+   point is to sell, not to hide: the reader still sees that the feature exists,
+   what it would tell them, and how much of it is waiting (`teaser`) — only the
+   content itself is withheld. `action` picks the wall copy in Gate.COPY. */
+function lockedHTML(action, pitch, teaser){
+  return `<div class="locked">
+    <div class="locked-body">
+      ${teaser?`<div class="locked-teaser">${teaser}</div>`:''}
+      <div class="locked-veil"></div>
+    </div>
+    <div class="locked-cta">
+      <div class="locked-pitch"><span class="locked-ic">🔒</span>${esc(pitch)}</div>
+      <button class="btn primary sm" data-act="unlock" data-gate="${esc(action)}">Sign in free to unlock</button>
+    </div>
   </div>`;
 }
 
@@ -1022,11 +1069,16 @@ const Meter = {
 };
 
 const Gate = {
+  // Every entry names "free" explicitly — signing in unlocks these features,
+  // it never leads to a payment of any kind, and the copy should never leave
+  // that ambiguous.
   COPY:{
-    read:['Keep reading — it\'s free','You\'ve reached today\'s free stories. Sign up with Google to read without limits, save stories, and personalize your feed.'],
-    save:['Save this story','Sign up with Google to keep stories and sync them across your devices.'],
-    ask:['Ask the AI assistant','Sign up with Google to ask questions about any story and get answers tailored to you.'],
-    personalize:['Personalize your feed','Sign up with Google, then tell Descry your world once — every story explains what it means for you.']
+    read:['Keep reading — it\'s free','You\'ve reached today\'s free stories. Sign up free with Google to read without limits, save stories, and personalize your feed.'],
+    save:['Save this story','Sign up free with Google to keep stories and sync them across your devices — no payment, ever.'],
+    ask:['Ask the AI assistant','Sign up free with Google to ask questions about any story and get answers tailored to you.'],
+    personalize:['Personalize your feed','Sign up free with Google, then tell Descry your world once — every story explains what it means for you.'],
+    forecast:['See what may happen next','Descry connects today\'s stories into forward-looking predictions — the reasoning, what to watch, and the stories behind each one. Sign up free with Google to read them.'],
+    connections:['Unlock hidden connections','Descry looks for links between stories that aren\'t obvious — a supply shock here, a policy shift there. Sign up free with Google to see them.']
   },
   wall(title, body){
     let el=$('#wall');
@@ -1086,26 +1138,41 @@ const Story = { async render(id){
     ['what','What happened','#4D9FFF', paraHTML(what)],
     ['why','Why it matters','#FFC24D', paraHTML(why)],
     // Personalized take sits right after what → why, as its own collapsible card
-    // (collapsed by default), mirroring the iOS story reader.
-    s.impact_text ? ['foryou','What this means for you','#4D9FFF',
-      `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
-        background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
-        border:1px solid rgba(77,159,255,.25)">${esc(s.impact_text)}</div>`] : null,
+    // (collapsed by default), mirroring the iOS story reader. Guests see the card
+    // too — locked, not hidden — because a feature nobody knows exists can't
+    // persuade anyone to sign up.
+    ['foryou','What this means for you','#4D9FFF',
+      s.impact_text
+        ? `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
+             background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
+             border:1px solid rgba(77,159,255,.25)">${esc(s.impact_text)}</div>`
+        : lockedHTML('personalize',
+            'Descry can explain what this story means for your job, city and interests.',
+            `<p>${esc(String(what).slice(0,150))}…</p>`)],
     s.trends?.length ? ['big','The bigger picture','#B48CFF',
       s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
         <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
         <div style="font-size:13px">${esc(t.narrative)}</div></div></div>`).join('')] : null,
+    // Guests see that N connections were found and a blurred sample; the chains
+    // (the actual insight) need an account.
     s.connections?.length ? ['conn','Hidden connections','#7C5CFF',
-      `<p style="font-size:12.5px;margin-bottom:12px">AI-inferred hypotheses — links that aren't obvious but may matter. Treat as leads, not facts.</p>`+
-      s.connections.map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
-        <div class="ch">${esc(c.chain)}</div><div class="cf">confidence ${Math.round(c.confidence*100)}%</div></div>`).join('')] : null,
+      signedIn()
+        ? `<p style="font-size:12.5px;margin-bottom:12px">AI-inferred hypotheses — links that aren't obvious but may matter. Treat as leads, not facts.</p>`+
+          s.connections.map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
+            <div class="ch">${esc(c.chain)}</div><div class="cf">confidence ${Math.round(c.confidence*100)}%</div></div>`).join('')
+        // The chain isn't in `c` for guests (the server withholds it), so the
+        // teaser shows only WHICH stories are linked — the pull is finding out why.
+        : lockedHTML('connections',
+            `Descry found ${s.connections.length} link${s.connections.length===1?'':'s'} between this and other stories.`,
+            s.connections.slice(0,2).map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
+              <div class="ch">Descry traced how this connects — sign in to read the reasoning.</div></div>`).join(''))] : null,
     ['verify','Claim check','#3DDC97', this.claims(s)],
     s.sources?.length ? ['src','Sources','#9AA5B8',
       s.sources.map(x=>`<div class="srcrow"><span class="dot"></span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title||x.url)}</a><span class="host">${esc(x.source||'')}</span></div>`).join('')] : null
   ].filter(Boolean);
   $('#view').innerHTML = `
   <div class="wrap reader">
-    <div class="crumb rise"><a href="#/">← Feed</a> · <span class="chip">${esc(s.topic)}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
+    <div class="crumb rise"><a href="#/">← Feed</a> · <span class="chip">${esc(topicLabel(s.topic))}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
@@ -1262,7 +1329,7 @@ const SignalPage = { async render(id){
   // the old behaviour and made every shared link look deleted, because a link
   // usually outlives the forecast's stay in the current top-of-list set.
   let g = null;
-  try { g = await api('/signal/'+id); }
+  try { g = await api(withUser('/signal/'+id)); }
   catch(e){ g = (S.signals||[]).find(x=>x.id===id) || null; }   // offline/demo fallback
   if (!g){
     $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
@@ -1283,14 +1350,23 @@ const SignalPage = { async render(id){
       <button class="btn ghost sm" data-act="copylink" data-kind="signal" data-id="${esc(g.id)}">🔗 Copy link</button>
     </div>
     <p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>
+    ${signedIn() ? `
     <div class="module glass open" style="margin-top:14px"><div class="mbody"><div class="minner">
       <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${linkifyRefs(g.chain, g.story_refs)}</p>
       ${g.watch?`<p><b style="color:var(--warn)">What to watch:</b> ${esc(g.watch)}</p>`:''}
       ${(g.affected||[]).length?`<p>${g.affected.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</p>`:''}
     </div></div></div>
     <div class="grp" style="padding:16px 0 8px">THE ${(g.stories||[]).length} STORIES BEHIND THIS</div>
-    ${(g.stories||[]).map(s=>Brief.card(s,0)).join('')}
-    <p style="font-size:12px;color:var(--text-3)">This prediction was made by AI by connecting the stories above — a lead to watch, not a fact.</p>
+    ${(g.stories||[]).map(s=>Brief.card(s,0)).join('')}`
+    : `
+    <!-- Guests get the prediction itself (the hook) but not the reasoning, the
+         watch-list or the evidence — the parts that make it actionable. -->
+    <div style="margin-top:16px">${lockedHTML('forecast',
+        `See how Descry connected ${g.story_count||0} ${g.story_count===1?'story':'stories'} to reach this, and what to watch next.`,
+        `<p><b style="color:var(--ai-2)">How we connected the dots:</b> Descry traced the
+          link between the stories behind this prediction, what it expects next, and the
+          signals worth watching.</p>`)}</div>`}
+    <p style="font-size:12px;color:var(--text-3);margin-top:16px">This prediction was made by AI by connecting stories — a lead to watch, not a fact.</p>
   </div>`;
 }};
 
@@ -1340,7 +1416,7 @@ const Saved = { async render(){
     $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
       <div style="font-size:30px;margin-bottom:8px">🔖</div>
       <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Save stories to read later</h3>
-      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign up with Google to bookmark stories and sync them across your devices.</p>
+      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign up free with Google to bookmark stories and sync them across your devices.</p>
       <span id="saved-signin"></span></div></div>`;
     Auth.renderInto($('#saved-signin'));
     return;
@@ -1470,11 +1546,11 @@ const Calib = {
   delMicro(k){ delete this.micro[k]; this.renderMicro(); },
   async save(){
     try{
-      // Reuse the signed-in account; only mint an anonymous user if not signed in.
-      if (!S.creds || !S.creds.token){
-        const u = await api('/users',{method:'POST'});
-        S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
-      }
+      // Personalization requires a real account. This used to silently mint an
+      // anonymous one instead, which is where the untraceable "guest" accounts
+      // in the admin report came from — settings saved to an identity the
+      // person could never sign back into, and no email to reach them at.
+      if (!signedIn()){ Calib.close(); Gate.require('personalize'); return; }
       const loc = $('#calloc').value.split(',').map(s=>s.trim());
       const cur = S.ctx || {};
       // Merge with existing context so fields set elsewhere (e.g. iOS) aren't wiped.
@@ -1498,7 +1574,11 @@ const Calib = {
     localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on');
     await loadData(); route();
   },
-  skip(){ localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on'); }
+  skip(){ localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on'); },
+  /* Dismiss without marking the prompt as "seen" — used when we close the modal
+     on the user's behalf (e.g. to show the sign-in wall), so they still get
+     offered personalization once they actually have an account. */
+  close(){ $('#calib').classList.remove('on'); }
 };
 
 /* ================= Profile ================= */
@@ -1509,8 +1589,8 @@ const Profile = {
       v.innerHTML = `<div class="wrap"><section class="glass prof-empty rise">
         <div class="prof-av av-lg avatar-fallback">✦</div>
         <h1>Your profile</h1>
-        <p>Sign in with Google to personalize your feed, sync saved stories, and track
-        your reading stats across devices.</p>
+        <p>Sign in free with Google to personalize your feed, sync saved stories, and track
+        your reading stats across devices — no payment, ever.</p>
         <div id="prof-signin" class="prof-signin"></div></section></div>`;
       Auth.renderInto($('#prof-signin'));
       return;

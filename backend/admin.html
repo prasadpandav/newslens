@@ -315,16 +315,27 @@ function trafficHTML(d){
     Admin endpoints and the live stream are excluded so they don't drown out real traffic.</div>`;
 }
 
+/* 'all' | 'google' | 'guest' — which accounts the table lists. */
+let USER_FILTER = 'all';
+function pickUserFilter(which){ USER_FILTER = which; loadReport(); }
+
 function usersHTML(d){
-  const rows = (d.users||[]).map(u => `<tr>
+  const all = d.users || [];
+  const shown = all.filter(u => USER_FILTER === 'all' ? true
+    : USER_FILTER === 'google' ? u.is_google : !u.is_google);
+  const rows = shown.map(u => `<tr>
     <td><span class="who">${u.picture ? `<img class="avatar" src="${esc(u.picture)}" alt="">` : ''}
-      <span>${esc(u.name || '—')}</span></span></td>
+      <span>${esc(u.name || (u.is_google ? '—' : 'Guest'))}</span></span></td>
     <td class="mono">${esc(u.email || '—')}</td>
+    <td>${u.is_google ? '<span class="pill ok">Google</span>' : '<span class="pill">Guest</span>'}</td>
+    <td>${u.personalized ? 'Yes' : '—'}</td>
     <td>${esc(when(u.created_at))}</td>
     <td>${esc(when(u.last_seen))}</td>
     <td>${nfm(u.saved)}</td>
     <td>${nfm(u.reactions)}</td></tr>`).join('')
-    || `<tr><td colspan="6" class="muted">No signed-up users yet.</td></tr>`;
+    || `<tr><td colspan="8" class="muted">No accounts match this filter.</td></tr>`;
+  const tab = (k, label, n) =>
+    `<button class="${USER_FILTER===k?'on':''}" onclick="pickUserFilter('${k}')">${label} (${nfm(n)})</button>`;
   return statGrid([
     ['Total accounts', nfm(d.total)],
     ['Google sign-ups', nfm(d.google_signed_up)],
@@ -333,13 +344,22 @@ function usersHTML(d){
   ]) + `
   <h2 style="margin-top:6px">Sign-ups per day</h2>
   ${spark(d.signups_by_day, 'signups', 'sign-ups')}
-  <h2 style="margin-top:20px">Signed-in users</h2>
+  <h2 style="margin-top:20px">All accounts</h2>
+  <div class="tabs">
+    ${tab('all','All', all.length)}
+    ${tab('google','Google sign-ups', all.filter(u=>u.is_google).length)}
+    ${tab('guest','Guests', all.filter(u=>!u.is_google).length)}
+  </div>
   <div style="overflow-x:auto"><table>
-    <tr><th>Name</th><th>Email</th><th>Joined</th><th>Last seen</th><th>Saved</th><th>Reactions</th></tr>
+    <tr><th>Name</th><th>Email</th><th>Type</th><th>Personalized</th><th>Joined</th>
+        <th>Last seen</th><th>Saved</th><th>Reactions</th></tr>
     ${rows}
   </table></div>
-  <div class="privacy">"Last seen" comes from page-view tracking, so it only appears for users
-    who have browsed since analytics was enabled.</div>`;
+  <div class="privacy">A <b>Guest</b> is an account the app creates automatically when someone
+    personalizes their feed without signing in — real saved settings, but no Google identity
+    and no email, so there is no name to show. It becomes a Google account if they later sign in.
+    "Last seen" comes from page-view tracking, so it only appears for people who have browsed
+    since analytics was enabled.</div>`;
 }
 
 function render(d){

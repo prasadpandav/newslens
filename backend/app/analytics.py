@@ -222,15 +222,20 @@ def user_report(con, days=30, limit=200):
         _rows(con, "SELECT DATE(created_at, 'unixepoch') day, COUNT(*) signups "
                    "FROM users WHERE created_at >= ? GROUP BY day ORDER BY day",
               (since_ts,)), days, ("signups",))
-    # Per-user activity. LEFT JOINs so a user with no bookmarks still appears.
+    # EVERY account, not just the Google ones. A row with no email is a guest
+    # account the app mints when someone personalises their feed without signing
+    # in — still a real account with its own saved context and bookmarks, so
+    # filtering them out made the table disagree with the totals above it.
+    # `is_google` lets the UI label each row rather than hiding half of them.
     people = _rows(con, """
         SELECT u.id, u.email, u.name, u.picture, u.created_at,
+               CASE WHEN u.email IS NOT NULL AND u.email != '' THEN 1 ELSE 0 END AS is_google,
+               CASE WHEN COALESCE(u.context,'') NOT IN ('', '{}') THEN 1 ELSE 0 END AS personalized,
                (SELECT COUNT(*) FROM bookmarks b WHERE b.user_id = u.id)  saved,
                (SELECT COUNT(*) FROM feedback  f WHERE f.user_id = u.id)  reactions,
                (SELECT MAX(v.created_at) FROM visits v WHERE v.user_id = u.id) last_seen
         FROM users u
-        WHERE u.email IS NOT NULL AND u.email != ''
         ORDER BY u.created_at DESC LIMIT ?""", (limit,))
     return {"window_days": days, "total": total, "google_signed_up": google,
             "anonymous": max(0, total - google), "new_in_window": recent,
-            "signups_by_day": signups, "users": people}
+            "listed": len(people), "signups_by_day": signups, "users": people}
