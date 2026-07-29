@@ -84,6 +84,10 @@
   --trust:#3DDC97; --warn:#FFC24D; --breaking:#FF5D73; --predict:#B48CFF;
   --grad-ai:linear-gradient(135deg,#4D9FFF,#7C5CFF);
   --r-lg:18px; --r-md:12px; --r-sm:8px;
+  /* Nav height. Seeded with the measured value and re-measured on load/resize
+     (see setNavHeight) so anything pinned under the nav stays flush when the
+     nav grows — larger text, a wrapped account row. */
+  --navh:57px;
   --ease:cubic-bezier(.22,1,.36,1);
   --font-ui:'Inter',system-ui,sans-serif;
   --font-ed:'Newsreader',Georgia,serif;
@@ -225,9 +229,31 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .lh-chev{color:var(--text-2);font-size:18px;flex-shrink:0}
 .lh-gear{position:absolute;top:10px;right:10px;color:var(--text-2);font-size:14px;padding:2px 6px;border-radius:8px}
 .lh-gear:hover{background:var(--surface-2);color:var(--text)}
-.newbanner{display:block;width:100%;margin:0 0 16px;padding:9px 16px;border-radius:100px;
-  background:var(--grad-ai);color:#fff;font-weight:600;font-size:13.5px;cursor:pointer;
-  box-shadow:0 6px 20px rgba(77,159,255,.35)}
+/* "N new stories". Deliberately not a full-bleed saturated bar: that shouts at a
+   reader who is already reading, and pushes the feed down 16px the moment it
+   appears. A small floating pill under the nav says the same thing, holds its
+   place while you scroll, costs no layout, and can be ignored. */
+.newbanner{position:fixed;top:calc(var(--navh,57px) + 14px);left:50%;z-index:45;
+  display:inline-flex;align-items:center;gap:9px;
+  padding:7px 7px 7px 14px;border-radius:100px;cursor:pointer;
+  background:var(--pill-bg);border:1px solid var(--border-2);color:var(--text);
+  box-shadow:0 8px 26px rgba(15,23,42,.16);backdrop-filter:blur(14px);
+  font-size:13px;font-weight:600;letter-spacing:-.005em;
+  animation:newpop .45s var(--ease) both}
+.newbanner:hover{border-color:var(--accent)}
+.newbanner .pulse{width:7px;height:7px;border-radius:50%;background:var(--breaking);
+  flex-shrink:0;animation:newpulse 2.2s infinite}
+.newbanner .n{font-family:var(--font-mono);font-weight:600}
+.newbanner .up{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
+  background:var(--grad-ai);color:#fff;font-size:12px;line-height:1;flex-shrink:0}
+@keyframes newpop{from{opacity:0;transform:translate(-50%,-10px)}
+                  to{opacity:1;transform:translate(-50%,0)}}
+@keyframes newpulse{0%{box-shadow:0 0 0 0 rgba(255,93,115,.5)}
+                    70%{box-shadow:0 0 0 7px rgba(255,93,115,0)}
+                    100%{box-shadow:0 0 0 0 rgba(255,93,115,0)}}
+@media (prefers-reduced-motion:reduce){
+  .newbanner{animation:none;transform:translateX(-50%)}
+  .newbanner .pulse{animation:none}}
 
 /* ============ Sign-in wall + gate + save button ============ */
 .wall{position:fixed;inset:0;z-index:130;background:rgba(4,7,14,.86);backdrop-filter:blur(14px);
@@ -277,7 +303,10 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 /* ============ App layout ============ */
 .wrap{max-width:1180px;margin:0 auto;padding:34px 28px 90px}
 .brief-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;margin-bottom:8px}
-.brief-head h2{font-family:var(--font-ed);font-size:34px;font-weight:600;letter-spacing:-.01em}
+/* h1: this is the page's real heading. It was an <h2> on pages that had no
+   <h1> at all, which left the feed and the radar headless to a crawler and
+   to a screen reader alike. */
+.brief-head h1{font-family:var(--font-ed);font-size:34px;font-weight:600;letter-spacing:-.01em}
 .brief-head .date{color:var(--text-2);font-size:14px}
 .brief-sum{color:var(--text-2);font-size:14px;margin-bottom:26px}
 .brief-sum b{color:var(--text)}
@@ -337,11 +366,32 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .trustdial .info .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-2)}
 .trustdial .info .note{font-size:13px;color:var(--text-2);margin-top:3px}
 .trustdial .pct{font-family:var(--font-mono);font-size:15px;font-weight:600}
-.understand{position:sticky;top:63px;z-index:40;display:flex;align-items:center;gap:10px;
-  padding:8px 14px;margin-bottom:22px;border-radius:100px;background:var(--pill-bg);
-  border:1px solid var(--border);backdrop-filter:blur(12px);font-size:12px;color:var(--text-2)}
-.understand .meter{flex:1}
-.understand .meter>i{background:var(--grad-ai)}
+/* Reading progress. This used to be a sticky full-width pill inside the reader
+   column, which meant the one element that measures your reading sat on top of
+   the thing you were reading. It now lives in the right-hand margin on wide
+   screens, and becomes a hairline under the nav on narrow ones — chrome in both
+   cases, never content. The fill is driven by a --up custom property so the same
+   markup can fill downward (rail) or rightward (hairline). */
+.uprog{--up:10%;position:fixed;z-index:40;top:50%;left:calc(50% + 372px);
+  transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;
+  gap:11px;pointer-events:none;-webkit-user-select:none;user-select:none}
+.uprog .ulbl{writing-mode:vertical-rl;font-size:9.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--text-3);white-space:nowrap}
+.uprog .utrack{width:3px;height:132px;border-radius:100px;background:var(--track);
+  overflow:hidden}
+.uprog .utrack>i{display:block;width:100%;height:var(--up);border-radius:100px;
+  background:var(--grad-ai);transition:height .6s var(--ease)}
+.uprog .upct{font-family:var(--font-mono);font-size:11px;color:var(--text-2);
+  font-variant-numeric:tabular-nums}
+/* No margin to live in — become a hairline pinned just under the nav. */
+@media (max-width:1080px){
+  .uprog{top:var(--navh,57px);left:0;right:0;transform:none;flex-direction:row;
+    gap:0;height:2px}
+  .uprog .ulbl,.uprog .upct{display:none}
+  .uprog .utrack{width:100%;height:2px;border-radius:0;background:transparent}
+  .uprog .utrack>i{width:var(--up);height:100%;border-radius:0;
+    transition:width .6s var(--ease)}
+}
 
 /* module cards */
 .module{margin-bottom:14px;overflow:hidden;transition:border-color .3s}
@@ -395,10 +445,58 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .tcard p{font-size:13.5px;color:var(--text-2)}
 .tcard .tf{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap}
 .tcard .cnt{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--text-2)}
+/* ---- Story network ----
+   Was a canvas of anonymous dots: it drew the shape of the week's coverage but
+   named almost none of it, and nothing in it was clickable. It is now a bipartite
+   map — forces on the left, the stories feeding them on the right, joined by
+   curves measured from the real laid-out rows. Every node is a link, so the
+   "map" is also the index. */
 .netwrap{margin-top:34px;padding:24px}
 .netwrap h3{font-size:15px;margin-bottom:4px}
-.netwrap .cap{font-size:12.5px;color:var(--text-2);margin-bottom:14px}
-canvas#net{width:100%;height:380px;border-radius:var(--r-md)}
+.netwrap .cap{font-size:12.5px;color:var(--text-2);margin-bottom:18px}
+.net{position:relative;display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
+  gap:64px}
+.netlines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+  overflow:visible}
+.netlines path{fill:none;stroke:var(--border-2);stroke-width:1.25;
+  transition:stroke .18s,stroke-width .18s,opacity .18s}
+.nethead{font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--text-3);padding-bottom:8px;margin-bottom:4px;
+  border-bottom:1px solid var(--border)}
+.netnode{display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:13.5px;
+  line-height:1.35;color:var(--text);text-decoration:none;border-radius:6px;
+  transition:color .18s,opacity .18s}
+.netnode .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical}
+.netnode .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  transition:transform .18s,box-shadow .18s}
+.netcol.forces.placed{position:relative}
+.netcol.forces.placed .netnode.trend{position:absolute;left:0;right:0}
+.netnode.trend .lbl{flex:0 1 auto;font-weight:600}
+/* Index leader: carries the eye from the force's name to its dot, and from
+   there along the curve to the stories. Same device a printed contents page
+   uses, and it does the same job. */
+.netnode.trend .lead{flex:1 1 14px;min-width:14px;height:0;align-self:center;
+  border-bottom:1px dotted var(--border-2);margin:0 6px}
+.netnode.trend .ct{font-family:var(--font-mono);font-size:11px;color:var(--text-3)}
+.netnode.trend .dot{background:var(--accent)}
+.netnode.story .dot{background:var(--predict)}
+.netnode:hover{color:var(--accent)}
+.netnode:hover .dot{transform:scale(1.5)}
+/* Hover a force and the map answers "which stories are these?" — everything not
+   on that path recedes rather than disappearing, so the shape is still readable. */
+.net.focusing .netnode{opacity:.32}
+.net.focusing .netnode.on{opacity:1}
+.net.focusing .netlines path{opacity:.12}
+.net.focusing .netlines path.on{opacity:1;stroke:var(--accent);stroke-width:1.75}
+.netempty{grid-column:1/-1;color:var(--text-2);font-size:13px;padding:8px 0}
+@media (max-width:760px){
+  .net{grid-template-columns:1fr;gap:22px}
+  .netlines{display:none}
+  .netnode.trend .lead{display:none}
+  .netnode.trend .dot{order:-1}
+  .netnode.trend .ct{margin-left:auto}
+}
 
 /* ============ Search overlay ============ */
 .overlay{position:fixed;inset:0;z-index:100;background:rgba(4,7,14,.72);backdrop-filter:blur(10px);
@@ -470,11 +568,11 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 <body>
 
 <nav>
-  <a class="logo" href="#/"><span class="mark"><img src="icon.svg" alt="Descry"></span>Descry</a>
+  <a class="logo" href="/"><span class="mark"><img src="icon.svg" alt="Descry"></span>Descry</a>
   <div class="links" id="navlinks">
-    <a href="#/" data-r="home">Feed</a>
-    <a href="#/trends" data-r="trends">Trends</a>
-    <a href="#/saved" data-r="saved">Saved</a>
+    <a href="/" data-r="home">Feed</a>
+    <a href="/trends" data-r="trends">Trends</a>
+    <a href="/saved" data-r="saved">Saved</a>
   </div>
   <button class="searchbtn" onclick="Search.open()" aria-label="Search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -604,8 +702,7 @@ const Track = {
 /* Route -> reportable path. Ids are kept (the report shows which STORY was read)
    but nothing from the query string is, since that can carry personal values. */
 function trackedPath(){
-  const h = (location.hash || '#/').replace(/^#/, '').split('?')[0];
-  return h || '/';
+  return Nav.path();
 }
 
 /* ================= Demo fallback data ================= */
@@ -697,28 +794,142 @@ const ICONS = {
   foryou:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>'
 };
 
-/* ================= Router ================= */
+/* ================= Router =================
+   Real paths, not fragments. A search engine treats everything after "#" as the
+   same URL, so while the app addressed itself as "/#/story/<id>" every story in
+   it shared one indexable page: the home page. Routes are now ordinary paths
+   ("/story/<id>"), which the static host rewrites to index.html and this router
+   resolves client-side. The old hash forms and the /s /t /g share links still
+   resolve — they are rewritten in place to the canonical path, so links already
+   in the wild keep working and stop competing with the page they point at. */
+const Nav = {
+  /* Canonical path for the current location, whichever form it arrived in. */
+  path(){
+    const legacy = location.pathname.match(/^\/(s|t|g)\/([\w-]+)/);
+    if (legacy){ const m={s:'story',t:'trend',g:'signal'};
+                 return '/'+m[legacy[1]]+'/'+legacy[2]; }
+    const h = (location.hash||'').replace(/^#/, '').split('?')[0];
+    if (h && h !== '/') return h.startsWith('/') ? h : '/'+h;
+    const p = location.pathname.replace(/\/+$/,'') || '/';
+    return p;
+  },
+  /* Navigate without a reload. Same-document, so the scroll position is ours to
+     set — every route starts at the top, which a hash change did for free. */
+  go(p, replace){
+    if (p === location.pathname + location.hash) return;
+    history[replace ? 'replaceState' : 'pushState'](null, '', p);
+    scrollTo(0, 0);
+    route();
+  },
+  /* Absolute URL for sharing/canonical. */
+  url(p){ return location.origin + (p || this.path()); }
+};
+
+/* Per-route <head>. A single-page app ships one static <head> to every URL, so
+   without this every story would present search results and shared cards with
+   the home page's title and description. Called by each route once it knows what
+   it is showing. */
+const SEO = {
+  DEFAULT: {
+    title: 'Descry — Understand the news, not just read it',
+    desc: 'Descry explains the deeper meaning behind every story — context, '
+        + 'corroboration across sources, the trends it feeds and the connections '
+        + 'you would otherwise miss. Always free.'
+  },
+  tag(sel, make){
+    let el = document.head.querySelector(sel);
+    if (!el){ el = make(); document.head.appendChild(el); }
+    return el;
+  },
+  meta(name, content, prop){
+    const key = prop ? 'property' : 'name';
+    const el = this.tag(`meta[${key}="${name}"]`, ()=>{
+      const m = document.createElement('meta'); m.setAttribute(key, name); return m;
+    });
+    el.setAttribute('content', content);
+  },
+  set({title, desc, path, type, robots, jsonld} = {}){
+    const t = title || this.DEFAULT.title;
+    const d = desc  || this.DEFAULT.desc;
+    const url = Nav.url(path);
+    document.title = t;
+    this.meta('description', d);
+    this.meta('robots', robots || 'index,follow,max-image-preview:large,max-snippet:-1');
+    this.meta('og:title', t, true);
+    this.meta('og:description', d, true);
+    this.meta('og:url', url, true);
+    this.meta('og:type', type || 'website', true);
+    this.meta('twitter:title', t);
+    this.meta('twitter:description', d);
+    this.tag('link[rel="canonical"]', ()=>{
+      const l = document.createElement('link'); l.rel = 'canonical'; return l;
+    }).setAttribute('href', url);
+    // Structured data. Replaced wholesale per route so a story's NewsArticle
+    // never lingers on the next page the reader opens.
+    const old = document.getElementById('ld-route'); if (old) old.remove();
+    if (jsonld){
+      const s = document.createElement('script');
+      s.type = 'application/ld+json'; s.id = 'ld-route';
+      s.textContent = JSON.stringify(jsonld);
+      document.head.appendChild(s);
+    }
+  },
+  /* Trim to a clean sentence-ish length for a search snippet. */
+  clip(text, n){
+    const s = String(text||'').replace(/\s+/g,' ').trim();
+    return s.length <= n ? s : s.slice(0, n-1).replace(/[\s,;:]+\S*$/,'') + '…';
+  },
+  iso(epochSeconds){
+    return epochSeconds ? new Date(epochSeconds*1000).toISOString() : undefined;
+  },
+  get publisher(){
+    return {'@type':'Organization', name:'Descry', url: location.origin,
+            logo:{'@type':'ImageObject', url: location.origin + '/icon.svg'}};
+  },
+  crumbs(items){
+    return {'@type':'BreadcrumbList', itemListElement: items.map((it,i)=>(
+      {'@type':'ListItem', position:i+1, name: it[0], item: Nav.url(it[1])}))};
+  }
+};
+
 function route(){
-  // If a static host served a clean share path (/s/ /t/ /g/), forward into the SPA.
-  const p = location.pathname.match(/^\/(s|t|g)\/([\w-]+)/);
-  if (p){ const m={s:'story',t:'trend',g:'signal'}; location.replace('#/'+m[p[1]]+'/'+p[2]); return; }
-  const h = location.hash || '#/';
-  const isHome = h === '#/' || h.startsWith('#/brief');
+  // Arrived via a hash or a legacy /s/<id> share link? Put the canonical path in
+  // the address bar first, so what the reader copies is what search sees.
+  const p = Nav.path();
+  if (location.hash || /^\/(s|t|g)\//.test(location.pathname)){
+    history.replaceState(null, '', p);
+  }
+  const isHome = p === '/' || p.startsWith('/brief');
   document.querySelectorAll('#navlinks a').forEach(a=>{
-    const on = a.dataset.r === 'home' ? isHome : h.startsWith('#/'+a.dataset.r);
+    const on = a.dataset.r === 'home' ? isHome : p.startsWith('/'+a.dataset.r);
     a.classList.toggle('active', on);
   });
   $('#fab').classList.add('hidden'); Ask.close(); Gate.close();
   Track.view(trackedPath());
-  if (h.startsWith('#/story/')) return Story.render(h.slice(8));
-  if (h.startsWith('#/signal/')) return SignalPage.render(h.slice(9));
-  if (h.startsWith('#/trend/')) return TrendPage.render(h.slice(8));
-  if (h.startsWith('#/trends')) return Trends.render();
-  if (h.startsWith('#/saved')) return Saved.render();
-  if (h.startsWith('#/profile')) return Profile.render();
+  if (p.startsWith('/story/'))  return Story.render(p.slice(7));
+  if (p.startsWith('/signal/')) return SignalPage.render(p.slice(8));
+  if (p.startsWith('/trend/'))  return TrendPage.render(p.slice(7));
+  if (p.startsWith('/trends'))  return Trends.render();
+  if (p.startsWith('/saved'))   return Saved.render();
+  if (p.startsWith('/profile')) return Profile.render();
   Brief.render();            // the feed is the landing page
 }
-window.addEventListener('hashchange', route);
+addEventListener('popstate', route);
+addEventListener('hashchange', route);       // legacy #/... links still land right
+
+/* Internal links navigate in-place. Anything with a target, a modifier key, or
+   a different origin is left to the browser. */
+addEventListener('click', e=>{
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey ||
+      e.shiftKey || e.altKey) return;
+  const a = e.target.closest('a[href]'); if(!a) return;
+  if (a.target && a.target !== '_self') return;
+  if (a.hasAttribute('download') || a.getAttribute('rel') === 'external') return;
+  const url = new URL(a.href, location.href);
+  if (url.origin !== location.origin) return;
+  e.preventDefault();
+  Nav.go(url.pathname + url.search);
+});
 
 /* ============ Event delegation (no inline onclick → no HTML-injection sink) ============ */
 document.addEventListener('click', e=>{
@@ -729,7 +940,7 @@ document.addEventListener('click', e=>{
       { const b=$('#welcomebar'); if(b) b.remove(); } break;
     case 'topic': S.topic = el.dataset.topic; Brief.render(); break;
     case 'feedmode': S.feedmode = el.dataset.mode; Brief.render(); break;
-    case 'go': if(el.dataset.hash) location.hash = el.dataset.hash; break;
+    case 'go': if(el.dataset.hash) Nav.go(el.dataset.hash); break;
     case 'refresh': loadData().then(()=>Brief.render()); break;
     case 'signin': Auth.trigger(); break;
     case 'unlock-foryou': Gate.require('personalize'); break;
@@ -741,7 +952,7 @@ document.addEventListener('click', e=>{
     case 'load-new': Feed.loadNew(); break;
     case 'copylink':
       { const kind = el.dataset.kind || 'story';
-        const link = location.origin+'/#/'+kind+'/'+el.dataset.id;
+        const link = Nav.url('/'+kind+'/'+el.dataset.id);
         (navigator.clipboard?.writeText(link)||Promise.reject()).then(()=>toast('Link copied'))
           .catch(()=>toast(link)); } break;
     case 'wall-close': Gate.close(); break;
@@ -793,7 +1004,7 @@ function linkifyRefs(text, refs){
   (refs || []).slice().sort((a,b)=>(b.headline||'').length-(a.headline||'').length).forEach(r=>{
     if(!r.headline) return;
     const needle = esc(r.headline);
-    out = out.split(needle).join(`<a href="#/story/${esc(r.story_id)}" class="storylink">${needle}</a>`);
+    out = out.split(needle).join(`<a href="/story/${esc(r.story_id)}" class="storylink">${needle}</a>`);
   });
   return out;
 }
@@ -828,13 +1039,19 @@ function welcomeBannerHTML(){
 
 /* ================= Feed (home / landing) ================= */
 const Brief = { async render(){
+  SEO.set({path:'/', jsonld:{'@context':'https://schema.org','@graph':[
+    {'@type':'WebSite', name:'Descry', url: location.origin,
+     description: SEO.DEFAULT.desc, publisher: SEO.publisher},
+    {'@type':'Organization', name:'Descry', url: location.origin,
+     logo:{'@type':'ImageObject', url: location.origin+'/icon.svg'}}
+  ]}});
   $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div><br><div class="skel" style="height:200px"></div></div>`;
   if (!S.stories.length){
     // Paint as soon as the stories land; the rail (trends/forecasts) streams in
     // behind it and re-renders once, so a slow sidebar never delays the news.
     await loadStories();
     if (!S.trends.length && !S.signals.length)
-      loadRail().then(()=>{ if (location.hash==='#/'||location.hash===''||location.hash.startsWith('#/brief')) Brief.render(); });
+      loadRail().then(()=>{ if (Nav.path()==='/'||Nav.path().startsWith('/brief')) Brief.render(); });
   }
   bumpStreak();
   const signedIn = !!(S.creds && S.creds.token);
@@ -854,7 +1071,7 @@ const Brief = { async render(){
   <div class="wrap">
     ${welcomeBannerHTML()}
     <div id="livehero"></div>
-    <div class="brief-head rise"><h2>${greet}. Here's what matters.</h2>
+    <div class="brief-head rise"><h1>${greet}. Here's what matters.</h1>
       <span class="date">${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span></div>
     <p class="brief-sum rise" style="animation-delay:.05s"><b>${list.length} stories</b> · about <b>${mins} min</b> to understand ·
       top signal: <b>${esc(cleanName(macro[0]?.name)||'—')}</b> · <span id="freshness"></span></p>
@@ -869,10 +1086,10 @@ const Brief = { async render(){
       <div id="cards">${cardsOrUnlock}</div>
       <aside class="rail">
         <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
-          ${macro.map(t=>`<div class="titem" data-act="go" data-hash="#/trend/${esc(t.id)}" style="cursor:pointer">
+          ${macro.map(t=>`<div class="titem" data-act="go" data-hash="/trend/${esc(t.id)}" style="cursor:pointer">
             <span class="nm">${esc(cleanName(t.name))}</span><span class="cnt" style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">${t.article_count||0}</span></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
-          ${(S.signals||[]).map(g=>{ const told = lastTold(g.created_at); return `<div class="signal" data-act="go" data-hash="#/signal/${esc(g.id)}" style="cursor:pointer">
+          ${(S.signals||[]).map(g=>{ const told = lastTold(g.created_at); return `<div class="signal" data-act="go" data-hash="/signal/${esc(g.id)}" style="cursor:pointer">
             <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
             <div class="sg" style="color:var(--predict);margin-top:5px">${g.story_count ?? (g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence${told?` · ${esc(told.rel)}`:''}</div></div>`;}).join('')
           || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
@@ -893,7 +1110,7 @@ card(s,i){
   const cred = Math.round(s.credibility||0);
   const impact = s.impact_score>0 ? `<span class="chip ${s.impact_score>=3?'breaking':s.impact_score>=2?'warn':'accent'} impact">${['','For you','Affects you','High impact'][Math.min(s.impact_score,3)]}</span>`:'';
   const told = lastTold(s.created_at);
-  return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="#/story/${s.id}">
+  return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="/story/${s.id}">
     <div class="top"><span class="chip">${esc(topicLabel(s.topic))}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
@@ -941,7 +1158,7 @@ const CAT_OF = {breaking:'breaking', event:'events', score:'sports', market:'fin
 function heroCardHTML(c){
   const tint = {breaking:'var(--breaking)',event:'var(--warn)',score:'var(--accent)',market:'var(--trust)'}[c.type]||'var(--accent)';
   const icon = {breaking:'⚡',event:'★',score:'🏆',market:'📈'}[c.type]||'•';
-  const tap = c.story_id ? `data-act="go" data-hash="#/story/${esc(c.story_id)}"` : '';
+  const tap = c.story_id ? `data-act="go" data-hash="/story/${esc(c.story_id)}"` : '';
   return `<div class="lh-card" ${tap} style="--tint:${tint}">
       <span class="lh-ic">${icon}</span>
       <div class="lh-body">${c.type==='breaking'?'<span class="lh-tag">BREAKING</span>':''}
@@ -1014,7 +1231,10 @@ const Feed = {
     this.marker = m;
   },
   renderNew(){ const el=$('#newbanner'); if(!el||this.newCount<1) return;
-    el.innerHTML = `<button class="newbanner" data-act="load-new">▲ ${this.newCount} new ${this.newCount===1?'story':'stories'} — tap to load</button>`; },
+    el.innerHTML = `<button class="newbanner" data-act="load-new"`
+      + `><span class="pulse" aria-hidden="true"></span`
+      + `><span class="n">${this.newCount}</span> new ${this.newCount===1?'story':'stories'}`
+      + `<span class="up" aria-hidden="true">↑</span></button>`; },
   async loadNew(){ this.newCount=0; const el=$('#newbanner'); if(el) el.innerHTML='';
     await loadData(); Brief.render(); }
 };
@@ -1058,12 +1278,18 @@ const Meter = {
   key(){ return 'bl_meter_'+new Date().toISOString().slice(0,10); },
   reads(){ try{ return JSON.parse(localStorage.getItem(this.key())||'[]'); }catch(e){ return []; } },
   record(id){ const r=this.reads(); if(!r.includes(id)){ r.push(id); localStorage.setItem(this.key(),JSON.stringify(r)); } },
-  /* Signed-in: unlimited. Re-opening a counted story: free. First shared-link read: free. */
+  /* Signed-in: unlimited. Re-opening a counted story: free. Arriving directly on
+     a story URL: always free — from a search result, a shared link or a crawler
+     alike. Walling a direct entry would mean the page a search engine indexes is
+     not the page it serves, and would greet a first-time visitor with a sign-in
+     form instead of the story they clicked. The read is still counted, so the
+     limit lands on the NEXT story they open from inside the site — which is the
+     moment the offer to sign up actually makes sense. */
   allow(id, shared){
     if(S.creds && S.creds.token) return true;
     const r=this.reads();
     if(r.includes(id)) return true;
-    if(shared && r.length===0) return true;
+    if(shared) return true;
     return r.length < FREE_READS_PER_DAY;
   }
 };
@@ -1110,13 +1336,35 @@ const Story = { async render(id){
       $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
         <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
           This story is no longer available — stories rotate out after 7 days.<br><br>
-          <a class="btn primary" href="#/brief">Back to the brief</a></div></div>`;
+          <a class="btn primary" href="/brief">Back to the brief</a></div></div>`;
       return;
     }
     const base = (S.stories.length?S.stories:DEMO.stories).find(x=>x.id===id) || DEMO.stories[0];
     s = DEMO.detail(base);
   }
   S.currentStory = s; S.opened = new Set();
+  // NewsArticle, and isAccessibleForFree — the metered wall is a sign-in wall,
+  // not a paywall, and search engines are entitled to know the difference.
+  SEO.set({
+    title: `${s.headline} · Descry`,
+    desc: SEO.clip(s.why_matters || s.narrative, 155),
+    path: '/story/'+id, type: 'article',
+    jsonld: {'@context':'https://schema.org', '@graph':[
+      {'@type':'NewsArticle',
+       mainEntityOfPage:{'@type':'WebPage','@id':Nav.url('/story/'+id)},
+       headline: SEO.clip(s.headline, 110),
+       description: SEO.clip(s.narrative, 250),
+       articleSection: topicLabel(s.topic),
+       datePublished: SEO.iso(s.created_at),
+       dateModified: SEO.iso(s.created_at),
+       isAccessibleForFree: true,
+       author:{'@type':'Organization', name:'Descry'},
+       publisher: SEO.publisher,
+       citation: (s.sources||[]).slice(0,10).map(x=>({
+         '@type':'CreativeWork', name: x.title || x.url, url: x.url}))},
+      SEO.crumbs([['Descry','/'], [topicLabel(s.topic),'/'], [s.headline,'/story/'+id]])
+    ]}
+  });
   // Metered access: guests get FREE_READS_PER_DAY story reads, then a sign-in wall.
   const wall = !Meter.allow(id, isShared());
   if (!wall) Meter.record(id);
@@ -1172,7 +1420,7 @@ const Story = { async render(id){
   ].filter(Boolean);
   $('#view').innerHTML = `
   <div class="wrap reader">
-    <div class="crumb rise"><a href="#/">← Feed</a> · <span class="chip">${esc(topicLabel(s.topic))}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
+    <div class="crumb rise"><a href="/">← Feed</a> · <span class="chip">${esc(topicLabel(s.topic))}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
@@ -1180,7 +1428,12 @@ const Story = { async render(id){
     </div>
     <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
       <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
-    <div class="understand"><span>Understanding</span><div class="meter"><i id="uprog" style="width:10%"></i></div><span id="upct">10%</span></div>
+    <div class="uprog" id="uprog" role="progressbar" aria-label="Story understanding"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="10">
+      <span class="ulbl">Understanding</span>
+      <div class="utrack"><i></i></div>
+      <span class="upct" id="upct">10%</span>
+    </div>
     <div id="mods">${modules.map((m,i)=>`
       <div class="module glass${m[0]==='what'?' open':''}" id="mod-${m[0]}">
         <button class="mhead" onclick="Story.toggle('${m[0]}',${modules.length})" aria-expanded="${m[0]==='what'}">
@@ -1238,8 +1491,11 @@ markOpened(id, total){
   if (S.opened.has(id)) return;
   S.opened.add(id);
   const pct = Math.min(100, Math.round(10 + 90*S.opened.size/total));
-  const bar = $('#uprog'), lbl = $('#upct');
-  if (bar) bar.style.width = pct+'%';
+  const rail = $('#uprog'), lbl = $('#upct');
+  // --up, not an explicit width/height: the rail fills downward on desktop and
+  // rightward on mobile, and CSS decides which — see the .uprog rules.
+  if (rail){ rail.style.setProperty('--up', pct+'%');
+             rail.setAttribute('aria-valuenow', pct); }
   if (lbl) lbl.textContent = pct+'%';
   if (pct>=100){ S.eng.understood++; saveEng(); toast('✓ Story understood — nicely done');
     this.endCTA(); }
@@ -1259,17 +1515,22 @@ endCTA(){
 
 /* ================= Trend Radar ================= */
 const Trends = { tab:'macro', async render(){
+  SEO.set({
+    title: 'Trend Radar — the forces behind the news · Descry',
+    desc: 'The macro forces shaping the news right now and the 72-hour early '
+        + 'signals building underneath them, with the stories feeding each one.',
+    path: '/trends'});
   if (!S.trends.length) await loadData();
   const list = S.trends.filter(t=>t.kind===this.tab);
   $('#view').innerHTML = `
   <div class="wrap">
-    <div class="brief-head rise"><h2>Trend Radar</h2><span class="date">macro forces &amp; 72-hour early signals</span></div>
+    <div class="brief-head rise"><h1>Trend Radar</h1><span class="date">macro forces &amp; 72-hour early signals</span></div>
     <div class="tabs rise" style="animation-delay:.05s">
       <button class="${this.tab==='macro'?'on':''}" onclick="Trends.tab='macro';Trends.render()">Macro trends</button>
       <button class="${this.tab==='micro'?'on':''}" onclick="Trends.tab='micro';Trends.render()">Early signals</button>
     </div>
     <div class="tgrid">${list.map((t,i)=>{ const told = lastTold(t.created_at); return `
-      <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s;cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
+      <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s;cursor:pointer" onclick="Nav.go('/trend/${t.id}')">
         <div class="th"><h3>${esc(cleanName(t.name))}</h3></div>
         <p>${esc(t.narrative)}</p>
         <div class="tf">${(t.sectors||[]).slice(0,3).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}
@@ -1278,48 +1539,147 @@ const Trends = { tab:'macro', async render(){
       </div>`;}).join('') || `<div class="glass" style="padding:40px;grid-column:1/-1;text-align:center;color:var(--text-2)">No ${this.tab==='macro'?'macro trends':'early signals'} yet — run the pipeline.</div>`}
     </div>
     <div class="netwrap glass rise" style="animation-delay:.3s">
-      <h3>Story network</h3><div class="cap">How today's trends and stories interlink. Larger nodes = stronger trends.</div>
-      <canvas id="net" aria-label="Network graph of trends and stories"></canvas>
+      <h3>Story network</h3><div class="cap">Which stories are feeding which forces. Hover a force to trace it; open any story to read it.</div>
+      <div class="net" id="net"></div>
     </div>
   </div>`;
   requestAnimationFrame(()=>this.net());
 },
+/* Which stories feed which force. Authoritative source is `trend_ids`, stamped
+   on the story by TrendLinker. Older feed payloads don't carry it, so fall back
+   to topic ∈ the trend's sectors — a weaker claim, but a real one, and it keeps
+   the map populated instead of blank against a not-yet-deployed backend. */
+netLinks(){
+  const macro = S.trends.filter(t=>t.kind==='macro');
+  const links = new Map();                       // trend id -> [story, ...]
+  const direct = S.stories.some(s=>(s.trend_ids||[]).length);
+  macro.forEach(t=>{
+    const mine = direct
+      ? S.stories.filter(s=>(s.trend_ids||[]).includes(t.id))
+      : S.stories.filter(s=>(t.sectors||[]).map(x=>String(x).toLowerCase())
+                              .includes(String(s.topic||'').toLowerCase()));
+    if (mine.length) links.set(t.id, mine.slice(0,4));
+  });
+  return {links, hubs: macro.filter(t=>links.has(t.id)).slice(0,6)};
+},
 net(){
-  const cv = $('#net'); if(!cv) return;
-  const dpr = devicePixelRatio||1, W = cv.clientWidth, H = 380;
-  cv.width = W*dpr; cv.height = H*dpr;
-  const ctx = cv.getContext('2d'); ctx.scale(dpr,dpr);
-  const macro = S.trends.filter(t=>t.kind==='macro').slice(0,6);
-  const nodes = [], edges = [];
-  macro.forEach((t,i)=>{
-    const a = (i/macro.length)*Math.PI*2 - Math.PI/2;
-    nodes.push({x:W/2+Math.cos(a)*W*.26, y:H/2+Math.sin(a)*H*.30, r:10+Math.min(10,(t.article_count||1)), c:'#4D9FFF', l:t.name});
-  });
-  S.stories.slice(0,14).forEach((s,i)=>{
-    const hub = nodes.length? i%macro.length : 0;
-    const a = Math.PI*2*(i/14), rr = Math.min(W,H)*.12;
-    const hx = nodes[hub]?.x??W/2, hy = nodes[hub]?.y??H/2;
-    const n = {x:hx+Math.cos(a)*rr*1.6, y:hy+Math.sin(a)*rr, r:4.5, c:'#7C5CFF', l:''};
-    nodes.push(n); if (nodes[hub]) edges.push([nodes[hub],n]);
-  });
-  for(let i=1;i<macro.length;i++) edges.push([nodes[0],nodes[i]]);
-  let t0 = null;
-  function draw(ts){
-    if(!t0) t0=ts; const p = Math.min(1,(ts-t0)/900);
-    ctx.clearRect(0,0,W,H);
-    ctx.strokeStyle='rgba(124,140,180,.18)'; ctx.lineWidth=1;
-    edges.forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);
-      ctx.lineTo(a.x+(b.x-a.x)*p, a.y+(b.y-a.y)*p);ctx.stroke();});
-    nodes.forEach(n=>{
-      ctx.beginPath();ctx.arc(n.x,n.y,n.r*p,0,7);ctx.fillStyle=n.c+'33';ctx.fill();
-      ctx.beginPath();ctx.arc(n.x,n.y,Math.max(1.5,n.r*.45)*p,0,7);ctx.fillStyle=n.c;ctx.fill();
-      if(n.l&&p>.8){ctx.fillStyle='rgba(232,236,244,.85)';ctx.font='11px Inter';
-        ctx.fillText(n.l.length>26?n.l.slice(0,25)+'…':n.l, n.x+n.r+6, n.y+4);}
-    });
-    if(p<1) requestAnimationFrame(draw);
+  const wrap = $('#net'); if(!wrap) return;
+  const {links, hubs} = this.netLinks();
+  if (!hubs.length){
+    wrap.innerHTML = `<div class="netempty">Not enough linked coverage yet to draw the network — it fills in as stories accumulate against each force.</div>`;
+    return;
   }
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches){ draw(1e9); }
-  else requestAnimationFrame(draw);
+  // Story column ordered by hub, so a trend's stories sit near it and the curves
+  // stay short and mostly untangled without any layout solver.
+  const seen = new Set(), col = [];
+  hubs.forEach(t=>links.get(t.id).forEach(s=>{
+    if(!seen.has(s.id)){ seen.add(s.id); col.push(s); }
+  }));
+  const edges = [];
+  hubs.forEach(t=>links.get(t.id).forEach(s=>edges.push([t.id, s.id])));
+
+  wrap.innerHTML = `
+    <svg class="netlines" id="netlines" aria-hidden="true"></svg>
+    <div class="netcol forces" id="netforces">
+      <div class="nethead">Forces</div>
+      ${hubs.map(t=>`<a class="netnode trend" href="/trend/${esc(t.id)}" data-k="t-${esc(t.id)}">
+        <span class="lbl">${esc(cleanName(t.name))}</span>
+        <i class="lead" aria-hidden="true"></i>
+        <span class="ct">${links.get(t.id).length}</span>
+        <span class="dot"></span></a>`).join('')}
+    </div>
+    <div class="netcol">
+      <div class="nethead">Stories</div>
+      ${col.map(s=>`<a class="netnode story" href="/story/${esc(s.id)}" data-k="s-${esc(s.id)}">
+        <span class="dot"></span><span class="lbl">${esc(s.headline)}</span></a>`).join('')}
+    </div>`;
+
+  const svg = $('#netlines'), forces = $('#netforces');
+  const key = (a,b)=>a+'|'+b;
+  const dotOf = k=>wrap.querySelector(`[data-k="${CSS.escape(k)}"] .dot`);
+
+  /* Compose the two columns instead of just stacking them. Six forces against
+     twenty stories, both starting at row one, sends every curve into the same
+     few pixels — a knot, not a map. Each force is instead parked opposite the
+     middle of the stories it owns, then a single downward sweep enforces a
+     minimum gap so two forces sharing a cluster don't stack on each other. */
+  const placeHubs = ()=>{
+    const wide = getComputedStyle(svg).display !== 'none';
+    const nodes = hubs.map(t=>wrap.querySelector(`[data-k="t-${CSS.escape(t.id)}"]`));
+    if (!wide){                                     // narrow: plain stacked list
+      forces.classList.remove('placed');
+      nodes.forEach(n=>{ if(n) n.style.top = ''; });
+      forces.style.minHeight = '';
+      return;
+    }
+    const top = forces.getBoundingClientRect().top;
+    const want = hubs.map((t,i)=>{
+      const ys = links.get(t.id).map(s=>{
+        const d = dotOf('s-'+s.id); if(!d) return null;
+        const r = d.getBoundingClientRect();
+        return r.top - top + r.height/2;
+      }).filter(y=>y!==null);
+      return {node: nodes[i], y: ys.length ? ys.reduce((a,b)=>a+b,0)/ys.length : 0};
+    }).filter(h=>h.node).sort((a,b)=>a.y - b.y);
+    const rowH = want[0] ? want[0].node.offsetHeight : 34;
+    const head = forces.querySelector('.nethead');
+    let floor = head ? head.offsetHeight + 4 : 0;   // never ride up over the header
+    forces.classList.add('placed');
+    want.forEach(h=>{
+      const y = Math.max(floor, h.y - rowH / 2);
+      h.node.style.top = y + 'px';
+      floor = y + rowH + 4;
+    });
+    forces.style.minHeight = (floor + 4) + 'px';
+  };
+
+  const drawLines = ()=>{
+    // Curves measured from the laid-out rows rather than guessed, so they stay
+    // attached through reflow, font loading and text wrapping.
+    if (getComputedStyle(svg).display === 'none') return;   // narrow: list only
+    const base = wrap.getBoundingClientRect();
+    const at = (k, side)=>{
+      const el = dotOf(k);
+      if(!el) return null;
+      const r = el.getBoundingClientRect();
+      return {x:(side==='right'? r.right : r.left) - base.left,
+              y:r.top - base.top + r.height/2};
+    };
+    svg.setAttribute('viewBox', `0 0 ${base.width} ${base.height}`);
+    svg.innerHTML = edges.map(([tid,sid])=>{
+      const a = at('t-'+tid,'right'), b = at('s-'+sid,'left');
+      if(!a||!b) return '';
+      const mid = (a.x + b.x)/2;                            // symmetric S-curve
+      return `<path d="M${a.x} ${a.y} C${mid} ${a.y} ${mid} ${b.y} ${b.x} ${b.y}"
+                    data-e="${esc(key(tid,sid))}"></path>`;
+    }).join('');
+  };
+  const relayout = ()=>{ placeHubs(); drawLines(); };
+  relayout();
+  // One listener, not one per render — Trends.render() runs on every tab switch.
+  if (this._onResize) removeEventListener('resize', this._onResize);
+  this._onResize = relayout;
+  addEventListener('resize', relayout, {passive:true});
+  // Re-measure once webfonts land; row heights move when Newsreader/Inter swap in.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
+
+  // Trace a force: light its own edges and stories, recede the rest.
+  wrap.querySelectorAll('.netnode.trend').forEach(node=>{
+    const tid = node.dataset.k.slice(2);
+    const focus = on=>{
+      wrap.classList.toggle('focusing', on);
+      if(!on){ wrap.querySelectorAll('.on').forEach(e=>e.classList.remove('on')); return; }
+      node.classList.add('on');
+      (links.get(tid)||[]).forEach(s=>{
+        wrap.querySelector(`[data-k="s-${CSS.escape(s.id)}"]`)?.classList.add('on');
+        svg.querySelector(`[data-e="${CSS.escape(key(tid,s.id))}"]`)?.classList.add('on');
+      });
+    };
+    node.addEventListener('mouseenter', ()=>focus(true));
+    node.addEventListener('mouseleave', ()=>focus(false));
+    node.addEventListener('focus', ()=>focus(true));
+    node.addEventListener('blur', ()=>focus(false));
+  });
 }};
 
 /* ============ Shared-link pages: prediction & trend ============ */
@@ -1335,13 +1695,31 @@ const SignalPage = { async render(id){
     $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
       <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
         This prediction is no longer available — forecasts are retired after 7 days.<br><br>
-        <a class="btn primary" href="#/trends">See current predictions</a></div></div>`;
+        <a class="btn primary" href="/trends">See current predictions</a></div></div>`;
+    // Gone, but the URL still resolves 200 (the static host can't 404 a route it
+    // rewrites). noindex keeps a retired forecast out of the index instead of
+    // leaving a "no longer available" page ranking for its own headline.
+    SEO.set({title:'Prediction no longer available · Descry',
+             path:'/signal/'+id, robots:'noindex,follow'});
     return;
   }
+  SEO.set({
+    title: `${g.title} · Descry forecast`,
+    desc: SEO.clip(g.prediction, 155),
+    path: '/signal/'+id, type: 'article',
+    jsonld: {'@context':'https://schema.org', '@graph':[
+      {'@type':'Article', headline: SEO.clip(g.title, 110),
+       mainEntityOfPage:{'@type':'WebPage','@id':Nav.url('/signal/'+id)},
+       description: SEO.clip(g.prediction, 250),
+       datePublished: SEO.iso(g.created_at), isAccessibleForFree: true,
+       author:{'@type':'Organization', name:'Descry'}, publisher: SEO.publisher},
+      SEO.crumbs([['Descry','/'], ['Forecasts','/trends'], [g.title,'/signal/'+id]])
+    ]}
+  });
   const told = lastTold(g.created_at);
   $('#view').innerHTML = `
   <div class="wrap reader">
-    <div class="crumb rise"><a href="#/brief">← Brief</a> · <span class="chip ai">Prediction</span>
+    <div class="crumb rise"><a href="/brief">← Brief</a> · <span class="chip ai">Prediction</span>
       ${g.horizon?`· <span class="chip">${esc(g.horizon)}</span>`:''}
       · <span class="chip">${Math.round(g.confidence*100)}% confidence</span>${told?`
       · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
@@ -1379,13 +1757,29 @@ const TrendPage = { async render(id){
     $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
       <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
         This trend is no longer available.<br><br>
-        <a class="btn primary" href="#/trends">See current trends</a></div></div>`;
+        <a class="btn primary" href="/trends">See current trends</a></div></div>`;
+    SEO.set({title:'Trend no longer available · Descry',
+             path:'/trend/'+id, robots:'noindex,follow'});
     return;
   }
+  SEO.set({
+    title: `${cleanName(t.name)} · Trend on Descry`,
+    desc: SEO.clip(t.narrative, 155),
+    path: '/trend/'+id, type: 'article',
+    jsonld: {'@context':'https://schema.org', '@graph':[
+      {'@type':'Article', headline: SEO.clip(cleanName(t.name), 110),
+       mainEntityOfPage:{'@type':'WebPage','@id':Nav.url('/trend/'+id)},
+       description: SEO.clip(t.narrative, 250),
+       datePublished: SEO.iso(t.created_at), isAccessibleForFree: true,
+       about: (t.sectors||[]).map(x=>({'@type':'Thing', name:String(x)})),
+       author:{'@type':'Organization', name:'Descry'}, publisher: SEO.publisher},
+      SEO.crumbs([['Descry','/'], ['Trends','/trends'], [cleanName(t.name),'/trend/'+id]])
+    ]}
+  });
   const told = lastTold(t.created_at), gone = lastTold(t.retired_at);
   $('#view').innerHTML = `
   <div class="wrap reader">
-    <div class="crumb rise"><a href="#/trends">← Trends</a> ·
+    <div class="crumb rise"><a href="/trends">← Trends</a> ·
       <span class="chip ${gone?'':(t.kind==='micro'?'ai':'accent')}">${gone?'Past trend':(t.kind==='micro'?'Picking up speed':'Big trend')}</span>${told?`
       · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise">${esc(cleanName(t.name))}</h1>
@@ -1412,6 +1806,9 @@ async function loadBookmarks(){
   try{ const r=await api('/bookmarks?user_id='+S.creds.user_id); S.saved=new Set((r.items||[]).map(x=>x.id)); }catch(e){}
 }
 const Saved = { async render(){
+  // Personal pages hold nothing a stranger could use and shouldn't compete with
+  // the article pages in the index.
+  SEO.set({title:'Saved stories · Descry', path:'/saved', robots:'noindex,follow'});
   if(!(S.creds && S.creds.token)){
     $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
       <div style="font-size:30px;margin-bottom:8px">🔖</div>
@@ -1425,7 +1822,7 @@ const Saved = { async render(){
   let items=[];
   try{ const r=await api('/bookmarks?user_id='+S.creds.user_id); items=r.items||[]; S.saved=new Set(items.map(x=>x.id)); }catch(e){}
   $('#view').innerHTML = `<div class="wrap">
-    <div class="brief-head rise"><h2>Saved</h2><span class="date">${items.length} ${items.length===1?'story':'stories'}</span></div>
+    <div class="brief-head rise"><h1>Saved</h1><span class="date">${items.length} ${items.length===1?'story':'stories'}</span></div>
     <div style="margin-top:16px">${items.length? items.map((s,i)=>Brief.card(s,i)).join('')
       : `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">Nothing saved yet — tap 🔖 Save on any story to keep it here.</div>`}</div>
   </div>`;
@@ -1450,10 +1847,10 @@ const Search = {
     } else { st = S.stories.slice(0,5); }
     this.idx = -1;
     $('#searchres').innerHTML =
-      (st.length?`<div class="grp">Stories</div>`+st.map(s=>`<div class="rrow" data-go="#/story/${s.id}"><span>📄</span> ${esc(s.headline)}<span class="sub">${Math.round(s.credibility||0)}%</span></div>`).join(''):'')+
-      (tr.length?`<div class="grp">Trends</div>`+tr.map(t=>`<div class="rrow" data-go="#/trends"><span>📈</span> ${esc(t.name)}<span class="sub">${t.kind}</span></div>`).join(''):'')+
+      (st.length?`<div class="grp">Stories</div>`+st.map(s=>`<div class="rrow" data-go="/story/${s.id}"><span>📄</span> ${esc(s.headline)}<span class="sub">${Math.round(s.credibility||0)}%</span></div>`).join(''):'')+
+      (tr.length?`<div class="grp">Trends</div>`+tr.map(t=>`<div class="rrow" data-go="/trends"><span>📈</span> ${esc(t.name)}<span class="sub">${t.kind}</span></div>`).join(''):'')+
       (!st.length&&!tr.length?`<div class="grp">No matches — try the Ask AI assistant instead</div>`:'');
-    document.querySelectorAll('.rrow').forEach(r=>r.onclick=()=>{location.hash=r.dataset.go;Search.close();});
+    document.querySelectorAll('.rrow').forEach(r=>r.onclick=()=>{Nav.go(r.dataset.go);Search.close();});
   }
 };
 $('#searchin').addEventListener('input', e=>Search.results(e.target.value));
@@ -1584,6 +1981,7 @@ const Calib = {
 /* ================= Profile ================= */
 const Profile = {
   async render(){
+    SEO.set({title:'Your profile · Descry', path:'/profile', robots:'noindex,follow'});
     const v = $('#view');
     if (!S.creds || !S.creds.token){
       v.innerHTML = `<div class="wrap"><section class="glass prof-empty rise">
@@ -1668,10 +2066,16 @@ const Profile = {
 };
 
 /* ================= Auth (Sign in with Google) ================= */
-// Shared deep links (an article/signal/trend someone sent a friend) must open
-// straight to the content — never gated behind onboarding or sign-in.
-const SHARE_RE = /^#\/(story|signal|trend)\//;
-const isShared = () => SHARE_RE.test(location.hash || '');
+// Deep entries — the URL the browser actually loaded, whether that came from a
+// search result, a shared link or a crawler — open straight to the content,
+// never behind onboarding or a sign-in wall. It has to be the ENTRY path and not
+// just "the current path looks like a story", because every in-app navigation
+// also puts /story/<id> in the address bar; comparing against ENTRY is what
+// distinguishes "arrived here" from "browsed here".
+const SHARE_RE = /^\/(story|signal|trend)\//;
+const ENTRY = { path: null };                    // set once, in boot
+const isShared = () => !!ENTRY.path && SHARE_RE.test(ENTRY.path)
+                       && Nav.path() === ENTRY.path;
 
 const Auth = {
   ready:false,
@@ -1691,7 +2095,7 @@ const Auth = {
       const pic = S.creds.picture
         ? `<img class="avatar" src="${esc(S.creds.picture)}" alt="">`
         : `<span class="avatar avatar-fallback">${esc(Auth.initial())}</span>`;
-      el.innerHTML = `<a class="acct-link" href="#/profile" title="Your profile">`+
+      el.innerHTML = `<a class="acct-link" href="/profile" title="Your profile">`+
         `${pic}<span class="acct-name">${nm}</span></a>`+
         `<button class="btn ghost sm" onclick="Auth.signout()">Sign out</button>`;
     } else {
@@ -1750,8 +2154,19 @@ const Auth = {
   }
 };
 
+/* Publish the nav's real height so fixed chrome (the reading-progress hairline)
+   can sit flush under it at any text size. */
+function setNavHeight(){
+  const n = document.querySelector('nav'); if(!n) return;
+  document.documentElement.style.setProperty('--navh',
+    Math.round(n.getBoundingClientRect().height)+'px');
+}
+addEventListener('resize', setNavHeight);
+
 /* ================= Boot ================= */
 (async function(){
+  ENTRY.path = Nav.path();       // before anything can navigate away from it
+  setNavHeight();
   await loadData();
   if (S.creds && S.creds.token) await loadBookmarks();
   route();
@@ -1762,7 +2177,7 @@ const Auth = {
     Auth.init();
     // Re-render the feed once GIS is ready so inline sign-in buttons upgrade from
     // the fallback to the official Google button.
-    if (Auth.ready && (location.hash==='#/'||location.hash===''||location.hash.startsWith('#/brief'))) Brief.render();
+    if (Auth.ready && (Nav.path()==='/'||Nav.path().startsWith('/brief'))) Brief.render();
     if (!Auth.ready && tries++ < 20) setTimeout(waitForGsi, 300);
   })();
 })();

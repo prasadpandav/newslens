@@ -2,12 +2,14 @@
 import os
 import secrets
 import threading
+import time
 from datetime import datetime, timedelta
 import html
 import httpx
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextResponse,
+                               Response)
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, llm, live, analytics, ranking
@@ -19,6 +21,20 @@ app = FastAPI(title="Descry API", version="0.1")
 app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS,
                    allow_methods=["*"], allow_headers=["*"])
 scheduler = BackgroundScheduler()
+
+
+@app.middleware("http")
+async def _no_index_api(request: Request, call_next):
+    """Keep the API host out of search results without blocking it.
+
+    robots.txt here has to stay permissive — Google's renderer fetches this host
+    to see any article text on the portal at all. `noindex` as a header does the
+    other half of the job: crawl it freely, never rank it. Two exemptions:
+    /sitemap.xml (Google refuses to read a noindex sitemap) and /robots.txt."""
+    response = await call_next(request)
+    if request.url.path not in ("/sitemap.xml", "/robots.txt"):
+        response.headers["X-Robots-Tag"] = "noindex"
+    return response
 
 
 @app.middleware("http")
@@ -289,7 +305,7 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # way the un-capped /trends and /signals queries just did in production.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.created_at, s.article_ids,
+                  s.topic, s.created_at, s.article_ids, s.trend_ids,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
@@ -309,6 +325,9 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     items = ranking.sort_by_rank(items, impact_of)[:100]
     for it in items:
         del it["article_ids"]   # internal-only, not part of the API shape
+        # trend_ids IS part of the shape: the portal's story network draws the
+        # story -> force edges from it, and without them it can only guess.
+        it["trend_ids"] = db.uj(it["trend_ids"], [])
     return {"items": items}
 
 
@@ -381,7 +400,7 @@ def stories(limit: int = 30):
     # not just whatever the last `limit` by raw created_at happened to include.
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-        "created_at, article_ids FROM stories ORDER BY created_at DESC LIMIT ?",
+        "created_at, article_ids, trend_ids FROM stories ORDER BY created_at DESC LIMIT ?",
         (max(limit * 10, 300),)).fetchall()
     con.close()
     items = [dict(r) for r in rows]
@@ -389,6 +408,7 @@ def stories(limit: int = 30):
         items, impact_of=lambda it: len(db.uj(it["article_ids"], [])))[:limit]
     for it in items:
         del it["article_ids"]
+        it["trend_ids"] = db.uj(it["trend_ids"], [])   # powers the story network
     return {"items": items}
 
 
@@ -640,12 +660,16 @@ def _clip(text, n=180):
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
-def _og_page(title, description, hash_path, canonical):
-    """Crawler-facing HTML: real readable content + OG/Twitter meta, then a JS
-    redirect so humans land in the SPA. Crawlers read the meta and index the text;
-    people get the full app. Everything is HTML-escaped."""
+def _og_page(title, description, web_path):
+    """The share card behind a social unfurl. Facebook, X, Slack, WhatsApp and
+    friends read OG tags but do not run JS, so this has to be server-rendered.
+
+    It is explicitly NOT the indexable page. `noindex` plus a canonical pointing
+    at the real article on the web domain means it never competes with the page
+    it advertises — two URLs serving the same headline is how a site ends up
+    ranking its own doorway instead of its content. Everything is HTML-escaped."""
     t, d = html.escape(title or "Descry"), html.escape(description or "")
-    spa = html.escape(f"{config.WEB_BASE_URL}/#/{hash_path}")
+    canonical = f"{config.WEB_BASE_URL}/{web_path}"
     can = html.escape(canonical)
     img = html.escape(config.OG_IMAGE_URL)
     img_tags = (f'<meta property="og:image" content="{img}">'
@@ -654,6 +678,7 @@ def _og_page(title, description, hash_path, canonical):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{t} · Descry</title>
 <meta name="description" content="{d}">
+<meta name="robots" content="noindex,follow">
 <link rel="canonical" href="{can}">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Descry">
@@ -663,68 +688,100 @@ def _og_page(title, description, hash_path, canonical):
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{t}">
 <meta name="twitter:description" content="{d}">{img_tags}
-<script>location.replace("{spa}");</script>
+<script>location.replace("{can}");</script>
 </head><body style="font-family:system-ui;background:#070B14;color:#E8ECF4;padding:40px">
-<h1>{t}</h1><p>{d}</p><p><a href="{spa}" style="color:#4D9FFF">Read on Descry →</a></p>
+<h1>{t}</h1><p>{d}</p><p><a href="{can}" style="color:#4D9FFF">Read on Descry →</a></p>
 </body></html>""")
 
 
 @app.get("/s/{story_id}", response_class=HTMLResponse)
-def og_story(story_id: str, request: Request):
+def og_story(story_id: str):
     con = db.connect()
     s = con.execute("SELECT headline, narrative FROM stories WHERE id=?",
                     (story_id,)).fetchone()
     con.close()
     if not s:
         return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
-    return _og_page(s["headline"], _clip(s["narrative"]),
-                    f"story/{story_id}", str(request.url).split("?")[0])
+    return _og_page(s["headline"], _clip(s["narrative"]), f"story/{story_id}")
 
 
 @app.get("/t/{trend_id}", response_class=HTMLResponse)
-def og_trend(trend_id: str, request: Request):
+def og_trend(trend_id: str):
     con = db.connect()
     t = con.execute("SELECT name, narrative FROM trends WHERE id=?", (trend_id,)).fetchone()
     con.close()
     if not t:
         return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
-    return _og_page(t["name"], _clip(t["narrative"]),
-                    f"trend/{trend_id}", str(request.url).split("?")[0])
+    return _og_page(t["name"], _clip(t["narrative"]), f"trend/{trend_id}")
 
 
 @app.get("/g/{signal_id}", response_class=HTMLResponse)
-def og_signal(signal_id: str, request: Request):
+def og_signal(signal_id: str):
     con = db.connect()
     g = con.execute("SELECT title, prediction FROM signals WHERE id=?",
                     (signal_id,)).fetchone()
     con.close()
     if not g:
         return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
-    return _og_page(g["title"], _clip(g["prediction"]),
-                    f"signal/{signal_id}", str(request.url).split("?")[0])
+    return _og_page(g["title"], _clip(g["prediction"]), f"signal/{signal_id}")
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots(request: Request):
-    base = str(request.base_url).rstrip("/")
+    """The API's own robots — deliberately permissive, which is not the same as
+    wanting this host indexed.
+
+    Blocking it would break the site. The portal is client-rendered: Google's
+    renderer fetches /feed, /story/{id} and friends from HERE to see any article
+    text at all, and it honours robots.txt on those fetches — a Disallow would
+    hand the crawler a set of empty pages. It would also hide the `noindex` on
+    the /s /t /g share cards, since a blocked page's meta tags are never read.
+    Keeping this host OUT of the index is the X-Robots-Tag header's job (see
+    _no_index_api), not robots.txt's. The site's own robots.txt is web/robots.txt."""
+    base = str(request.base_url).rstrip("/")     # Sitemap: must be absolute
     return PlainTextResponse(f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n")
 
 
 @app.get("/sitemap.xml")
-def sitemap(request: Request):
-    base = str(request.base_url).rstrip("/")
+def sitemap():
+    """URLs on the WEB domain, not this one. A sitemap exists to tell Google
+    which pages to index; pointing it at the API host got the bridge pages
+    crawled and left the actual article pages undiscovered. Served from
+    www.descry.in via a rewrite (see render.yaml), which is also what makes
+    listing www.descry.in URLs here legitimate.
+
+    lastmod is the real story timestamp — for a news site it is the difference
+    between "recrawl this, it changed" and "we'll get to it"."""
+    base = config.WEB_BASE_URL
     con = db.connect()
-    urls = [f"{base}/s/{r['id']}" for r in con.execute(
-        "SELECT id FROM stories ORDER BY created_at DESC LIMIT 500").fetchall()]
-    urls += [f"{base}/t/{r['id']}" for r in con.execute(
-        "SELECT id FROM trends WHERE retired_at IS NULL "
-        "ORDER BY created_at DESC LIMIT 200").fetchall()]
+    rows = [(f"{base}/story/{r['id']}", r["created_at"], "hourly", "0.9")
+            for r in con.execute("SELECT id, created_at FROM stories "
+                                 "ORDER BY created_at DESC LIMIT 2000").fetchall()]
+    rows += [(f"{base}/trend/{r['id']}", r["created_at"], "daily", "0.7")
+             for r in con.execute("SELECT id, created_at FROM trends "
+                                  "WHERE retired_at IS NULL "
+                                  "ORDER BY created_at DESC LIMIT 500").fetchall()]
+    rows += [(f"{base}/signal/{r['id']}", r["created_at"], "daily", "0.6")
+             for r in con.execute("SELECT id, created_at FROM signals "
+                                  "ORDER BY created_at DESC LIMIT 500").fetchall()]
     con.close()
-    items = "".join(f"<url><loc>{html.escape(u)}</loc></url>" for u in urls)
+    # The two hubs, first and highest priority: they are the entry points that
+    # link onward to everything else.
+    items = [f'<url><loc>{base}/</loc><changefreq>hourly</changefreq>'
+             f'<priority>1.0</priority></url>',
+             f'<url><loc>{base}/trends</loc><changefreq>hourly</changefreq>'
+             f'<priority>0.8</priority></url>']
+    for loc, created, freq, prio in rows:
+        stamp = ""
+        if created:
+            stamp = ("<lastmod>" + time.strftime(
+                "%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(created)) + "</lastmod>")
+        items.append(f"<url><loc>{html.escape(loc)}</loc>{stamp}"
+                     f"<changefreq>{freq}</changefreq><priority>{prio}</priority></url>")
     xml = ('<?xml version="1.0" encoding="UTF-8"?>'
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-           f'{items}</urlset>')
-    return HTMLResponse(xml, media_type="application/xml")
+           + "".join(items) + '</urlset>')
+    return Response(xml, media_type="application/xml")
 
 
 class AskIn(BaseModel):

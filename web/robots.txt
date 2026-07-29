@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+
+# Personal pages. Nothing here is useful in a search result, and they would only
+# compete with the article pages. (They also carry a noindex meta tag.)
+Disallow: /saved
+Disallow: /profile
+
+# The sitemap is generated from the live database, so it lives on the API host.
+# Naming it here is what authorises it to list www.descry.in URLs (sitemap
+# cross-submission). The first line is the conventional location and 301s to the
+# second; both are listed so discovery does not depend on the redirect.
+Sitemap: https://www.descry.in/sitemap.xml
+Sitemap: https://newslens-rmv6.onrender.com/sitemap.xml
