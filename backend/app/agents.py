@@ -136,10 +136,15 @@ def _dedupe_trends(con, kind, name_sim=0.6, overlap=0.5):
     because per-unit generation produces cross-topic dupes with the same name but
     different narratives and no shared articles, which name+narrative would dilute and
     miss. The newest trend in each group is kept and absorbs the others' article_ids;
-    the rest are deleted. Returns how many were removed."""
+    the rest are deleted. Returns how many were removed.
+
+    Live trends only: a retired row must never win the "newest kept" contest and
+    delete a trend that is still on the radar. Retired duplicates are invisible
+    anyway and age out via the retirement purge."""
     rows = con.execute(
         "SELECT id,name,narrative,article_ids,velocity,created_at FROM trends "
-        "WHERE kind=? ORDER BY created_at DESC", (kind,)).fetchall()
+        "WHERE kind=? AND retired_at IS NULL ORDER BY created_at DESC",
+        (kind,)).fetchall()
     trends = [{"id": r["id"], "norm": _norm_name(r["name"]),
                "ids": db.uj(r["article_ids"], []),
                "vel": r["velocity"] or 0.0,
@@ -382,6 +387,11 @@ class EntityTagger:
 
 
 # ----------------------------------------------------------- Trend Linker
+# How long a retired trend stays readable before it is really deleted. Long
+# enough that a shared link keeps working well past the news cycle it came from.
+RETIRE_PURGE_DAYS = config.TREND_RETIRE_PURGE_DAYS
+
+
 def _numbered_items(rows):
     """One indexed line per article for the (single) trend call: [i] source,
     title, entities/sectors, summary excerpt. The [i] index is how the LLM
@@ -434,11 +444,17 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
     IDs. Each fresh trend is matched to an existing one by article overlap or name
     similarity: a match is UPDATED in place (id preserved, so story->trend links
     survive); unmatched fresh trends are INSERTED; existing trends absent from the
-    fresh set are DELETED — but only when prune=True. Pass prune=False when some
-    per-unit calls failed this run, so a transient error can't wipe good trends.
-    Returns (new, updated, removed)."""
+    fresh set are RETIRED — but only when prune=True. Pass prune=False when some
+    per-unit calls failed this run, so a transient error can't retire good trends.
+
+    Retiring is a soft delete (`retired_at` stamped, row kept): the trend leaves
+    the radar but its page and any shared link still resolve, and if the story
+    resurfaces later the match below un-retires it with its id and history intact.
+    Rows are only really deleted once they've been retired for RETIRE_PURGE_DAYS.
+    Returns (new, updated, retired)."""
     # Match on NAME only (same key as _dedupe_trends): narratives are re-worded
     # every generation, and folding them into the vector dilutes real name matches.
+    # Retired trends take part in matching too — that is what lets one come back.
     existing = [{"id": r["id"], "ids": db.uj(r["article_ids"], []),
                  "vec": _tf(r["name"] or "")}
                 for r in con.execute(
@@ -451,9 +467,11 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
                      and (cosine(fvec, e["vec"]) >= name_sim
                           or _containment(f["article_ids"], e["ids"]) >= overlap)), None)
         if cand:
+            # retired_at=NULL revives a previously-retired trend rather than
+            # creating a duplicate under a new id.
             con.execute(
                 "UPDATE trends SET name=?,narrative=?,sectors=?,regions=?,article_ids=?,"
-                "velocity=?,created_at=? WHERE id=?",
+                "velocity=?,created_at=?,retired_at=NULL WHERE id=?",
                 (f["name"], f["narrative"], db.j(f["sectors"]), db.j(f["regions"]),
                  db.j(f["article_ids"]), f["velocity"], db.now(), cand["id"]))
             matched.add(cand["id"])
@@ -465,13 +483,19 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
                 (db.new_id(), kind, f["name"], f["narrative"], db.j(f["sectors"]),
                  db.j(f["regions"]), db.j(f["article_ids"]), f["velocity"], db.now()))
             new_ct += 1
-    removed = 0
+    retired = 0
     if prune:
         for e in existing:
             if e["id"] not in matched:  # no longer a current trend
-                con.execute("DELETE FROM trends WHERE id=?", (e["id"],))
-                removed += 1
-    return new_ct, upd_ct, removed
+                # Stamp only on the way out, so retired_at keeps recording when it
+                # LEFT the radar rather than being refreshed by every later run.
+                retired += con.execute(
+                    "UPDATE trends SET retired_at=? WHERE id=? AND retired_at IS NULL",
+                    (db.now(), e["id"])).rowcount
+        # Real deletion, long after the link has stopped being useful to anyone.
+        con.execute("DELETE FROM trends WHERE retired_at IS NOT NULL AND retired_at < ?",
+                    (db.now() - RETIRE_PURGE_DAYS * 86400,))
+    return new_ct, upd_ct, retired
 
 
 class TrendLinker:
@@ -500,8 +524,8 @@ class TrendLinker:
         # Show each unit call what is already tracked so the LLM reuses names
         # verbatim instead of re-inventing wording (which defeats dedupe).
         existing_names = [r["name"] for r in con.execute(
-            "SELECT name FROM trends ORDER BY velocity DESC, created_at DESC "
-            "LIMIT 40").fetchall()]
+            "SELECT name FROM trends WHERE retired_at IS NULL "
+            "ORDER BY velocity DESC, created_at DESC LIMIT 40").fetchall()]
         existing_txt = "\n".join(f"- {n}" for n in existing_names) or "(none yet)"
         fresh_macro, fresh_micro, calls, failed = [], [], 0, 0
         for topic, arts in _by_topic(rows).items():
@@ -537,7 +561,8 @@ class TrendLinker:
         ddup = _dedupe_trends(con, "macro") + _dedupe_trends(con, "micro")
         con.commit()
         db.log_run(con, "trends", "ok",
-                   f"macro {mn} new/{mu} upd/-{mr}, micro {cn} new/{cu} upd/-{cr}, "
+                   f"macro {mn} new/{mu} upd/{mr} retired, "
+                   f"micro {cn} new/{cu} upd/{cr} retired, "
                    f"{ddup} dupes collapsed ({calls} unit calls, {failed} failed)")
         return mn + mu + cn + cu
 
@@ -660,7 +685,9 @@ class Storyteller:
         for p in prior:
             done_ids.update(p["aids"])
         new_ct = upd_ct = absorbed = 0
-        trends = con.execute("SELECT * FROM trends WHERE kind='macro'").fetchall()
+        # Live trends only — a retired trend must not spawn or refresh stories.
+        trends = con.execute(
+            "SELECT * FROM trends WHERE kind='macro' AND retired_at IS NULL").fetchall()
         live_tids = {t["id"] for t in trends}
         groups = [(t, db.uj(t["article_ids"], [])) for t in trends]
         # Orphan articles (not in any trend) become stories too — but near-duplicates

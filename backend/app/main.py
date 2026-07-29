@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import config, db, llm, live
+from . import config, db, llm, live, analytics, ranking
 from .agents import prompt, _dedupe_trends, linkify, story_refs
 from .orchestrator import run_pipeline, STAGES
 
@@ -19,6 +19,25 @@ app = FastAPI(title="Descry API", version="0.1")
 app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS,
                    allow_methods=["*"], allow_headers=["*"])
 scheduler = BackgroundScheduler()
+
+
+@app.middleware("http")
+async def _count_traffic(request: Request, call_next):
+    """Overall traffic: one counter bump per request. Wrapped so analytics can
+    never turn into a 500 — a failed count is worth less than a served page."""
+    response = await call_next(request)
+    try:
+        path = request.url.path
+        if analytics.is_trackable(path):
+            # Route template ("/story/{story_id}"), not the concrete path, so ids
+            # don't explode the table into one row per story per day.
+            route = request.scope.get("route")
+            con = db.connect()
+            analytics.bump_traffic(con, getattr(route, "path", None) or path)
+            con.close()
+    except Exception:
+        pass
+    return response
 
 
 def _require_admin(authorization: str = "", token: str = ""):
@@ -63,7 +82,26 @@ def _start():
                       id="refresh_live", replace_existing=True,
                       next_run_time=datetime.now() + timedelta(seconds=20),
                       coalesce=True, misfire_grace_time=300, max_instances=1)
+    # Analytics retention. Daily is plenty — the window is measured in months.
+    scheduler.add_job(_purge_analytics_job, "interval", hours=24,
+                      id="purge_analytics", replace_existing=True,
+                      next_run_time=datetime.now() + timedelta(minutes=5),
+                      coalesce=True, misfire_grace_time=3600, max_instances=1)
     scheduler.start()
+
+
+def _purge_analytics_job():
+    con = db.connect()
+    try:
+        n = analytics.purge(con)
+        if n:
+            db.log_run(con, "purge_analytics", "ok",
+                       f"deleted {n} visit rows older than "
+                       f"{config.ANALYTICS_RETAIN_DAYS:g} days")
+    except Exception as e:  # noqa: BLE001
+        db.log_run(con, "purge_analytics", "error", str(e)[:300])
+    finally:
+        con.close()
 
 
 def _refresh_live_job():
@@ -228,29 +266,36 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # LEFT JOIN: every recent story appears in the feed; personalization
     # (impact text/score) enriches stories where the Personalizer has run,
     # but never gates visibility.
-    # Ordering: default "recent" keeps the feed chronological so ALL news stays
-    # accessible and nothing is buried by preferences (only-some stories get an
-    # impact score, so impact-ordering would sink everything else). sort=foryou
-    # opts into a personalized ranking (impact first) for those who want it.
-    order = ("COALESCE(f.impact_score, 0) DESC, s.created_at DESC"
-             if sort == "foryou" else "s.created_at DESC")
     # `since` (epoch) returns only stories newer than the client's newest — the
     # cheap incremental fetch behind the "N new stories" banner. created_at is
     # exposed so the client can diff/merge without a second call.
     floor = max(since, db.now() - 7 * 86400)
+    # No SQL-side ORDER BY/LIMIT here on purpose: ranking.sort_by_rank needs the
+    # full candidate set to blend recency with impact (see module docstring) —
+    # limiting in SQL first would silently drop older-but-more-impactful stories
+    # before they ever got a chance to be ranked.
     rows = con.execute(
-        f"""SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.created_at,
+        """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
+                  s.topic, s.created_at, s.article_ids,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
            LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
-           WHERE s.created_at > ?
-           ORDER BY {order}
-           LIMIT 100""",
+           WHERE s.created_at > ?""",
         (user_id, floor)).fetchall()
     con.close()
-    return {"items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+    # Impact metric: the personalized 0-3 relevance score for sort=foryou (that
+    # IS this user's impact signal); otherwise how many outlets corroborate the
+    # story — the same "how big is this" proxy trends already use (velocity).
+    if sort == "foryou":
+        impact_of = lambda it: it["impact_score"]
+    else:
+        impact_of = lambda it: len(db.uj(it["article_ids"], []))
+    items = ranking.sort_by_rank(items, impact_of)[:100]
+    for it in items:
+        del it["article_ids"]   # internal-only, not part of the API shape
+    return {"items": items}
 
 
 @app.get("/story/{story_id}")
@@ -267,7 +312,8 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
         "SELECT title,url,source FROM articles WHERE id=?", (i,)).fetchone() or {})
         for i in art_ids]
     trends = [dict(r) for r in con.execute(
-        "SELECT id,kind,name,narrative,velocity FROM trends WHERE id IN (%s)" %
+        "SELECT id,kind,name,narrative,velocity FROM trends "
+        "WHERE retired_at IS NULL AND id IN (%s)" %
         ",".join("?" * len(db.uj(s["trend_ids"], []))),
         db.uj(s["trend_ids"], [])).fetchall()] if db.uj(s["trend_ids"], []) else []
     conns = []
@@ -305,34 +351,93 @@ def stories(limit: int = 30):
     """Public recent stories — powers the portal for anonymous visitors (30).
     Signed-in clients (web + iOS) use /feed instead, which returns up to 100."""
     con = db.connect()
+    # Candidate pool generously wider than `limit` so ranking (recency blended
+    # with source-count impact) has real older-but-bigger stories to consider,
+    # not just whatever the last `limit` by raw created_at happened to include.
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-        "created_at FROM stories ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        "created_at, article_ids FROM stories ORDER BY created_at DESC LIMIT ?",
+        (max(limit * 10, 300),)).fetchall()
     con.close()
-    return {"items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+    items = ranking.sort_by_rank(
+        items, impact_of=lambda it: len(db.uj(it["article_ids"], [])))[:limit]
+    for it in items:
+        del it["article_ids"]
+    return {"items": items}
+
+
+class TrackIn(BaseModel):
+    device: str = ""       # random first-party id minted by the client
+    path: str = "/"        # in-app route being viewed, e.g. "/story/abc123"
+    ref: str = ""          # document.referrer; only its HOST is stored
+    user_id: str = ""      # present once signed in, so reports can join users
+
+
+@app.post("/track")
+def track(body: TrackIn, request: Request):
+    """Record one page view. Unauthenticated by design — it is called before a
+    visitor has any identity, and it accepts nothing that identifies a person:
+    the id is client-minted, the referrer is reduced to a host, and the country
+    comes from the edge header while the IP itself is never stored."""
+    if not body.device or not analytics.is_trackable(body.path or "/"):
+        return {"ok": False}
+    con = db.connect()
+    ok = analytics.record_visit(
+        con, device=body.device, path=body.path, referrer=body.ref,
+        country=analytics.country_of(request.headers), user_id=body.user_id)
+    con.close()
+    return {"ok": ok}
 
 
 @app.get("/trends")
 def trends():
     # Ranked per kind: macro velocity is an article count while micro velocity is
     # a small ratio, so one mixed velocity sort would push every micro trend
-    # (the portal's "Early signals" tab) out of a shared limit.
+    # (the portal's "Early signals" tab) out of a shared limit. Fetched without a
+    # SQL ORDER BY/LIMIT so ranking sees every live candidate before slicing —
+    # see backend/app/ranking.py.
     con = db.connect()
+    # retired_at IS NULL: trends the newest run no longer sees leave the radar,
+    # but their rows (and links) survive — see _reconcile_trends.
     q = ("SELECT id, kind, name, narrative, sectors, regions, article_ids, velocity, "
-         "created_at FROM trends WHERE kind=? "
-         "ORDER BY velocity DESC, created_at DESC LIMIT ?")
-    rows = (con.execute(q, ("macro", 40)).fetchall()
-            + con.execute(q, ("micro", 20)).fetchall())
+         "created_at FROM trends WHERE kind=? AND retired_at IS NULL")
+    macro = ranking.sort_by_rank(
+        [dict(r) for r in con.execute(q, ("macro",)).fetchall()],
+        impact_of=lambda t: t["velocity"] or 0.0)[:40]
+    micro = ranking.sort_by_rank(
+        [dict(r) for r in con.execute(q, ("micro",)).fetchall()],
+        impact_of=lambda t: t["velocity"] or 0.0)[:20]
     con.close()
     out = []
-    for r in rows:
-        d = dict(r)
-        d["sectors"] = db.uj(r["sectors"], [])
-        d["regions"] = db.uj(r["regions"], [])
-        d["article_count"] = len(db.uj(r["article_ids"], []))
+    for d in macro + micro:
+        d["sectors"] = db.uj(d["sectors"], [])
+        d["regions"] = db.uj(d["regions"], [])
+        d["article_count"] = len(db.uj(d["article_ids"], []))
         del d["article_ids"]
         out.append(d)
     return {"items": out}
+
+
+def _signal_payload(con, g):
+    """Shape one forecast row for the API. Shared by /signals and /signal/{id} so
+    a deep-linked forecast is byte-for-byte what the list would have shown."""
+    stories, id_head = [], {}
+    for sid in db.uj(g["story_ids"], []):
+        s = con.execute(
+            "SELECT id, headline, narrative, credibility, credibility_note, topic, "
+            "created_at FROM stories WHERE id=?", (sid,)).fetchone()
+        if s:
+            stories.append(dict(s))
+            id_head[sid] = s["headline"]
+    return {"id": g["id"],
+            "title": linkify(g["title"], id_head),
+            "prediction": linkify(g["prediction"], id_head),
+            "chain": linkify(g["chain"], id_head),
+            "watch": linkify(g["watch"], id_head),
+            "affected": db.uj(g["affected"], []), "horizon": g["horizon"],
+            "confidence": g["confidence"], "created_at": g["created_at"],
+            "stories": stories, "story_refs": story_refs(id_head)}
 
 
 @app.get("/signals")
@@ -341,25 +446,10 @@ def signals():
     Raw 12-hex story ids the model cited inline are rewritten to the story's
     headline (linkify), and story_refs lets clients make those spans tappable."""
     con = db.connect()
-    out = []
-    for g in con.execute(
-            "SELECT * FROM signals ORDER BY confidence DESC, created_at DESC").fetchall():
-        stories, id_head = [], {}
-        for sid in db.uj(g["story_ids"], []):
-            s = con.execute(
-                "SELECT id, headline, narrative, credibility, credibility_note, topic "
-                "FROM stories WHERE id=?", (sid,)).fetchone()
-            if s:
-                stories.append(dict(s))
-                id_head[sid] = s["headline"]
-        out.append({"id": g["id"],
-                    "title": linkify(g["title"], id_head),
-                    "prediction": linkify(g["prediction"], id_head),
-                    "chain": linkify(g["chain"], id_head),
-                    "watch": linkify(g["watch"], id_head),
-                    "affected": db.uj(g["affected"], []), "horizon": g["horizon"],
-                    "confidence": g["confidence"], "stories": stories,
-                    "story_refs": story_refs(id_head)})
+    rows = ranking.sort_by_rank(
+        [dict(r) for r in con.execute("SELECT * FROM signals").fetchall()],
+        impact_of=lambda g: g["confidence"] or 0.0)
+    out = [_signal_payload(con, g) for g in rows]
     con.close()
     return {"items": out}
 
@@ -428,11 +518,29 @@ def trend_detail(trend_id: str):
             stories.append(d)
             id_head[s["id"]] = s["headline"]
     con.close()
+    # retired_at is returned (not hidden) so the client can say plainly that the
+    # trend is no longer active instead of pretending it is current.
     return {"id": t["id"], "kind": t["kind"], "name": t["name"],
             "narrative": linkify(t["narrative"], id_head),
             "sectors": db.uj(t["sectors"], []),
             "regions": db.uj(t["regions"], []), "velocity": t["velocity"],
+            "created_at": t["created_at"], "retired_at": t["retired_at"],
             "stories": stories, "story_refs": story_refs(id_head)}
+
+
+@app.get("/signal/{signal_id}")
+def signal_detail(signal_id: str):
+    """One forecast by id. Without this a shared forecast link could only be
+    resolved from whatever /signals happened to return, so any prediction that
+    had dropped out of that list read as deleted while its row still existed."""
+    con = db.connect()
+    g = con.execute("SELECT * FROM signals WHERE id=?", (signal_id,)).fetchone()
+    if not g:
+        con.close()
+        raise HTTPException(404, "signal not found")
+    out = _signal_payload(con, g)
+    con.close()
+    return out
 
 
 @app.get("/search")
@@ -446,7 +554,7 @@ def search(q: str):
         "ORDER BY created_at DESC LIMIT 15", (like, like, like)).fetchall()
     trend_rows = con.execute(
         "SELECT id, kind, name, narrative, velocity FROM trends "
-        "WHERE name LIKE ? OR narrative LIKE ? "
+        "WHERE (name LIKE ? OR narrative LIKE ?) AND retired_at IS NULL "
         "ORDER BY created_at DESC LIMIT 10", (like, like)).fetchall()
     con.close()
     return {"stories": [dict(r) for r in story_rows],
@@ -536,7 +644,8 @@ def sitemap(request: Request):
     urls = [f"{base}/s/{r['id']}" for r in con.execute(
         "SELECT id FROM stories ORDER BY created_at DESC LIMIT 500").fetchall()]
     urls += [f"{base}/t/{r['id']}" for r in con.execute(
-        "SELECT id FROM trends ORDER BY created_at DESC LIMIT 200").fetchall()]
+        "SELECT id FROM trends WHERE retired_at IS NULL "
+        "ORDER BY created_at DESC LIMIT 200").fetchall()]
     con.close()
     items = "".join(f"<url><loc>{html.escape(u)}</loc></url>" for u in urls)
     xml = ('<?xml version="1.0" encoding="UTF-8"?>'
@@ -724,3 +833,42 @@ def admin_usage(token: str = "", authorization: str = Header("")):
             "provider_events": list(llm.provider_events),
             "recent_errors": list(llm.recent_errors),
             "recent_runs": runs}
+
+
+def _report_days(days: int) -> int:
+    """Clamp a caller-supplied window to something a SQLite scan can serve."""
+    return max(1, min(int(days or 30), 365))
+
+
+@app.get("/admin/reports/users")
+def admin_report_users(days: int = 30, limit: int = 200, token: str = "",
+                       authorization: str = Header("")):
+    """Signed-in users: totals, signup trend, and a per-person activity table."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    out = analytics.user_report(con, days=_report_days(days),
+                                limit=max(1, min(int(limit or 200), 1000)))
+    con.close()
+    return out
+
+
+@app.get("/admin/reports/visitors")
+def admin_report_visitors(days: int = 30, token: str = "",
+                          authorization: str = Header("")):
+    """Audience: unique devices, new vs returning, top pages, referrers, countries."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    out = analytics.visitor_report(con, days=_report_days(days))
+    con.close()
+    return out
+
+
+@app.get("/admin/reports/traffic")
+def admin_report_traffic(days: int = 30, token: str = "",
+                         authorization: str = Header("")):
+    """Overall request volume across every API route, not just page views."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    out = analytics.traffic_report(con, days=_report_days(days))
+    con.close()
+    return out

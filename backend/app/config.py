@@ -101,6 +101,11 @@ WEB_BASE_URL = os.environ.get("WEB_BASE_URL", "https://descry.onrender.com").rst
 # hosted PNG. Blank = omit og:image.
 OG_IMAGE_URL = os.environ.get("OG_IMAGE_URL", f"{WEB_BASE_URL}/og.png")
 PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "6"))
+# Feed/trend/forecast ordering: how sharply older items are discounted relative
+# to fresher ones of the same impact, in units of PIPELINE_INTERVAL_HOURS-sized
+# "cycles" (see app/ranking.py). Higher = recency matters more; an item several
+# cycles old is discounted toward zero regardless of impact at any value > 1.
+RANK_GRAVITY = float(os.environ.get("RANK_GRAVITY", "1.5"))
 # Ingest freshness: skip feed entries published more than this many hours ago.
 # Feeds carry a long tail (some hold 200 items), so without a gate every run
 # re-considers week-old news. Keep it comfortably WIDER than the pipeline
@@ -119,6 +124,15 @@ LLM_MAX_CALLS_PER_MIN = int(os.environ.get("LLM_MAX_CALLS_PER_MIN", "30"))
 # the event ONCE (with all sources annotated) instead of once per source.
 DEDUPE_SIMILARITY = float(os.environ.get("DEDUPE_SIMILARITY", "0.62"))
 DEDUPE_WINDOW_DAYS = float(os.environ.get("DEDUPE_WINDOW_DAYS", "7"))
+
+# A trend the newest run no longer sees is RETIRED (soft-deleted), not dropped:
+# it leaves the radar but its page and any shared link keep resolving, and it can
+# come back with the same id if the story resurfaces. This is how long a retired
+# trend stays readable before it is finally deleted.
+TREND_RETIRE_PURGE_DAYS = float(os.environ.get("TREND_RETIRE_PURGE_DAYS", "30"))
+# Analytics retention: raw per-visit rows are deleted after this many days. The
+# pre-aggregated daily traffic counts are small and are kept.
+ANALYTICS_RETAIN_DAYS = float(os.environ.get("ANALYTICS_RETAIN_DAYS", "180"))
 
 # --- Grouping v2: TF-IDF + proper-noun anchors (see app/textmerge.py) ---
 # Combined score = 0.55*tfidf_cos + 0.35*anchor_overlap + 0.10*time_proximity.

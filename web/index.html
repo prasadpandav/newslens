@@ -291,7 +291,11 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 
 /* ============ Story reader ============ */
 .reader{max-width:720px;margin:0 auto}
-.reader .crumb{display:flex;align-items:center;gap:10px;margin-bottom:26px;font-size:13px;color:var(--text-2)}
+/* wrap + nowrap chips: on narrow screens the row should break onto a new line
+   rather than squeezing each chip into a multi-line blob */
+.reader .crumb{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;
+  margin-bottom:26px;font-size:13px;color:var(--text-2)}
+.reader .crumb .chip{white-space:nowrap}
 .reader h1{font-family:var(--font-ed);font-size:clamp(30px,4.5vw,44px);font-weight:600;
   line-height:1.12;letter-spacing:-.015em;margin:14px 0 18px}
 .reader .lede{font-size:17px;color:var(--text-2);line-height:1.7}
@@ -528,6 +532,42 @@ const S = {
 /* Free story reads per day for guests before the sign-in wall (metered access). */
 const FREE_READS_PER_DAY = 5;
 
+/* ================= Audience measurement =================
+   A random id kept in this browser only. It is not derived from anything about
+   the visitor or their device, so it counts browsers, not people, and cannot be
+   used to recognise the same person elsewhere. The server stores no IP address
+   and no user-agent alongside it. Clearing site data resets it completely. */
+const Track = {
+  device(){
+    let id = localStorage.getItem('bl_device');
+    if (!id){
+      id = (crypto.randomUUID ? crypto.randomUUID()
+            : String(Date.now()) + Math.random().toString(16).slice(2)).replace(/-/g,'');
+      localStorage.setItem('bl_device', id);
+    }
+    return id;
+  },
+  last: '',
+  view(path){
+    if (!S.online) return;
+    path = path || '/';
+    if (path === this.last) return;   // ignore re-renders of the same route
+    this.last = path;
+    const body = JSON.stringify({device: this.device(), path,
+      ref: document.referrer || '', user_id: S.creds ? S.creds.user_id : ''});
+    // keepalive so the beacon still goes out if the click navigates away.
+    fetch(API+'/track', {method:'POST', headers:{'Content-Type':'application/json'},
+      body, keepalive:true}).catch(()=>{});   // never let analytics surface an error
+  }
+};
+
+/* Route -> reportable path. Ids are kept (the report shows which STORY was read)
+   but nothing from the query string is, since that can carry personal values. */
+function trackedPath(){
+  const h = (location.hash || '#/').replace(/^#/, '').split('?')[0];
+  return h || '/';
+}
+
 /* ================= Demo fallback data ================= */
 const DEMO = {
   stories: [
@@ -623,6 +663,7 @@ function route(){
     a.classList.toggle('active', on);
   });
   $('#fab').classList.add('hidden'); Ask.close(); Gate.close();
+  Track.view(trackedPath());
   if (h.startsWith('#/story/')) return Story.render(h.slice(8));
   if (h.startsWith('#/signal/')) return SignalPage.render(h.slice(9));
   if (h.startsWith('#/trend/')) return TrendPage.render(h.slice(8));
@@ -759,9 +800,9 @@ const Brief = { async render(){
           ${macro.map(t=>`<div class="titem" data-act="go" data-hash="#/trend/${esc(t.id)}" style="cursor:pointer">
             <span class="nm">${esc(cleanName(t.name))}</span><span class="cnt" style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">${t.article_count||0}</span></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
-          ${(S.signals||[]).map(g=>`<div class="signal" data-act="go" data-hash="#/signal/${esc(g.id)}" style="cursor:pointer">
+          ${(S.signals||[]).map(g=>{ const told = lastTold(g.created_at); return `<div class="signal" data-act="go" data-hash="#/signal/${esc(g.id)}" style="cursor:pointer">
             <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
-            <div class="sg" style="color:var(--predict);margin-top:5px">${(g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence</div></div>`).join('')
+            <div class="sg" style="color:var(--predict);margin-top:5px">${(g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence${told?` · ${esc(told.rel)}`:''}</div></div>`;}).join('')
           || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
         <div class="glass rise" style="animation-delay:.25s"><h4>Your intelligence</h4>
           <div class="stat"><span>Learning streak</span><b>${S.eng.streak} day${S.eng.streak>1?'s':''}</b></div>
@@ -1094,14 +1135,14 @@ const Trends = { tab:'macro', async render(){
       <button class="${this.tab==='macro'?'on':''}" onclick="Trends.tab='macro';Trends.render()">Macro trends</button>
       <button class="${this.tab==='micro'?'on':''}" onclick="Trends.tab='micro';Trends.render()">Early signals</button>
     </div>
-    <div class="tgrid">${list.map((t,i)=>`
+    <div class="tgrid">${list.map((t,i)=>{ const told = lastTold(t.created_at); return `
       <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s;cursor:pointer" onclick="location.hash='#/trend/${t.id}'">
         <div class="th"><h3>${esc(cleanName(t.name))}</h3></div>
         <p>${esc(t.narrative)}</p>
         <div class="tf">${(t.sectors||[]).slice(0,3).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}
           ${t.kind==='micro'?'<span class="chip ai">accelerating</span>':''}
-          <span class="cnt">${t.article_count||0} stories</span></div>
-      </div>`).join('') || `<div class="glass" style="padding:40px;grid-column:1/-1;text-align:center;color:var(--text-2)">No ${this.tab==='macro'?'macro trends':'early signals'} yet — run the pipeline.</div>`}
+          <span class="cnt">${t.article_count||0} stories${told?` · ${esc(told.rel)}`:''}</span></div>
+      </div>`;}).join('') || `<div class="glass" style="padding:40px;grid-column:1/-1;text-align:center;color:var(--text-2)">No ${this.tab==='macro'?'macro trends':'early signals'} yet — run the pipeline.</div>`}
     </div>
     <div class="netwrap glass rise" style="animation-delay:.3s">
       <h3>Story network</h3><div class="cap">How today's trends and stories interlink. Larger nodes = stronger trends.</div>
@@ -1151,20 +1192,26 @@ net(){
 /* ============ Shared-link pages: prediction & trend ============ */
 const SignalPage = { async render(id){
   $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:220px"></div></div>`;
-  if (!S.signals.length) await loadData();
-  const g = (S.signals||[]).find(x=>x.id===id);
+  // Ask the server for this specific forecast. Searching the in-memory list was
+  // the old behaviour and made every shared link look deleted, because a link
+  // usually outlives the forecast's stay in the current top-of-list set.
+  let g = null;
+  try { g = await api('/signal/'+id); }
+  catch(e){ g = (S.signals||[]).find(x=>x.id===id) || null; }   // offline/demo fallback
   if (!g){
     $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
       <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
-        This prediction has been replaced by newer ones.<br><br>
+        This prediction is no longer available — forecasts are retired after 7 days.<br><br>
         <a class="btn primary" href="#/trends">See current predictions</a></div></div>`;
     return;
   }
+  const told = lastTold(g.created_at);
   $('#view').innerHTML = `
   <div class="wrap reader">
     <div class="crumb rise"><a href="#/brief">← Brief</a> · <span class="chip ai">Prediction</span>
       ${g.horizon?`· <span class="chip">${esc(g.horizon)}</span>`:''}
-      · <span class="chip">${Math.round(g.confidence*100)}% confidence</span></div>
+      · <span class="chip">${Math.round(g.confidence*100)}% confidence</span>${told?`
+      · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise">${esc(g.title)}</h1>
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm" data-act="copylink" data-kind="signal" data-id="${esc(g.id)}">🔗 Copy link</button>
@@ -1186,17 +1233,27 @@ const TrendPage = { async render(id){
   let t = null;
   try { t = await api('/trend/'+id); } catch(e) {}
   if (!t){
+    // Only reachable now if the trend was purged long after retirement.
     $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
       <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
-        This trend is no longer tracked.<br><br>
+        This trend is no longer available.<br><br>
         <a class="btn primary" href="#/trends">See current trends</a></div></div>`;
     return;
   }
+  const told = lastTold(t.created_at), gone = lastTold(t.retired_at);
   $('#view').innerHTML = `
   <div class="wrap reader">
     <div class="crumb rise"><a href="#/trends">← Trends</a> ·
-      <span class="chip ${t.kind==='micro'?'ai':'accent'}">${t.kind==='micro'?'Picking up speed':'Big trend'}</span></div>
+      <span class="chip ${gone?'':(t.kind==='micro'?'ai':'accent')}">${gone?'Past trend':(t.kind==='micro'?'Picking up speed':'Big trend')}</span>${told?`
+      · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise">${esc(cleanName(t.name))}</h1>
+    ${gone?`<div class="glass rise" style="display:flex;gap:12px;align-items:flex-start;padding:14px 16px;
+      margin:14px 0 4px;border-color:rgba(255,194,77,.3);background:rgba(255,194,77,.07)">
+      <span style="font-size:16px;line-height:1.2">🗄️</span>
+      <div style="font-size:13.5px;color:var(--text-2)">
+        <b style="color:var(--text)">No longer an active trend.</b>
+        Descry stopped tracking this ${esc(gone.rel)} because recent coverage moved on.
+        Everything below is kept exactly as it was reported at the time.</div></div>`:''}
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm" data-act="copylink" data-kind="trend" data-id="${esc(t.id)}">🔗 Copy link</button>
     </div>

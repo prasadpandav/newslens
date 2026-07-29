@@ -68,6 +68,34 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
   transition:all .3s;pointer-events:none}
 .toast.on{opacity:1;transform:translateX(-50%)}
 .muted{color:var(--text2);font-size:12.5px}
+
+/* reports */
+.tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.tabs button{background:var(--surface2);border:1px solid var(--border);color:var(--text2);
+  padding:8px 15px;font-size:13.5px}
+.tabs button.on{background:var(--surface2);color:var(--text);border-color:var(--accent)}
+.rhead{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.rhead h2{margin-bottom:0}
+.rhead .sp{flex:1}
+.rhead select{padding:7px 10px;font-size:13px}
+/* Pure-CSS bar chart: each row is a labelled track, no chart library needed. */
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:grid;grid-template-columns:minmax(90px,190px) 1fr auto;gap:10px;align-items:center;font-size:12.5px}
+.bar .lbl{color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .track{display:block;background:var(--surface2);border-radius:100px;height:9px;overflow:hidden}
+/* block, not inline — an inline span ignores width/height and collapses to 0 */
+.bar .fill{display:block;height:100%;border-radius:100px;background:var(--grad)}
+.bar .val{font-family:ui-monospace,monospace;font-size:12px;color:var(--text2);min-width:44px;text-align:right}
+/* Daily spark columns */
+.spark{display:flex;align-items:flex-end;gap:2px;height:86px;margin-top:4px}
+.spark .col{flex:1;min-width:3px;background:var(--grad);border-radius:3px 3px 0 0;opacity:.85}
+.spark .col:hover{opacity:1}
+.sparkx{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.two{grid-template-columns:1fr}}
+.avatar{width:26px;height:26px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:8px}
+.who{display:flex;align-items:center}
+.privacy{font-size:12px;color:var(--text2);margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -125,6 +153,25 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
   </div>
 
   <div class="card">
+    <div class="rhead">
+      <h2>Reports</h2>
+      <span class="sp"></span>
+      <select id="rdays" onchange="loadReport()">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="365">Last year</option>
+      </select>
+    </div>
+    <div class="tabs" id="rtabs">
+      <button class="on" data-r="visitors" onclick="pickReport('visitors')">Visitors</button>
+      <button data-r="traffic" onclick="pickReport('traffic')">Traffic</button>
+      <button data-r="users" onclick="pickReport('users')">Signed-in users</button>
+    </div>
+    <div id="report"><span class="muted">Loading…</span></div>
+  </div>
+
+  <div class="card">
     <h2>Recent pipeline runs</h2>
     <div style="overflow-x:auto"><table id="runs"></table></div>
   </div>
@@ -172,6 +219,127 @@ async function refresh(){
   if(r.status===401||r.status===403){ signout(); return; }
   if(!r.ok){ toast('Refresh failed ('+r.status+')'); return; }
   render(await r.json());
+  loadReport();
+}
+
+/* ===================== Reports ===================== */
+let REPORT = 'visitors';
+const nfm = n => (n ?? 0).toLocaleString();
+const day = s => { const [y,m,d] = String(s||'').split('-');
+  return d ? new Date(y, m-1, d).toLocaleDateString([], {month:'short', day:'numeric'}) : (s||''); };
+
+function pickReport(which){
+  REPORT = which;
+  document.querySelectorAll('#rtabs button').forEach(b =>
+    b.classList.toggle('on', b.dataset.r === which));
+  loadReport();
+}
+
+function statGrid(pairs){
+  return `<div class="grid">` + pairs.map(([l,n]) =>
+    `<div class="stat"><div class="n">${esc(String(n))}</div><div class="l">${esc(l)}</div></div>`
+  ).join('') + `</div>`;
+}
+
+/* Horizontal bars, each scaled against the largest value in its own list. */
+function bars(rows, labelKey, valueKey, empty){
+  if(!rows || !rows.length) return `<div class="muted">${esc(empty)}</div>`;
+  const max = Math.max(...rows.map(r => r[valueKey] || 0), 1);
+  return `<div class="bars">` + rows.map(r => {
+    const v = r[valueKey] || 0;
+    return `<div class="bar"><span class="lbl" title="${esc(r[labelKey])}">${esc(r[labelKey] || '—')}</span>
+      <span class="track"><span class="fill" style="width:${Math.max(2, v/max*100)}%"></span></span>
+      <span class="val">${nfm(v)}</span></div>`;
+  }).join('') + `</div>`;
+}
+
+/* Daily columns. Bars are scaled to the busiest day; title shows exact numbers. */
+function spark(daily, key, label){
+  if(!daily || !daily.length) return `<div class="muted">No activity recorded yet.</div>`;
+  const max = Math.max(...daily.map(d => d[key] || 0), 1);
+  const cols = daily.map(d =>
+    `<div class="col" style="height:${Math.max(3, (d[key]||0)/max*100)}%"
+      title="${esc(day(d.day))}: ${nfm(d[key])} ${esc(label)}"></div>`).join('');
+  return `<div class="spark">${cols}</div>
+    <div class="sparkx"><span>${esc(day(daily[0].day))}</span>
+      <span>peak ${nfm(max)} ${esc(label)}/day</span>
+      <span>${esc(day(daily[daily.length-1].day))}</span></div>`;
+}
+
+async function loadReport(){
+  const box = $('#report');
+  if(!box) return;
+  const days = $('#rdays').value;
+  box.innerHTML = `<span class="muted">Loading…</span>`;
+  const r = await adminGet(`/admin/reports/${REPORT}?days=${encodeURIComponent(days)}`);
+  if(r.status===401||r.status===403){ signout(); return; }
+  if(!r.ok){ box.innerHTML = `<div class="muted">Couldn't load this report (error ${r.status}).</div>`; return; }
+  const d = await r.json();
+  box.innerHTML = REPORT==='visitors' ? visitorsHTML(d)
+                : REPORT==='traffic'  ? trafficHTML(d)
+                : usersHTML(d);
+}
+
+function visitorsHTML(d){
+  const returnRate = d.unique_devices ? Math.round(d.returning_devices / d.unique_devices * 100) : 0;
+  return statGrid([
+    ['Unique devices', nfm(d.unique_devices)],
+    ['Page views', nfm(d.page_views)],
+    ['New devices', nfm(d.new_devices)],
+    ['Returning', `${nfm(d.returning_devices)} · ${returnRate}%`],
+    ['Avg active days', d.avg_active_days ?? 0],
+  ]) + `
+  <h2 style="margin-top:6px">Unique devices per day</h2>
+  ${spark(d.daily, 'devices', 'devices')}
+  <div class="two" style="margin-top:20px">
+    <div><h2>Most-read pages</h2>${bars(d.top_pages, 'path', 'views', 'No page views yet.')}</div>
+    <div><h2>Where they came from</h2>${bars(d.referrers, 'ref', 'views', 'No external referrers yet — visitors are arriving directly.')}</div>
+  </div>
+  <div style="margin-top:20px"><h2>Countries</h2>${bars(d.countries, 'country', 'views', 'No country data yet.')}</div>
+  <div class="privacy">Devices are counted with a random first-party id stored in the visitor's own browser.
+    No IP addresses and no browser fingerprints are recorded. Raw visits are deleted automatically after the retention window.</div>`;
+}
+
+function trafficHTML(d){
+  return statGrid([
+    ['Total requests', nfm(d.total_requests)],
+    ['Avg per day', nfm(d.avg_per_day)],
+    ['Busiest day', d.busiest_day ? day(d.busiest_day.day) : '—'],
+    ['Peak requests', d.busiest_day ? nfm(d.busiest_day.hits) : '—'],
+  ]) + `
+  <h2 style="margin-top:6px">Requests per day</h2>
+  ${spark(d.daily, 'hits', 'requests')}
+  <div style="margin-top:20px"><h2>Busiest endpoints</h2>
+    ${bars(d.top_routes, 'route', 'hits', 'No traffic recorded yet.')}</div>
+  <div class="privacy">Counts every API request the service answers, grouped by route.
+    Admin endpoints and the live stream are excluded so they don't drown out real traffic.</div>`;
+}
+
+function usersHTML(d){
+  const rows = (d.users||[]).map(u => `<tr>
+    <td><span class="who">${u.picture ? `<img class="avatar" src="${esc(u.picture)}" alt="">` : ''}
+      <span>${esc(u.name || '—')}</span></span></td>
+    <td class="mono">${esc(u.email || '—')}</td>
+    <td>${esc(when(u.created_at))}</td>
+    <td>${esc(when(u.last_seen))}</td>
+    <td>${nfm(u.saved)}</td>
+    <td>${nfm(u.reactions)}</td></tr>`).join('')
+    || `<tr><td colspan="6" class="muted">No signed-up users yet.</td></tr>`;
+  return statGrid([
+    ['Total accounts', nfm(d.total)],
+    ['Google sign-ups', nfm(d.google_signed_up)],
+    ['Guest accounts', nfm(d.anonymous)],
+    ['New in window', nfm(d.new_in_window)],
+  ]) + `
+  <h2 style="margin-top:6px">Sign-ups per day</h2>
+  ${spark(d.signups_by_day, 'signups', 'sign-ups')}
+  <h2 style="margin-top:20px">Signed-in users</h2>
+  <div style="overflow-x:auto"><table>
+    <tr><th>Name</th><th>Email</th><th>Joined</th><th>Last seen</th><th>Saved</th><th>Reactions</th></tr>
+    ${rows}
+  </table></div>
+  <div class="privacy">"Last seen" comes from page-view tracking, so it only appears for users
+    who have browsed since analytics was enabled.</div>`;
 }
 
 function render(d){
