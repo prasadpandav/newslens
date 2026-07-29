@@ -12,7 +12,7 @@
 <meta property="og:description" content="Every story with its context, trends, hidden connections and a verified-claims corroboration score.">
 <meta property="og:image" content="og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,7 +31,7 @@
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .account .btn.sm{padding:5px 10px;font-size:12px}
 .gbtn-fallback{display:inline-flex;align-items:center;gap:8px;cursor:pointer;
-  background:#fff;color:#3c4043;border:1px solid transparent;border-radius:999px;
+  background:#fff;color:#3c4043;border:1px solid rgba(15,23,42,.14);border-radius:999px;
   padding:8px 14px;font:600 13px/1 'Inter',sans-serif}
 .gbtn-fallback:hover{background:#f4f6fb}
 .acct-link{display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;
@@ -76,10 +76,10 @@
 <style>
 /* ============ Descry Design Tokens (Bluelligent design system) ============ */
 :root{
-  --bg:#070B14; --bg-2:#0B1120; --surface:rgba(255,255,255,.035);
-  --surface-2:rgba(255,255,255,.06); --border:rgba(255,255,255,.08);
-  --border-2:rgba(255,255,255,.14);
-  --text:#E8ECF4; --text-2:#9AA5B8; --text-3:#5D6778;
+  --bg:#F5F7FB; --bg-2:#FFFFFF; --surface:rgba(15,23,42,.04);
+  --surface-2:rgba(15,23,42,.06); --border:rgba(15,23,42,.09);
+  --border-2:rgba(15,23,42,.16);
+  --text:#161B26; --text-2:#5B6472; --text-3:#8A93A6;
   --accent:#4D9FFF; --ai-2:#7C5CFF;
   --trust:#3DDC97; --warn:#FFC24D; --breaking:#FF5D73; --predict:#B48CFF;
   --grad-ai:linear-gradient(135deg,#4D9FFF,#7C5CFF);
@@ -88,36 +88,36 @@
   --font-ui:'Inter',system-ui,sans-serif;
   --font-ed:'Newsreader',Georgia,serif;
   --font-mono:'JetBrains Mono',monospace;
-  --shadow:0 10px 40px rgba(0,0,0,.45);
+  --shadow:0 10px 30px rgba(15,23,42,.12);
   /* Raised/solid panels (modals, toast) — deliberately not translucent so
      content behind a modal never shows through. */
-  --modal-bg:#0D1424;
+  --modal-bg:#FFFFFF;
   /* Frosted bars that sit over scrolling content. */
-  --nav-bg:rgba(7,11,20,.75); --pill-bg:rgba(11,17,32,.85);
+  --nav-bg:rgba(255,255,255,.75); --pill-bg:rgba(255,255,255,.85);
   /* Neutral track color for meters/rings/shimmer. */
-  --track:rgba(255,255,255,.08);
+  --track:rgba(15,23,42,.08);
   /* Foreground text for colored chips/labels — tuned per-theme for contrast
      against the (theme-invariant) low-alpha tinted chip backgrounds. */
-  --chip-blue:#BFDBFF; --chip-green:#A7F3D0; --chip-amber:#FDE9BE;
-  --chip-red:#FFC9D2; --chip-purple:#DCD2FF;
+  --chip-blue:#1D5FCC; --chip-green:#0E7A54; --chip-amber:#8A5A00;
+  --chip-red:#C22B44; --chip-purple:#5E3FD1;
 }
-/* Light theme — follows the OS/browser color-scheme setting automatically,
-   no in-app toggle. Only :root tokens + the few places below that hardcode a
-   dark-tuned literal instead of a token need a per-theme override. */
-@media (prefers-color-scheme:light){
+/* Dark theme — light (above) is the default for everyone, including
+   no-preference environments; dark only activates when the OS/browser
+   explicitly reports a dark preference. No in-app toggle. */
+@media (prefers-color-scheme:dark){
   :root{
-    --bg:#F5F7FB; --bg-2:#FFFFFF; --surface:rgba(15,23,42,.04);
-    --surface-2:rgba(15,23,42,.06); --border:rgba(15,23,42,.09);
-    --border-2:rgba(15,23,42,.16);
-    --text:#161B26; --text-2:#5B6472; --text-3:#8A93A6;
-    --shadow:0 10px 30px rgba(15,23,42,.12);
-    --modal-bg:#FFFFFF;
-    --nav-bg:rgba(255,255,255,.75); --pill-bg:rgba(255,255,255,.85);
-    --track:rgba(15,23,42,.08);
-    --chip-blue:#1D5FCC; --chip-green:#0E7A54; --chip-amber:#8A5A00;
-    --chip-red:#C22B44; --chip-purple:#5E3FD1;
+    --bg:#070B14; --bg-2:#0B1120; --surface:rgba(255,255,255,.035);
+    --surface-2:rgba(255,255,255,.06); --border:rgba(255,255,255,.08);
+    --border-2:rgba(255,255,255,.14);
+    --text:#E8ECF4; --text-2:#9AA5B8; --text-3:#5D6778;
+    --shadow:0 10px 40px rgba(0,0,0,.45);
+    --modal-bg:#0D1424;
+    --nav-bg:rgba(7,11,20,.75); --pill-bg:rgba(11,17,32,.85);
+    --track:rgba(255,255,255,.08);
+    --chip-blue:#BFDBFF; --chip-green:#A7F3D0; --chip-amber:#FDE9BE;
+    --chip-red:#FFC9D2; --chip-purple:#DCD2FF;
   }
-  .gbtn-fallback{border-color:rgba(15,23,42,.14)}
+  .gbtn-fallback{border-color:transparent}
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
