@@ -12,6 +12,7 @@
 <meta property="og:description" content="Every story with its context, trends, hidden connections and a verified-claims corroboration score.">
 <meta property="og:image" content="og.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="color-scheme" content="dark light">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,12 +26,12 @@
 /* Account area in the top nav */
 .account{display:flex;align-items:center;gap:8px;margin-left:10px}
 .account .avatar{width:26px;height:26px;border-radius:50%;object-fit:cover;
-  border:1px solid rgba(255,255,255,.18)}
-.account .acct-name{font-size:13px;font-weight:600;color:#E7EEFB;max-width:120px;
+  border:1px solid var(--border-2)}
+.account .acct-name{font-size:13px;font-weight:600;color:var(--text);max-width:120px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .account .btn.sm{padding:5px 10px;font-size:12px}
 .gbtn-fallback{display:inline-flex;align-items:center;gap:8px;cursor:pointer;
-  background:#fff;color:#3c4043;border:none;border-radius:999px;
+  background:#fff;color:#3c4043;border:1px solid transparent;border-radius:999px;
   padding:8px 14px;font:600 13px/1 'Inter',sans-serif}
 .gbtn-fallback:hover{background:#f4f6fb}
 .acct-link{display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;
@@ -88,6 +89,35 @@
   --font-ed:'Newsreader',Georgia,serif;
   --font-mono:'JetBrains Mono',monospace;
   --shadow:0 10px 40px rgba(0,0,0,.45);
+  /* Raised/solid panels (modals, toast) — deliberately not translucent so
+     content behind a modal never shows through. */
+  --modal-bg:#0D1424;
+  /* Frosted bars that sit over scrolling content. */
+  --nav-bg:rgba(7,11,20,.75); --pill-bg:rgba(11,17,32,.85);
+  /* Neutral track color for meters/rings/shimmer. */
+  --track:rgba(255,255,255,.08);
+  /* Foreground text for colored chips/labels — tuned per-theme for contrast
+     against the (theme-invariant) low-alpha tinted chip backgrounds. */
+  --chip-blue:#BFDBFF; --chip-green:#A7F3D0; --chip-amber:#FDE9BE;
+  --chip-red:#FFC9D2; --chip-purple:#DCD2FF;
+}
+/* Light theme — follows the OS/browser color-scheme setting automatically,
+   no in-app toggle. Only :root tokens + the few places below that hardcode a
+   dark-tuned literal instead of a token need a per-theme override. */
+@media (prefers-color-scheme:light){
+  :root{
+    --bg:#F5F7FB; --bg-2:#FFFFFF; --surface:rgba(15,23,42,.04);
+    --surface-2:rgba(15,23,42,.06); --border:rgba(15,23,42,.09);
+    --border-2:rgba(15,23,42,.16);
+    --text:#161B26; --text-2:#5B6472; --text-3:#8A93A6;
+    --shadow:0 10px 30px rgba(15,23,42,.12);
+    --modal-bg:#FFFFFF;
+    --nav-bg:rgba(255,255,255,.75); --pill-bg:rgba(255,255,255,.85);
+    --track:rgba(15,23,42,.08);
+    --chip-blue:#1D5FCC; --chip-green:#0E7A54; --chip-amber:#8A5A00;
+    --chip-red:#C22B44; --chip-purple:#5E3FD1;
+  }
+  .gbtn-fallback{border-color:rgba(15,23,42,.14)}
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -108,23 +138,23 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;
   border-radius:100px;font-size:12px;font-weight:600;letter-spacing:.02em;
   background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
-.chip.accent{color:#BFDBFF;background:rgba(77,159,255,.14);border-color:rgba(77,159,255,.3)}
-.chip.trust{color:#A7F3D0;background:rgba(61,220,151,.12);border-color:rgba(61,220,151,.3)}
-.chip.warn{color:#FDE9BE;background:rgba(255,194,77,.12);border-color:rgba(255,194,77,.3)}
-.chip.breaking{color:#FFC9D2;background:rgba(255,93,115,.12);border-color:rgba(255,93,115,.35)}
-.chip.ai{color:#DCD2FF;background:rgba(124,92,255,.14);border-color:rgba(124,92,255,.35)}
+.chip.accent{color:var(--chip-blue);background:rgba(77,159,255,.14);border-color:rgba(77,159,255,.3)}
+.chip.trust{color:var(--chip-green);background:rgba(61,220,151,.12);border-color:rgba(61,220,151,.3)}
+.chip.warn{color:var(--chip-amber);background:rgba(255,194,77,.12);border-color:rgba(255,194,77,.3)}
+.chip.breaking{color:var(--chip-red);background:rgba(255,93,115,.12);border-color:rgba(255,93,115,.35)}
+.chip.ai{color:var(--chip-purple);background:rgba(124,92,255,.14);border-color:rgba(124,92,255,.35)}
 .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:12px;
   font-weight:600;font-size:14px;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
 .btn.primary{background:var(--grad-ai);color:#fff;box-shadow:0 6px 24px rgba(77,159,255,.35)}
 .btn.primary:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(77,159,255,.45)}
 .btn.ghost{border:1px solid var(--border-2);color:var(--text)}
 .btn.ghost:hover{background:var(--surface-2)}
-.meter{height:5px;border-radius:100px;background:rgba(255,255,255,.08);overflow:hidden}
+.meter{height:5px;border-radius:100px;background:var(--track);overflow:hidden}
 .meter>i{display:block;height:100%;border-radius:100px;background:var(--trust);
   transition:width 1s var(--ease)}
 .skel{position:relative;overflow:hidden;background:var(--surface);border-radius:var(--r-md);min-height:90px}
 .skel::after{content:"";position:absolute;inset:0;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
+  background:linear-gradient(90deg,transparent,var(--track),transparent);
   animation:shimmer 1.4s infinite}
 @keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -133,7 +163,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 /* ============ Nav ============ */
 nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:20px;
-  padding:14px 28px;background:rgba(7,11,20,.75);backdrop-filter:blur(18px);
+  padding:14px 28px;background:var(--nav-bg);backdrop-filter:blur(18px);
   border-bottom:1px solid var(--border)}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em;color:var(--text)}
 .logo .mark{width:28px;height:28px;border-radius:8px;overflow:hidden;
@@ -149,7 +179,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .searchbtn kbd{font-family:var(--font-mono);font-size:11px;padding:2px 6px;border-radius:5px;
   background:var(--surface-2);border:1px solid var(--border)}
 .offline{font-size:11px;padding:4px 10px;border-radius:100px;background:rgba(255,194,77,.12);
-  color:#FDE9BE;border:1px solid rgba(255,194,77,.3)}
+  color:var(--chip-amber);border:1px solid rgba(255,194,77,.3)}
 
 /* ============ Logged-out welcome banner ============ */
 .welcomebar{display:flex;align-items:center;gap:16px;padding:14px 18px;margin-bottom:20px;
@@ -166,7 +196,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 /* ============ Feed mode toggle + live hero + new banner ============ */
 .feedmodes{display:flex;gap:8px;margin-bottom:16px}
 .feedmodes .chip{cursor:pointer}
-.feedmodes .chip.on{color:#BFDBFF;background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
+.feedmodes .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
 .livehero{position:relative;padding:12px 14px 10px;margin-bottom:18px}
 .livehero.brk{border-color:rgba(255,93,115,.4)}
 .livehero .lh-dot{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
@@ -191,7 +221,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 /* ============ Sign-in wall + gate + save button ============ */
 .wall{position:fixed;inset:0;z-index:130;background:rgba(4,7,14,.86);backdrop-filter:blur(14px);
   display:grid;place-items:center;padding:24px}
-.wall .wcard{width:min(440px,94vw);padding:34px 30px;border-radius:22px;background:#0D1424;
+.wall .wcard{width:min(440px,94vw);padding:34px 30px;border-radius:22px;background:var(--modal-bg);
   border:1px solid var(--border-2);box-shadow:var(--shadow);text-align:center}
 .wall .wcard h2{font-family:var(--font-ed);font-size:26px;margin-bottom:8px}
 .wall .wcard p{color:var(--text-2);font-size:14px;margin-bottom:20px}
@@ -203,7 +233,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   border-top:1px solid var(--border);font-size:14px;cursor:pointer}
 .lc-row input,.lc-master input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
 .storylink{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-.storylink:hover{color:#BFDBFF}
+.storylink:hover{color:var(--chip-blue)}
 .readerbar{display:flex;gap:10px;align-items:center;margin:18px 0 4px}
 .readerbar .btn.sm{padding:7px 14px;font-size:13px}
 .convcard{padding:22px 24px;margin-top:24px;text-align:center;
@@ -229,7 +259,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .topics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
 .topics .chip{cursor:pointer;transition:all .2s}
 .topics .chip:hover{border-color:var(--border-2);color:var(--text)}
-.topics .chip.on{color:#BFDBFF;background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
+.topics .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.4)}
 
 /* story card */
 .scard{display:block;padding:22px 24px;margin-bottom:16px;color:var(--text);
@@ -253,7 +283,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .titem svg{flex-shrink:0}
 .signal{padding:10px 12px;border-radius:var(--r-sm);background:rgba(124,92,255,.08);
   border:1px solid rgba(124,92,255,.2);margin-bottom:8px}
-.signal .nm{font-size:13px;font-weight:600;color:#DCD2FF}
+.signal .nm{font-size:13px;font-weight:600;color:var(--chip-purple)}
 .signal .sg{font-size:12px;color:var(--text-2);margin-top:3px}
 .stat{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);font-size:13.5px}
 .stat:first-of-type{border-top:none}
@@ -271,7 +301,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .trustdial .info .note{font-size:13px;color:var(--text-2);margin-top:3px}
 .trustdial .pct{font-family:var(--font-mono);font-size:15px;font-weight:600}
 .understand{position:sticky;top:63px;z-index:40;display:flex;align-items:center;gap:10px;
-  padding:8px 14px;margin-bottom:22px;border-radius:100px;background:rgba(11,17,32,.85);
+  padding:8px 14px;margin-bottom:22px;border-radius:100px;background:var(--pill-bg);
   border:1px solid var(--border);backdrop-filter:blur(12px);font-size:12px;color:var(--text-2)}
 .understand .meter{flex:1}
 .understand .meter>i{background:var(--grad-ai)}
@@ -295,7 +325,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .claim .nt{font-size:12.5px;color:var(--text-2);margin-top:2px}
 .connection{padding:14px 16px;border-radius:var(--r-md);background:rgba(124,92,255,.07);
   border:1px solid rgba(124,92,255,.2);margin-bottom:10px}
-.connection .oth{font-weight:600;font-size:14px;color:#DCD2FF}
+.connection .oth{font-weight:600;font-size:14px;color:var(--chip-purple)}
 .connection .ch{font-size:13.5px;margin-top:6px;color:var(--text-2)}
 .connection .cf{font-family:var(--font-mono);font-size:11.5px;color:var(--predict);margin-top:8px}
 .srcrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}
@@ -307,7 +337,7 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   background:linear-gradient(135deg,rgba(77,159,255,.10),rgba(124,92,255,.10));
   border:1px solid rgba(77,159,255,.25)}
 .foryou .lbl{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;
-  text-transform:uppercase;letter-spacing:.09em;color:#BFDBFF;margin-bottom:8px}
+  text-transform:uppercase;letter-spacing:.09em;color:var(--chip-blue);margin-bottom:8px}
 
 /* ============ Trends ============ */
 .tabs{display:flex;gap:6px;margin-bottom:24px}
@@ -330,7 +360,7 @@ canvas#net{width:100%;height:380px;border-radius:var(--r-md)}
 .overlay{position:fixed;inset:0;z-index:100;background:rgba(4,7,14,.72);backdrop-filter:blur(10px);
   display:grid;place-items:start center;padding-top:11vh;opacity:0;pointer-events:none;transition:opacity .25s}
 .overlay.on{opacity:1;pointer-events:auto}
-.panel{width:min(640px,92vw);border-radius:20px;background:#0D1424;border:1px solid var(--border-2);
+.panel{width:min(640px,92vw);border-radius:20px;background:var(--modal-bg);border:1px solid var(--border-2);
   box-shadow:var(--shadow);transform:translateY(12px) scale(.98);transition:transform .3s var(--ease)}
 .overlay.on .panel{transform:none}
 .panel input{width:100%;padding:20px 24px;background:none;border:none;outline:none;
@@ -348,7 +378,7 @@ canvas#net{width:100%;height:380px;border-radius:var(--r-md)}
   font-size:14px;box-shadow:0 10px 34px rgba(94,120,255,.45);transition:transform .25s var(--ease)}
 .fab:hover{transform:translateY(-3px) scale(1.02)}
 .askpanel{position:fixed;right:26px;bottom:26px;z-index:70;width:min(400px,92vw);max-height:70vh;
-  display:flex;flex-direction:column;border-radius:20px;background:#0D1424;
+  display:flex;flex-direction:column;border-radius:20px;background:var(--modal-bg);
   border:1px solid var(--border-2);box-shadow:var(--shadow);overflow:hidden;
   transform:translateY(16px);opacity:0;pointer-events:none;transition:all .35s var(--ease)}
 .askpanel.on{transform:none;opacity:1;pointer-events:auto}
@@ -374,7 +404,7 @@ canvas#net{width:100%;height:380px;border-radius:var(--r-md)}
 .modal{position:fixed;inset:0;z-index:110;background:rgba(4,7,14,.75);backdrop-filter:blur(10px);
   display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .3s}
 .modal.on{opacity:1;pointer-events:auto}
-.mcard{width:min(520px,92vw);padding:32px;border-radius:22px;background:#0D1424;
+.mcard{width:min(520px,92vw);padding:32px;border-radius:22px;background:var(--modal-bg);
   border:1px solid var(--border-2);box-shadow:var(--shadow)}
 .mcard h2{font-family:var(--font-ed);font-size:26px;margin-bottom:6px}
 .mcard .sub{color:var(--text-2);font-size:14px;margin-bottom:22px}
@@ -385,9 +415,9 @@ canvas#net{width:100%;height:380px;border-radius:var(--r-md)}
 .mcard input:focus{border-color:rgba(77,159,255,.5)}
 .ichips{display:flex;gap:8px;flex-wrap:wrap}
 .ichips .chip{cursor:pointer;padding:7px 14px;font-size:13px}
-.ichips .chip.on{color:#BFDBFF;background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.45)}
+.ichips .chip.on{color:var(--chip-blue);background:rgba(77,159,255,.16);border-color:rgba(77,159,255,.45)}
 .toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%) translateY(20px);
-  z-index:120;padding:11px 20px;border-radius:100px;background:#101A30;border:1px solid var(--border-2);
+  z-index:120;padding:11px 20px;border-radius:100px;background:var(--modal-bg);border:1px solid var(--border-2);
   font-size:13.5px;opacity:0;transition:all .35s var(--ease);pointer-events:none;box-shadow:var(--shadow)}
 .toast.on{opacity:1;transform:translateX(-50%)}
 footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12.5px}
@@ -554,7 +584,7 @@ function ring(score){
   const r=17, c=2*Math.PI*r, off=c*(1-score/100);
   const col = score>=75?'#3DDC97':score>=50?'#FFC24D':'#FF5D73';
   return `<svg width="44" height="44" viewBox="0 0 44 44" role="img" aria-label="Corroboration ${Math.round(score)} percent">
-    <circle cx="22" cy="22" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="4"/>
+    <circle cx="22" cy="22" r="${r}" fill="none" style="stroke:var(--track)" stroke-width="4"/>
     <circle cx="22" cy="22" r="${r}" fill="none" stroke="${col}" stroke-width="4" stroke-linecap="round"
       stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
       transform="rotate(-90 22 22)" style="transition:stroke-dashoffset 1s var(--ease)"/>
@@ -612,7 +642,8 @@ document.addEventListener('click', e=>{
     case 'hero-config': LiveHero.openConfig(); break;
     case 'load-new': Feed.loadNew(); break;
     case 'copylink':
-      { const link = API+'/s/'+el.dataset.id;
+      { const kind = el.dataset.kind || 'story';
+        const link = location.origin+'/#/'+kind+'/'+el.dataset.id;
         (navigator.clipboard?.writeText(link)||Promise.reject()).then(()=>toast('Link copied'))
           .catch(()=>toast(link)); } break;
     case 'wall-close': Gate.close(); break;
@@ -967,7 +998,7 @@ const Story = { async render(id){
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
-      <button class="btn ghost sm" data-act="copylink" data-id="${esc(s.id)}">🔗 Copy link</button>
+      <button class="btn ghost sm" data-act="copylink" data-kind="story" data-id="${esc(s.id)}">🔗 Copy link</button>
     </div>
     <p class="lede rise" style="animation-delay:.08s">${esc(what)}</p>
     <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
@@ -1123,6 +1154,9 @@ const SignalPage = { async render(id){
       ${g.horizon?`· <span class="chip">${esc(g.horizon)}</span>`:''}
       · <span class="chip">${Math.round(g.confidence*100)}% confidence</span></div>
     <h1 class="rise">${esc(g.title)}</h1>
+    <div class="readerbar rise" style="animation-delay:.06s">
+      <button class="btn ghost sm" data-act="copylink" data-kind="signal" data-id="${esc(g.id)}">🔗 Copy link</button>
+    </div>
     <p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>
     <div class="module glass open" style="margin-top:14px"><div class="mbody" style="max-height:none"><div class="minner">
       <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${linkifyRefs(g.chain, g.story_refs)}</p>
@@ -1151,6 +1185,9 @@ const TrendPage = { async render(id){
     <div class="crumb rise"><a href="#/trends">← Trends</a> ·
       <span class="chip ${t.kind==='micro'?'ai':'accent'}">${t.kind==='micro'?'Picking up speed':'Big trend'}</span></div>
     <h1 class="rise">${esc(cleanName(t.name))}</h1>
+    <div class="readerbar rise" style="animation-delay:.06s">
+      <button class="btn ghost sm" data-act="copylink" data-kind="trend" data-id="${esc(t.id)}">🔗 Copy link</button>
+    </div>
     <p class="lede rise">${linkifyRefs(t.narrative, t.story_refs)}</p>
     ${(t.sectors||[]).length?`<div style="margin:12px 0">${t.sectors.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</div>`:''}
     <div class="grp" style="padding:16px 0 8px">THE STORIES BEHIND THIS TREND</div>
