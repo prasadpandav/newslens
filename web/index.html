@@ -769,6 +769,13 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   border:1px solid rgb(from var(--ai-2) r g b / .2);margin-bottom:8px}
 .signal .nm{font-size:13px;font-weight:600;color:var(--chip-purple)}
 .signal .sg{font-size:12px;color:var(--text-2);margin-top:3px}
+/* One unlock for the whole Foresight card (see Brief.render). Dashed rather than
+   solid so it reads as the edge of what's available, not as another forecast. */
+.signal-lock{display:flex;flex-direction:column;gap:9px;padding:11px 12px;
+  border-radius:var(--r-sm);background:rgb(from var(--ai-2) r g b / .07);
+  border:1px dashed rgb(from var(--ai-2) r g b / .4)}
+.signal-lock .sl-pitch{display:flex;gap:7px;font-size:12.5px;line-height:1.45;color:var(--text-2)}
+.signal-lock .btn{width:100%;justify-content:center}
 .stat{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);font-size:13.5px}
 .stat:first-of-type{border-top:none}
 .stat b{font-family:var(--font-mono);color:var(--accent)}
@@ -1544,10 +1551,18 @@ const Brief = { async render(){
           ${macro.map(t=>`<div class="titem" data-act="go" data-hash="/trend/${esc(t.id)}" style="cursor:pointer">
             <span class="nm">${esc(cleanName(t.name))}</span><span class="cnt" style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">${t.article_count||0}</span></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
         <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
+          ${/* Signed out, the headline and the numbers stay legible but the
+                prediction itself does not: the headline is the hook, the
+                prediction is the product. One unlock covers the whole card
+                rather than one per item — three locks in a 300px rail would
+                triple its height to say the same sentence three times. */''}
           ${(S.signals||[]).map(g=>{ const told = lastTold(g.created_at); return `<div class="signal" data-act="go" data-hash="/signal/${esc(g.id)}" style="cursor:pointer">
-            <div class="nm">${esc(g.title)}</div><div class="sg">${esc(g.prediction)}</div>
+            <div class="nm">${esc(g.title)}</div><div class="sg${signedIn?'':' locked-teaser'}">${esc(g.prediction)}</div>
             <div class="sg" style="color:var(--predict);margin-top:5px">${g.story_count ?? (g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence${told?` · ${esc(told.rel)}`:''}</div></div>`;}).join('')
-          || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}</div>
+          || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}
+          ${signedIn || !(S.signals||[]).length ? '' : `<div class="signal-lock">
+            <div class="sl-pitch"><span class="locked-ic">🔒</span>Sign in to read what Descry expects next, and why.</div>
+            <button class="btn primary sm" data-act="unlock" data-gate="forecast">Sign in with Google</button></div>`}</div>
         <div class="glass rise" style="animation-delay:.25s"><h4>Your intelligence</h4>
           <div class="stat"><span>Learning streak</span><b>${S.eng.streak} day${S.eng.streak>1?'s':''}</b></div>
           <div class="stat"><span>Stories understood</span><b>${S.eng.understood}</b></div>
@@ -2287,6 +2302,17 @@ const SignalPage = { async render(id){
     ]}
   });
   const told = lastTold(g.created_at);
+  /* Forecasts are a signed-in feature, so a guest who walked here from the feed
+     gets the headline and the numbers but not the prediction — same line the
+     Foresight rail draws.
+
+     A guest who arrived ON this URL still reads it, for the reason Meter.allow
+     already spells out for a direct story entry: the page a search engine
+     indexes has to be the page it serves, every /signal/ URL is in the sitemap,
+     and a forecast someone shared has to open as a forecast rather than as a
+     sign-in form. The prediction is public content by design either way — it is
+     what og:description and the /g share card are built from. */
+  const showPrediction = signedIn() || isShared();
   $('#view').innerHTML = `
   <div class="wrap reader">
     <div class="crumb rise"><a href="/brief">← Brief</a> · <span class="chip ai">Prediction</span>
@@ -2297,7 +2323,7 @@ const SignalPage = { async render(id){
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm" data-act="copylink" data-kind="signal" data-id="${esc(g.id)}">🔗 Copy link</button>
     </div>
-    <p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>
+    ${showPrediction ? `<p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>` : ''}
     ${signedIn() ? `
     <div class="module glass open" style="margin-top:14px"><div class="mbody"><div class="minner">
       <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${linkifyRefs(g.chain, g.story_refs)}</p>
@@ -2307,13 +2333,20 @@ const SignalPage = { async render(id){
     <div class="grp" style="padding:16px 0 8px">THE ${(g.stories||[]).length} STORIES BEHIND THIS</div>
     ${(g.stories||[]).map(s=>Brief.card(s,0)).join('')}`
     : `
-    <!-- Guests get the prediction itself (the hook) but not the reasoning, the
-         watch-list or the evidence — the parts that make it actionable. -->
+    <!-- The reasoning, watch-list and evidence are withheld server-side for every
+         guest (see _shape_signal). What varies here is the prediction itself:
+         blurred for a guest who walked in from the feed, readable for one who
+         arrived on this URL — so the teaser shows the prediction in the first
+         case and a sample of the reasoning in the second. -->
     <div style="margin-top:16px">${lockedHTML('forecast',
-        `See how Descry connected ${g.story_count||0} ${g.story_count===1?'story':'stories'} to reach this, and what to watch next.`,
-        `<p><b style="color:var(--ai-2)">How we connected the dots:</b> Descry traced the
-          link between the stories behind this prediction, what it expects next, and the
-          signals worth watching.</p>`)}</div>`}
+        showPrediction
+          ? `See how Descry connected ${g.story_count||0} ${g.story_count===1?'story':'stories'} to reach this, and what to watch next.`
+          : `Sign in to read this forecast — how Descry connected ${g.story_count||0} ${g.story_count===1?'story':'stories'} to reach it, and what to watch next.`,
+        showPrediction
+          ? `<p><b style="color:var(--ai-2)">How we connected the dots:</b> Descry traced the
+             link between the stories behind this prediction, what it expects next, and the
+             signals worth watching.</p>`
+          : `<p>${esc(g.prediction)}</p>`)}</div>`}
     <p style="font-size:12px;color:var(--text-3);margin-top:16px">This prediction was made by AI by connecting stories — a lead to watch, not a fact.</p>
   </div>`;
 }};
