@@ -16,7 +16,11 @@
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- Archivo and the italic Newsreader axis are here for the Journal/Signal skins
+     (see the :root[data-skin] blocks): Archivo carries every uppercase label and
+     Signal's 900-weight headlines, and Journal sets dek/meta/edition lines in
+     real italic. Loading them as variable ranges keeps this a single request. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:ital,wght@0,400..900;1,400..600&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
 <!-- Google Identity Services (Sign in with Google) -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -135,7 +139,17 @@
    plain :root (higher specificity from the attribute selector), so this wins
    over the light/dark block above regardless of the visitor's OS setting —
    deliberate: a picked theme is a fixed, deliberate palette, not one more thing
-   prefers-color-scheme gets to override. */
+   prefers-color-scheme gets to override.
+
+   Tokens alone were not enough, though, and that is why the first cut of these
+   skins didn't look like the studies. Three things in this file are token-blind:
+   ~36 border-radius values are hardcoded pixels, .btn/.fab carry their own
+   gradient-and-glow, and .chip is a tinted pill by construction. Recoloring
+   those leaves a rounded, glowing, pastel-pill app wearing carmine — which is
+   exactly what "not similar to the mockups" meant. So each skin below is
+   tokens + a short override layer for the handful of components that don't
+   read tokens. The overrides are scoped to [data-skin] so the default theme
+   is bit-for-bit unchanged. */
 :root[data-skin="journal"]{
   --bg:#F5F1E8; --bg-2:#EFEADD; --surface:rgb(25 21 17 / .035);
   --surface-2:rgb(25 21 17 / .06); --border:#C9C1B2; --border-2:#191511;
@@ -147,8 +161,14 @@
   --trust:#191511; --warn:#5C544A; --breaking:#8E2B1E; --predict:#191511;
   --grad-ai:#8E2B1E;
   --r-lg:3px; --r-md:2px; --r-sm:2px; --r-pill:3px;
+  /* --font-ui is the sans, but it is NOT the body face here — see the
+     `body` override below. This theme is serif-led; the sans is the label
+     workhorse (kickers, meta, buttons), which is how the study uses it. */
   --font-ui:'Archivo',system-ui,sans-serif;
   --font-ed:'Newsreader',Georgia,serif;
+  /* No mono anywhere in an editorial page: the study sets figures — confidence,
+     counts, percentages — in the sans, not a terminal face. */
+  --font-mono:'Archivo',system-ui,sans-serif;
   --shadow:0 1px 0 #191511;
   --modal-bg:#F5F1E8;
   --nav-bg:rgb(245 241 232 / .92); --pill-bg:rgb(245 241 232 / .94);
@@ -179,14 +199,311 @@
   --chip-blue:#6E6D66; --chip-green:#6E6D66; --chip-amber:#D8371C;
   --chip-red:#D8371C; --chip-purple:#6E6D66;
 }
-/* Paper doesn't blur, and a floating glow is the one visual habit both skins
-   exist to get away from. */
-:root[data-skin="journal"] .frost, :root[data-skin="signal"] .frost,
-:root[data-skin="journal"] body::before, :root[data-skin="signal"] body::before{
-  backdrop-filter:none; background:none;
+/* ---------- Shared: undo the things both studies exist to get away from ----------
+   Paper doesn't blur, ink doesn't glow, and nothing floats. `nav` carries its
+   own hardcoded blur (it isn't a .frost), so it has to be named explicitly. */
+:root[data-skin="journal"] :is(.frost,nav,.newbanner,.overlay,.modal,.wall),
+:root[data-skin="signal"] :is(.frost,nav,.newbanner,.overlay,.modal,.wall){
+  backdrop-filter:none;
 }
-:root[data-skin="journal"] .fab{box-shadow:var(--shadow)}
-:root[data-skin="signal"] .fab{box-shadow:none}
+:root[data-skin="journal"] :is(nav,.newbanner),
+:root[data-skin="signal"] :is(nav,.newbanner){background:var(--bg)}
+/* Scrims go ink-on-paper instead of the default blue-black. */
+:root[data-skin="journal"] :is(.overlay,.modal,.wall){background:rgb(25 21 17 / .8)}
+:root[data-skin="signal"] :is(.overlay,.modal,.wall){background:rgb(18 18 16 / .82)}
+/* Every glow in the file, including the ones written as literal box-shadows on
+   .btn.primary / .fab / .newbanner, and every hover lift. */
+:root[data-skin="journal"] :is(.btn,.btn.primary,.fab,.newbanner,.scard,.tcard),
+:root[data-skin="journal"] :is(.btn,.btn.primary,.fab,.scard,.tcard):hover,
+:root[data-skin="signal"] :is(.btn,.btn.primary,.fab,.newbanner,.scard,.tcard),
+:root[data-skin="signal"] :is(.btn,.btn.primary,.fab,.scard,.tcard):hover{
+  box-shadow:none; transform:none;
+}
+/* The 36 hardcoded pixel radii in this file are what kept "sharp" and "zero
+   radius" from ever showing up. One declaration each is cheaper and more
+   complete than chasing them individually, and !important is what lets it
+   also win over the inline radii in the JS-built markup. Genuinely round
+   things are put back immediately below. */
+:root[data-skin="journal"] *{border-radius:var(--r-sm)!important}
+:root[data-skin="signal"] *{border-radius:0!important}
+:root[data-skin="journal"] :is(.avatar,.prof-av,.avatar-fallback,.gbtn-fallback,
+  .live-dot,.newbanner .pulse,.newbanner .up,.srcrow .dot,.netnode .dot,
+  .lc-row input,.lc-master input),
+:root[data-skin="signal"] :is(.avatar,.prof-av,.avatar-fallback,.gbtn-fallback,
+  .live-dot,.newbanner .pulse,.newbanner .up,.srcrow .dot,.netnode .dot,
+  .lc-row input,.lc-master input){border-radius:50%!important}
+/* Corroboration is "a set of inked pips" / "a ruled gauge, read like an
+   instrument" — in both studies, explicitly not a dial. ring() is JS-built SVG
+   so the ring itself stays, but the rounded cap and the traffic-light stroke are
+   what made it read as a dial; both are presentation attributes, so CSS wins. */
+:root[data-skin="journal"] .trustdial svg circle,
+:root[data-skin="signal"] .trustdial svg circle{
+  stroke-linecap:butt; stroke-width:3; fill:none; stroke:var(--text);
+}
+:root[data-skin="journal"] .trustdial svg circle:first-child,
+:root[data-skin="signal"] .trustdial svg circle:first-child{stroke:var(--track)}
+:root[data-skin="journal"] .trustdial svg text,
+:root[data-skin="signal"] .trustdial svg text{fill:var(--text); font-family:var(--font-mono)}
+/* Ruled rows, not filled ones. `.stat` is declared twice in this file — as a
+   profile tile in the first <style> and as a rail row in the second — so the
+   tile's surface fill lands on both. Neither study fills a data row. */
+:root[data-skin="journal"] .stat,
+:root[data-skin="signal"] .stat{
+  background:none; border:none; border-top:1px solid var(--border);
+}
+:root[data-skin="journal"] .stat:first-of-type,
+:root[data-skin="signal"] .stat:first-of-type{border-top:none}
+/* Story narrative is the thing being read; both studies set it in full ink and
+   leave the muted gray for meta. */
+:root[data-skin="journal"] .module .minner,
+:root[data-skin="signal"] .module .minner{color:var(--text)}
+
+/* ================= A · THE JOURNAL =================
+   "Ink on paper, one carmine accent, serif-led, hairline rules and real
+    columns. Nothing glows, nothing floats, nothing bounces." */
+/* Serif-led is the single biggest thing tokens couldn't express: body was
+   rendering in --font-ui, so the whole page came out sans. */
+:root[data-skin="journal"] body{
+  font-family:var(--font-ed); font-size:16.5px; line-height:1.55;
+  font-feature-settings:'onum','pnum';
+}
+/* The faint paper grain from the study — the default theme's two accent
+   radials are the wrong gesture entirely on paper, but the layer they use is
+   exactly the right place for this. */
+:root[data-skin="journal"] body::before{
+  background:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity:.05;
+}
+:root[data-skin="signal"] body::before{background:none}
+/* The small-caps label workhorse (.lbl in the study). Chips are not pills here
+   — an editorial page labels things with letterspaced caps and no container. */
+:root[data-skin="journal"] .chip{
+  background:none!important; border:none!important; padding:0;
+  font-family:var(--font-ui); font-size:10.5px; font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--text-2);
+}
+:root[data-skin="journal"] .chip:is(.accent,.breaking,.ai,.warn){color:var(--accent)}
+:root[data-skin="journal"] .chip.trust{color:var(--text)}
+/* Topic list becomes the study's rule-underlined topic row. */
+:root[data-skin="journal"] .topics{gap:10px 26px}
+:root[data-skin="journal"] :is(.topics,.feedmodes,.ichips) .chip.on{
+  color:var(--accent); border-bottom:2px solid var(--accent)!important; padding-bottom:3px;
+}
+/* .btn-ink: outlined, letterspaced caps, hover inverts to solid ink. */
+:root[data-skin="journal"] .btn{
+  font-family:var(--font-ui); font-size:11px; font-weight:700; letter-spacing:.14em;
+  text-transform:uppercase; padding:11px 22px; border:1.5px solid var(--text);
+  background:transparent; color:var(--text); transition:background .15s,color .15s;
+}
+:root[data-skin="journal"] .btn:hover{background:var(--text); color:var(--bg)}
+:root[data-skin="journal"] .btn.sm{padding:8px 15px; font-size:10px}
+/* Masthead: serif wordmark, letterspaced caps sections, and the study's
+   thick-then-thin double rule under the bar (drawn with two stacked shadows,
+   since the element only has one border edge to give). */
+:root[data-skin="journal"] nav{
+  border-bottom:1px solid var(--border-2);
+  box-shadow:0 3px 0 0 var(--bg),0 4px 0 0 var(--border-2);
+}
+:root[data-skin="journal"] .logo{font-family:var(--font-ed); font-size:22px; font-weight:600}
+:root[data-skin="journal"] nav .links a{
+  font-family:var(--font-ui); font-size:11.5px; font-weight:600; letter-spacing:.14em;
+  text-transform:uppercase; background:none!important; padding:7px 11px;
+}
+:root[data-skin="journal"] nav .links a:is(.active,:hover){color:var(--accent)}
+/* Tracking stays modest here on purpose: this button's label is a full phrase
+   ("Ask or search anything"), not the one-word "Search" the study sets in caps,
+   and .14em across 22 characters is what pushed the nav past the viewport. */
+:root[data-skin="journal"] .searchbtn{font-family:var(--font-ui); font-size:10.5px;
+  font-weight:600; letter-spacing:.08em; text-transform:uppercase; border:none}
+/* Edition line, set in the study's italic serif. */
+:root[data-skin="journal"] .brief-head h1{font-style:italic; font-weight:500; font-size:28px}
+:root[data-skin="journal"] :is(.brief-sum,.reader .lede,.scard p,.tcard p){font-style:italic}
+/* The feed is a river of hairline-ruled articles, not a stack of filled cards. */
+:root[data-skin="journal"] .scard{
+  background:none!important; border:none; border-bottom:1px solid var(--border);
+  padding:2px 0 18px; margin-bottom:18px;
+}
+:root[data-skin="journal"] .scard:hover{border-color:var(--border-2)}
+:root[data-skin="journal"] .scard:hover h3{text-decoration:underline;
+  text-decoration-color:var(--accent); text-decoration-thickness:1.5px; text-underline-offset:4px}
+:root[data-skin="journal"] .scard h3{font-size:23px; letter-spacing:-.012em; line-height:1.18}
+/* Margin notes: the study's box-inside-a-box, drawn with border + offset outline. */
+:root[data-skin="journal"] :is(.rail>div,.trustdial,.netwrap){
+  background:none!important; border:1px solid var(--text);
+  outline:1px solid var(--text); outline-offset:3px;
+}
+:root[data-skin="journal"] .rail h4{font-family:var(--font-ui); color:var(--accent);
+  letter-spacing:.14em; font-size:10.5px; font-weight:600}
+/* Section heads become the study's carmine rulelet + caps label, so the module
+   icon tiles (inline-styled tints) step aside rather than being recolored. */
+:root[data-skin="journal"] .module{background:none!important; border:none;
+  border-top:1px solid var(--border); margin-bottom:0}
+:root[data-skin="journal"] .module .mhead{padding:20px 0 10px}
+:root[data-skin="journal"] .module .minner{padding:0 0 22px}
+:root[data-skin="journal"] .module .mhead .ic{
+  background:none!important; width:26px; height:0; min-height:0;
+  border-top:2px solid var(--accent);
+}
+:root[data-skin="journal"] .module .mhead .ic svg{display:none}
+:root[data-skin="journal"] .module .mhead h3{
+  font-family:var(--font-ui); font-size:10.5px; font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--text-2);
+}
+/* The reader is centered and dropcapped, as in the study. */
+:root[data-skin="journal"] .reader .crumb{justify-content:center}
+:root[data-skin="journal"] .reader h1{text-align:center; text-wrap:balance; letter-spacing:-.014em}
+:root[data-skin="journal"] .reader .lede{text-align:center; font-size:19px; max-width:54ch; margin:0 auto}
+:root[data-skin="journal"] .readerbar{justify-content:center; padding:14px 0; margin:22px 0;
+  border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+:root[data-skin="journal"] #mod-what .minner p:first-of-type::first-letter{
+  float:left; font-family:var(--font-ed); font-size:58px; line-height:.82;
+  padding:6px 10px 0 0; font-weight:600; color:var(--accent);
+}
+/* An inked rule, not a rounded pastel bar. */
+:root[data-skin="journal"] .meter{height:3px}
+:root[data-skin="journal"] .meter>i{background:var(--text)!important}
+:root[data-skin="journal"] .uprog .utrack>i{background:var(--text)}
+
+/* ================= B · THE SIGNAL =================
+   "Swiss-modernist instrument. Exposed grid, tabular monospace data. The feed
+    is an index board, not a card pile. Zero radius, zero shadows, zero
+    gradients." Radius and shadows are handled in the shared block above. */
+:root[data-skin="signal"] body{font-size:15.5px; line-height:1.55}
+:root[data-skin="signal"]{font-variant-numeric:tabular-nums}
+/* Tags are solid ink blocks with paper knocked out of them — the inverse of a
+   low-alpha tinted pill. Vermilion stays reserved for alert states. */
+:root[data-skin="signal"] .chip{
+  background:var(--text); border:1px solid var(--text); color:var(--bg);
+  font-family:var(--font-mono); font-size:10px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; padding:4px 9px;
+}
+:root[data-skin="signal"] .chip:is(.accent,.breaking,.warn,.ai){
+  background:var(--accent); border-color:var(--accent); color:#fff;
+}
+/* Topic row becomes the study's index strip: ruled cells, active cell inked. */
+:root[data-skin="signal"] :is(.topics,.feedmodes){gap:0; border-left:1px solid var(--text);
+  border-bottom:1px solid var(--text)}
+:root[data-skin="signal"] :is(.topics,.feedmodes) .chip{
+  background:none; color:var(--text); border:none; border-right:1px solid var(--text);
+  padding:10px 16px; font-weight:500; letter-spacing:.07em;
+}
+:root[data-skin="signal"] :is(.topics,.feedmodes) .chip.on{background:var(--text); color:var(--bg)}
+:root[data-skin="signal"] .btn{
+  font-family:var(--font-mono); font-size:11px; font-weight:700; letter-spacing:.1em;
+  text-transform:uppercase; padding:12px 20px; border:1px solid var(--text);
+  background:var(--text); color:var(--bg); transition:background .15s,color .15s;
+}
+:root[data-skin="signal"] .btn:hover{background:var(--accent); border-color:var(--accent); color:#fff}
+:root[data-skin="signal"] .btn.ghost{background:transparent; color:var(--text)}
+:root[data-skin="signal"] .btn.ghost:hover{background:var(--text); color:var(--bg)}
+:root[data-skin="signal"] .btn.sm{padding:8px 14px; font-size:10px}
+:root[data-skin="signal"] nav{border-bottom:3px solid var(--text)}
+:root[data-skin="signal"] .logo{font-weight:900; font-size:22px; letter-spacing:-.035em}
+:root[data-skin="signal"] nav .links a{
+  font-family:var(--font-mono); font-size:11px; font-weight:500; letter-spacing:.1em;
+  text-transform:uppercase; background:none!important;
+}
+:root[data-skin="signal"] nav .links a.active{border-bottom:2px solid var(--accent)}
+:root[data-skin="signal"] .searchbtn{font-family:var(--font-mono); font-size:10.5px;
+  letter-spacing:.04em; text-transform:uppercase; border:1px solid var(--text)}
+
+/* ---------- Narrow screens ----------
+   Both skins set the nav in letterspaced caps, which is wider than the default
+   theme's sentence-case links — enough to push the bar past a 500px viewport,
+   where body{overflow-x:hidden} clips the search button instead of scrolling to
+   it. Wrapping is the right answer rather than shrinking further: --navh is
+   re-measured on load and resize (see setNavHeight) precisely so a taller,
+   wrapped nav keeps everything pinned beneath it flush. */
+@media(max-width:760px){
+  :root[data-skin="journal"] nav,
+  :root[data-skin="signal"] nav{flex-wrap:wrap; gap:8px 14px; padding:12px 18px}
+  :root[data-skin="journal"] nav .links a,
+  :root[data-skin="signal"] nav .links a{padding:6px 8px; letter-spacing:.07em}
+  :root[data-skin="journal"] .searchbtn,
+  :root[data-skin="signal"] .searchbtn{letter-spacing:.02em; padding:8px 10px}
+  :root[data-skin="journal"] .searchbtn kbd,
+  :root[data-skin="signal"] .searchbtn kbd{display:none}
+  /* The index-strip's left rule reads as a stray mark once the cells wrap. */
+  :root[data-skin="signal"] :is(.topics,.feedmodes){border-left:none}
+}
+/* The board: ruled rows on an exposed grid, not a pile of filled cards. */
+:root[data-skin="signal"] .scard{
+  background:none!important; border:none; border-bottom:1px solid var(--border);
+  padding:20px 0; margin-bottom:0;
+}
+:root[data-skin="signal"] .scard:hover{background:#F2F1EB!important}
+:root[data-skin="signal"] .scard h3{font-weight:900; font-size:26px;
+  letter-spacing:-.022em; line-height:1.12; text-wrap:balance}
+:root[data-skin="signal"] .brief-head h1{font-weight:700; font-size:20px; letter-spacing:-.01em}
+:root[data-skin="signal"] .reader h1{font-weight:900; letter-spacing:-.032em; line-height:1}
+/* Instrument panes: 1px ink, no fill, no radius. */
+:root[data-skin="signal"] :is(.rail>div,.trustdial,.netwrap,.module,.tcard){
+  background:none!important; border:1px solid var(--text);
+}
+:root[data-skin="signal"] :is(.rail h4,.module .mhead h3){
+  font-family:var(--font-mono); font-size:11px; font-weight:700;
+  letter-spacing:.1em; text-transform:uppercase;
+}
+:root[data-skin="signal"] .module{margin-bottom:14px}
+/* Section heads are "01 WHAT HAPPENED" in the study — a vermilion mono ordinal,
+   not a tinted icon tile. The tile's tint is inline-styled from cssVar(), so
+   rather than fight it the glyph is swapped for a CSS counter, which numbers
+   the modules in document order exactly as the study does. */
+:root[data-skin="signal"] #mods{counter-reset:sect}
+:root[data-skin="signal"] .module .mhead .ic{
+  background:none!important; width:auto; min-width:22px; height:auto;
+  font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--accent)!important;
+}
+:root[data-skin="signal"] .module .mhead .ic svg{display:none}
+:root[data-skin="signal"] .module .mhead .ic::before{
+  counter-increment:sect; content:counter(sect,decimal-leading-zero);
+}
+/* The corroboration gauge: a ticked track read against a 3px marker. The fill
+   element carries an inline background from card(), hence !important — its
+   right edge becomes the marker. */
+:root[data-skin="signal"] .meter{
+  height:12px; overflow:visible; border-left:1px solid var(--text);
+  border-right:1px solid var(--text);
+  background:repeating-linear-gradient(to right,var(--border) 0 1px,transparent 1px 15px);
+}
+:root[data-skin="signal"] .meter>i{background:none!important; border-right:3px solid var(--text)}
+:root[data-skin="signal"] .uprog .utrack>i{background:var(--text)}
+/* Figures are ink and tabular, never accent-colored — distinction comes from
+   weight and the mono numerals, not color. */
+:root[data-skin="signal"] :is(.stat b,.tcard .cnt,.scard .foot .tv,.netnode.trend .ct){color:var(--text)}
+:root[data-skin="signal"] .stat-n{background:none; -webkit-text-fill-color:var(--text)}
+
+/* ---------- The sign-in nudge, in each study's own voice ----------
+   Every one of these blocks is an accent→ai-2 gradient wash in the default
+   theme. With one accent per skin the gradient flattens to a tint on its own,
+   but a tinted panel is not what either study does with this moment: A makes it
+   an editor's note (a carmine margin rule, no fill at all), B makes it a hatched
+   instrument panel behind a 1px ink border. */
+:root[data-skin="journal"] :is(.convcard,.foryou,.locked-cta,.welcomebar){
+  background:none!important; border:none; border-left:2px solid var(--accent);
+  padding-left:20px; font-style:italic;
+}
+:root[data-skin="journal"] :is(.convcard,.foryou,.locked-cta,.welcomebar) .btn{font-style:normal}
+:root[data-skin="journal"] .convcard{text-align:left}
+:root[data-skin="journal"] :is(.foryou .lbl,.prof-label){font-family:var(--font-ui);
+  font-style:normal; letter-spacing:.14em; color:var(--accent)}
+:root[data-skin="signal"] :is(.convcard,.foryou,.locked-cta,.welcomebar){
+  border:1px solid var(--text)!important;
+  background:repeating-linear-gradient(-45deg,transparent 0 10px,rgb(18 18 16 / .028) 10px 20px)!important;
+}
+:root[data-skin="signal"] :is(.foryou .lbl,.prof-label){font-family:var(--font-mono);
+  letter-spacing:.1em; color:var(--accent)}
+/* The one floating element left. Neither study floats anything, but the Ask
+   entry point has nowhere else to live — so it stops glowing and becomes the
+   same inked block as every other button. */
+:root[data-skin="journal"] .fab,
+:root[data-skin="signal"] .fab{
+  background:var(--text); color:var(--bg); font-family:var(--font-mono);
+  font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  padding:13px 20px;
+}
+:root[data-skin="journal"] .fab{font-family:var(--font-ui); letter-spacing:.14em}
 *{margin:0;padding:0;box-sizing:border-box}
 /* Smooth scrolling only where it was asked for (anchor jumps), not globally —
    a global rule also hijacks scroll restoration on every hash route change,
@@ -327,14 +644,22 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .wall .wcard h2{font-family:var(--font-ed);font-size:26px;margin-bottom:8px}
 .wall .wcard p{color:var(--text-2);font-size:14px;margin-bottom:20px}
 .wall .wsignin{display:flex;justify-content:center;margin-bottom:12px}
+/* The business model, stated once per wall in the same words, directly under the
+   sign-in button — where the "is this going to cost me?" question actually
+   arises. Deliberately quiet: this replaced "free" being worked into the title,
+   the body and the button label of every wall, which at that density stops
+   reading as reassurance and starts reading as a sales pitch. Specificity has
+   to clear `.wall .wcard p`, hence the three-class selector. */
+.wall .wcard .wfree{color:var(--text-3);font-size:12px;margin:0 0 14px}
 .wall .wskip{color:var(--text-2);font-size:13px;cursor:pointer;margin-top:4px}
 .savebtn{cursor:pointer}
 /* A themed wall card gets the current theme's own corner treatment (sharp for
    Journal/Signal) instead of the sign-in wall's fixed rounded default — the
    picker is the one moment a theme ought to look like itself even before
-   you've chosen it. */
+   you've chosen it. Corners now come from the skins' blanket radius rule; what
+   is left here is the border, which a paper theme wants inked rather than faint. */
 :root[data-skin="journal"] .wall .wcard, :root[data-skin="signal"] .wall .wcard{
-  border-radius:var(--r-lg);
+  border-color:var(--text);
 }
 
 /* ---- Theme picker ---- */
@@ -1240,6 +1565,20 @@ function forYouUnlockHTML(){
 }
 
 const signedIn = () => !!(S.creds && S.creds.token);
+/* Whether this account has told Descry enough to personalize anything. Being
+   signed in is NOT the same thing: personalization needs interests or a
+   profession before the personalizer agent can call any story relevant, so a
+   signed-in reader who skipped onboarding gets no impact_text on any story —
+   which is exactly the state that used to be mislabelled "sign in to unlock".
+   Mirrors the Profile page's own `hasLens` test. */
+const hasLens = () => {
+  const c = S.ctx;
+  if (c) return !!((Array.isArray(c.interests) && c.interests.length) || c.profession);
+  /* S.ctx is fetched asynchronously after boot (Theme.syncFromAccount), so a
+     story opened before that lands would otherwise read as unconfigured.
+     /auth/google already answered this question — trust the cached creds. */
+  return !!(S.creds && S.creds.has_context);
+};
 /* Append the signed-in user's id to a URL. The Authorization header rides along
    from api(); the id tells the server WHICH user's token to verify, which is how
    it decides whether to send signed-in-only content at all. */
@@ -1251,14 +1590,22 @@ const withUser = (path) => !signedIn() ? path
    what it would tell them, and how much of it is waiting (`teaser`) — only the
    content itself is withheld. `action` picks the wall copy in Gate.COPY. */
 function lockedHTML(action, pitch, teaser){
+  /* A signed-in reader is not locked out of anything — they have simply not set
+     the feature up yet, and telling them to "sign in free to unlock" when they
+     are already signed in reads as a bug (it was reported as one). Gate.SETUP
+     carries the copy for that state; the click target is unchanged, because
+     Gate.require() already routes a signed-in `personalize` straight into the
+     calibrate modal instead of the sign-in wall. */
+  const setup = signedIn() ? Gate.SETUP[action] : null;
   return `<div class="locked">
     <div class="locked-body">
       ${teaser?`<div class="locked-teaser">${teaser}</div>`:''}
       <div class="locked-veil"></div>
     </div>
     <div class="locked-cta">
-      <div class="locked-pitch"><span class="locked-ic">🔒</span>${esc(pitch)}</div>
-      <button class="btn primary sm" data-act="unlock" data-gate="${esc(action)}">Sign in free to unlock</button>
+      <div class="locked-pitch"><span class="locked-ic">${setup?'✨':'🔒'}</span>${esc(setup?setup[0]:pitch)}</div>
+      <button class="btn primary sm" data-act="unlock" data-gate="${esc(action)}">${
+        esc(setup?setup[1]:'Sign in with Google')}</button>
     </div>
   </div>`;
 }
@@ -1405,17 +1752,29 @@ const Meter = {
 };
 
 const Gate = {
-  // Every entry names "free" explicitly — signing in unlocks these features,
-  // it never leads to a payment of any kind, and the copy should never leave
-  // that ambiguous.
+  /* Each entry says what the reader GETS. It used to also say "Sign up free with
+     Google" in all seven bodies, on top of "free" in the wall title and in the
+     button label — so anyone who hit two walls in a minute read the word four or
+     five times, which reads as protesting too much rather than as reassurance.
+     The pricing promise is now made once per wall, in one fixed sentence under
+     the sign-in button (see wall()), and the word only survives elsewhere where
+     it is descriptive rather than promotional: `read` names the daily quota. */
   COPY:{
-    read:['Keep reading — it\'s free','You\'ve reached today\'s free stories. Sign up free with Google to read without limits, save stories, and personalize your feed.'],
-    save:['Save this story','Sign up free with Google to keep stories and sync them across your devices — no payment, ever.'],
-    ask:['Ask the AI assistant','Sign up free with Google to ask questions about any story and get answers tailored to you.'],
-    personalize:['Personalize your feed','Sign up free with Google, then tell Descry your world once — every story explains what it means for you.'],
-    forecast:['See what may happen next','Descry connects today\'s stories into forward-looking predictions — the reasoning, what to watch, and the stories behind each one. Sign up free with Google to read them.'],
-    connections:['Unlock hidden connections','Descry looks for links between stories that aren\'t obvious — a supply shock here, a policy shift there. Sign up free with Google to see them.'],
-    theme:['Make it yours','Sign up free with Google to choose a look for Descry and carry it to every device you sign into.']
+    read:['Keep reading','You\'ve reached today\'s free stories. Sign in to read without limits, save stories, and personalize your feed.'],
+    save:['Save this story','Sign in to keep stories and sync them across every device you use.'],
+    ask:['Ask the AI assistant','Sign in to ask questions about any story and get answers tailored to you.'],
+    personalize:['Personalize your feed','Sign in and tell Descry your world once — every story will then explain what it means for you.'],
+    forecast:['See what may happen next','Descry connects today\'s stories into forward-looking predictions — the reasoning, what to watch, and the stories behind each one. Sign in to read them.'],
+    connections:['Unlock hidden connections','Descry looks for links between stories that aren\'t obvious — a supply shock here, a policy shift there. Sign in to see them.'],
+    theme:['Make it yours','Sign in to choose a look for Descry and carry it to every device you use.']
+  },
+  /* Copy for a reader who IS signed in but hasn't configured the feature — the
+     pitch and the button label for lockedHTML(). Only actions reachable while
+     signed in need an entry here: `connections` and `forecast` are withheld
+     server-side for guests only, so they never render locked to an account. */
+  SETUP:{
+    personalize:['Tell Descry about your work, city and interests and it will explain what this story means for you.',
+                 'Set your preferences']
   },
   wall(title, body){
     let el=$('#wall');
@@ -1424,6 +1783,7 @@ const Gate = {
       <div style="font-size:32px;margin-bottom:8px">🔓</div>
       <h2>${esc(title)}</h2><p>${esc(body)}</p>
       <div class="wsignin" id="wall-signin"></div>
+      <p class="wfree">Free to use, always — no payment, ever.</p>
       <div class="wskip" data-act="wall-close">Maybe later</div></div>`;
     Auth.renderInto($('#wall-signin'));
   },
@@ -1573,9 +1933,20 @@ const Story = { async render(id){
         ? `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
              background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
              border:1px solid rgb(from var(--accent) r g b / .25)">${esc(s.impact_text)}</div>`
-        : lockedHTML('personalize',
-            'Descry can explain what this story means for your job, city and interests.',
-            `<p>${esc(String(what).slice(0,150))}…</p>`)],
+        // Three different reasons impact_text can be empty, and they need three
+        // different answers. The personalizer writes it per (user, story) only
+        // for stories that touch the reader's interests or location, so a
+        // configured reader legitimately gets nothing on plenty of stories —
+        // showing them a locked teaser implies the feature is withheld when it
+        // simply had nothing to say. Only an unconfigured account is "locked".
+        : signedIn() && hasLens()
+          ? `<p style="font-size:14px;color:var(--text-2);line-height:1.55">
+               No personal angle on this one — Descry adds this when a story touches your
+               work, city or interests. It checks every new story as it comes in.</p>
+             <button class="btn ghost sm" data-act="personalize" style="margin-top:12px">Review your preferences</button>`
+          : lockedHTML('personalize',
+              'Descry can explain what this story means for your job, city and interests.',
+              `<p>${esc(String(what).slice(0,150))}…</p>`)],
     s.trends?.length ? ['big','The bigger picture',cssVar('--predict'),
       s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
         <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
@@ -1686,7 +2057,7 @@ endCTA(){
   el.dataset.shown = '1';
   el.innerHTML = `<div class="convcard glass">
     <h3>Enjoying Descry?</h3>
-    <p>Sign up free with Google to save stories, unlock your personal <b>For You</b> feed, and read without limits.</p>
+    <p>Sign in to save stories, unlock your personal <b>For You</b> feed, and read without limits.</p>
     <div class="row"><span id="endcta-signin"></span>
       <button class="btn ghost" data-act="personalize">Personalize my feed</button></div></div>`;
   Auth.renderInto($('#endcta-signin'));
@@ -1992,7 +2363,7 @@ const Saved = { async render(){
     $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
       <div style="font-size:30px;margin-bottom:8px">🔖</div>
       <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Save stories to read later</h3>
-      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign up free with Google to bookmark stories and sync them across your devices.</p>
+      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign in to bookmark stories and sync them across every device you use.</p>
       <span id="saved-signin"></span></div></div>`;
     Auth.renderInto($('#saved-signin'));
     return;
@@ -2147,10 +2518,21 @@ const Calib = {
       localStorage.setItem('bl_creds', JSON.stringify(S.creds));
       toast('Lens updated — your feed is now personal');
     }catch(e){ toast('Saved locally — backend offline'); }
-    localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on');
+    this.markOffered(); $('#calib').classList.remove('on');
     await loadData(); route();
   },
-  skip(){ localStorage.setItem('bl_seen','1'); $('#calib').classList.remove('on'); },
+  skip(){ this.markOffered(); $('#calib').classList.remove('on'); },
+  /* Remember that THIS ACCOUNT has been offered onboarding, so a reader who
+     skips isn't nagged on every sign-in. Keyed by user id on purpose: it used
+     to be one device-global 'bl_seen', which meant the first person to skip on
+     a browser silently suppressed onboarding for every account that signed in
+     there afterwards — including brand-new ones on their very first sign-in.
+     Sign-out doesn't clear it either, so the suppression was permanent. */
+  markOffered(){
+    const id = S.creds && S.creds.user_id;
+    if (id) localStorage.setItem('bl_seen:'+id,'1');
+  },
+  offered(userId){ return !!localStorage.getItem('bl_seen:'+userId); },
   /* Dismiss without marking the prompt as "seen" — used when we close the modal
      on the user's behalf (e.g. to show the sign-in wall), so they still get
      offered personalization once they actually have an account. */
@@ -2166,8 +2548,8 @@ const Profile = {
       v.innerHTML = `<div class="wrap"><section class="glass prof-empty rise">
         <div class="prof-av av-lg avatar-fallback">✦</div>
         <h1>Your profile</h1>
-        <p>Sign in free with Google to personalize your feed, sync saved stories, and track
-        your reading stats across devices — no payment, ever.</p>
+        <p>Sign in to personalize your feed, sync saved stories, and track
+        your reading stats across every device you use.</p>
         <div id="prof-signin" class="prof-signin"></div></section></div>`;
       Auth.renderInto($('#prof-signin'));
       return;
@@ -2332,9 +2714,23 @@ const Auth = {
       await loadBookmarks();
       Feed.reconnect();                   // re-open SSE with the user's id
       await loadData(); route();
-      Theme.syncFromAccount();    // adopt whatever theme this account saved elsewhere
-      // Offer personalization only if they've never set it — and never on a shared link.
-      if (!u.has_context && !localStorage.getItem('bl_seen') && !isShared()) Calib.show();
+      // Adopt whatever theme this account saved elsewhere. Awaited because it
+      // also populates S.ctx, which the onboarding check below reads.
+      await Theme.syncFromAccount();
+      /* Onboarding: offered on an account's first sign-in, and never on a shared
+         link, where the visitor came to read one story.
+
+         Two things here used to be wrong. The "already offered" flag was one
+         device-global 'bl_seen', so the first person to skip on a browser
+         suppressed onboarding for every account that signed in afterwards,
+         including brand-new ones — it is now per account (Calib.markOffered).
+         And the test was `!u.has_context`, which is not the same question:
+         saveContextPatch() PUTs a full context object, so merely picking a
+         theme or changing live prefs flips has_context to true with interests
+         and profession still empty — permanently suppressing onboarding for
+         someone who never set a single preference. hasLens() asks the question
+         we actually mean. */
+      if (!hasLens() && !isShared() && !Calib.offered(u.user_id)) Calib.show(S.ctx || {});
     }catch(e){ toast('Sign-in failed — check the API URL and client ID'); }
   },
   signout(){
