@@ -10,7 +10,13 @@
 <meta property="og:site_name" content="Descry">
 <meta property="og:title" content="Descry — Understand the news, not just read it">
 <meta property="og:description" content="Every story with its context, trends, hidden connections and a verified-claims corroboration score.">
-<meta property="og:image" content="og.png">
+<!-- Absolute, not "og.png": most strict unfurlers (WhatsApp, X) resolve
+     og:image against the spec, not the page, and drop the image rather than
+     guess at a relative one. The backend's own /s /t /g cards already build
+     this correctly (config.OG_IMAGE_URL) — this is the one on the static
+     shell itself, which is what a crawler sees on the homepage or on any path
+     the SPA rewrite catches before a bridge redirect lands it here. -->
+<meta property="og:image" content="https://www.descry.in/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
@@ -1255,7 +1261,21 @@ const Nav = {
     route();
   },
   /* Absolute URL for sharing/canonical. */
-  url(p){ return location.origin + (p || this.path()); }
+  url(p){ return location.origin + (p || this.path()); },
+  /* Link to hand to a human, not a browser. `/story/<id>` is a client-rendered
+     SPA route — the web host is a static site whose only server-side behavior
+     is "rewrite every path to index.html" (see render.yaml), so a crawler that
+     fetches url('/story/'+id) gets the exact same generic homepage <head> no
+     matter which story it names. Facebook/X/WhatsApp/iMessage read Open Graph
+     tags but never run JS, so SEO.set()'s per-story title/description/image —
+     applied client-side after the SPA boots — arrives too late for them to see.
+     The backend already serves a tiny server-rendered page with the real
+     headline/description/image at /s, /t, /g (see _og_page in main.py) that
+     JS-redirects a human straight to the real article; it lives on the API
+     host, not this one, which is why this can't just be url() with a shorter
+     path. SHORT mirrors the reverse mapping in path() above. */
+  SHORT: {story:'s', trend:'t', signal:'g'},
+  shareUrl(kind, id){ return API + '/' + (this.SHORT[kind] || kind) + '/' + id; }
 };
 
 /* Per-route <head>. A single-page app ships one static <head> to every URL, so
@@ -1385,7 +1405,7 @@ document.addEventListener('click', e=>{
     case 'load-new': Feed.loadNew(); break;
     case 'copylink':
       { const kind = el.dataset.kind || 'story';
-        const link = Nav.url('/'+kind+'/'+el.dataset.id);
+        const link = Nav.shareUrl(kind, el.dataset.id);
         (navigator.clipboard?.writeText(link)||Promise.reject()).then(()=>toast('Link copied'))
           .catch(()=>toast(link)); } break;
     case 'wall-close': Gate.close(); Theme.close(); break;
