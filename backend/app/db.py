@@ -102,6 +102,26 @@ def connect():
             con.execute("ALTER TABLE stories ADD COLUMN why_matters TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
+        # When a developing item was last retold, kept separate from created_at
+        # (first told), which is now immutable. These used to be one column: a
+        # retell stamped created_at = now, which reset the item's age to zero in
+        # ranking.rank_score and let a storyline that accreted a single article
+        # per run sit at rank #1 indefinitely — the exact staleness the ranking
+        # module exists to prevent. NULL here means "never retold"; every reader
+        # COALESCEs back to created_at, so existing rows need no backfill.
+        for table in ("stories", "trends", "signals"):
+            try:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN updated_at REAL")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        # Which EVENT a story tells — the articles' shared group_id. A story used
+        # to be identified by its macro trend, but a trend is a theme spanning
+        # many separate events, so every event of a theme was folded into one row.
+        # NULL marks a legacy row written under that scheme.
+        try:
+            con.execute("ALTER TABLE stories ADD COLUMN event_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         # /trends filters WHERE kind=? AND retired_at IS NULL on every request.
         # Retired rows are now kept (not deleted) for TREND_RETIRE_PURGE_DAYS, so
         # without this index that scan gets slower every day instead of staying

@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Saved articles — bookmarks synced with the backend.
 struct SavedView: View {
+    @Environment(\.palette) private var pal
+
     @EnvironmentObject var api: APIClient
     @State private var items: [FeedItem] = []
     @State private var loading = true
@@ -11,7 +13,7 @@ struct SavedView: View {
             ZStack {
                 InkBackground()
                 if loading {
-                    ProgressView().tint(BL.accent)
+                    ProgressView().tint(pal.accent)
                 } else if items.isEmpty {
                     ContentUnavailableView {
                         Label("Nothing saved yet", systemImage: "bookmark")

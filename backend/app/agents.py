@@ -471,7 +471,7 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
             # creating a duplicate under a new id.
             con.execute(
                 "UPDATE trends SET name=?,narrative=?,sectors=?,regions=?,article_ids=?,"
-                "velocity=?,created_at=?,retired_at=NULL WHERE id=?",
+                "velocity=?,updated_at=?,retired_at=NULL WHERE id=?",
                 (f["name"], f["narrative"], db.j(f["sectors"]), db.j(f["regions"]),
                  db.j(f["article_ids"]), f["velocity"], db.now(), cand["id"]))
             matched.add(cand["id"])
@@ -678,9 +678,9 @@ class Storyteller:
         articles arrive (same id, refreshed narrative) — never a second, near-
         duplicate story for the same trend."""
         prior = [{"id": r["id"], "aids": set(db.uj(r["article_ids"], [])),
-                  "tids": set(db.uj(r["trend_ids"], []))}
+                  "tids": set(db.uj(r["trend_ids"], [])), "eid": r["event_id"]}
                  for r in con.execute(
-                     "SELECT id, article_ids, trend_ids FROM stories").fetchall()]
+                     "SELECT id, article_ids, trend_ids, event_id FROM stories").fetchall()]
         done_ids = set()
         for p in prior:
             done_ids.update(p["aids"])
@@ -689,31 +689,62 @@ class Storyteller:
         trends = con.execute(
             "SELECT * FROM trends WHERE kind='macro' AND retired_at IS NULL").fetchall()
         live_tids = {t["id"] for t in trends}
-        groups = [(t, db.uj(t["article_ids"], [])) for t in trends]
+        # A macro trend is a THEME, not an event: it deliberately spans many
+        # separate happenings. Telling one story per trend therefore merged
+        # unrelated reporting into a single item — production had an "OpenAI
+        # sandbox escape" story holding 234 articles that this pipeline's own
+        # same-event clusterer scores as 225 distinct events, among them a
+        # humanoid-robot import ban and a $5.7bn bond-market acquisition.
+        # So split each trend by the group_id the Deduper already assigned —
+        # exactly what the orphan path below has always done — making a story one
+        # EVENT, with the trend demoted to a label linked via trend_ids.
+        # Keyed by event across ALL trends, not per trend: one event can belong to
+        # two themes, and emitting it once per theme would write two stories with
+        # the same event_id (they would never match each other, since `prior` is
+        # read once up front). Consolidating first also gives the story the whole
+        # event, not one trend's slice of it.
+        by_event, event_trend = {}, {}
+        for t in trends:
+            tids = db.uj(t["article_ids"], [])
+            if not tids:
+                continue
+            for r in con.execute(
+                    "SELECT id, group_id FROM articles WHERE id IN (%s)"
+                    % ",".join("?" * len(tids)), tids).fetchall():
+                key = r["group_id"] or r["id"]
+                by_event.setdefault(key, set()).add(r["id"])
+                event_trend.setdefault(key, t)   # first theme wins the label
         # Orphan articles (not in any trend) become stories too — but near-duplicates
         # from different sources are merged into ONE story per group_id, so the same
         # event isn't storied (and LLM-called) once per source.
-        in_trend = {i for _, ids in groups for i in ids}
-        orphan_groups = {}
+        in_trend = {i for ids in by_event.values() for i in ids}
         for o in con.execute(
                 "SELECT id, group_id FROM articles WHERE fetched_at > ?",
                 (db.now() - 7 * 86400,)).fetchall():
             if o["id"] not in in_trend:
-                orphan_groups.setdefault(o["group_id"] or o["id"], []).append(o["id"])
-        for ids in orphan_groups.values():
-            groups.append((None, ids))
-        for trend, ids in groups:
+                # An event can be part in a trend and part not; keying into the
+                # same dict rejoins those halves instead of emitting a second
+                # group under an event_id a trend group already owns.
+                by_event.setdefault(o["group_id"] or o["id"], set()).add(o["id"])
+        groups = [(event_trend.get(k), sorted(v), k) for k, v in by_event.items()]
+        for trend, ids, event_id in groups:
             if new_ct + upd_ct >= self.MAX_PER_RUN:
                 break
             if not ids:
                 continue
-            # The story already telling this trend: linked by trend id, or (for
-            # stories from before relinking) holding most of the same articles.
-            mine = None
-            if trend:
+            # The story already telling this EVENT. Identity is the event, never
+            # the trend: matching on trend id would hand every event of a theme
+            # to the same row and rebuild exactly the blob this split undoes.
+            mine = next((p for p in prior if p["eid"] and p["eid"] == event_id), None)
+            if mine is None:
+                # Legacy rows carry no event_id, so they still match on article
+                # overlap — but only when the row is itself event-sized. Without
+                # that guard an existing 234-article blob contains every small
+                # event group outright (containment 1.0) and would swallow them.
                 mine = next(
-                    (p for p in prior if trend["id"] in p["tids"]
-                     or _containment(ids, p["aids"]) >= 0.5), None)
+                    (p for p in prior if not p["eid"]
+                     and _containment(ids, p["aids"]) >= 0.5
+                     and len(p["aids"]) <= max(len(ids) * 3, 12)), None)
             if mine:
                 ids = sorted(set(ids) | mine["aids"])  # keep the story's history
                 if not (set(ids) - mine["aids"]):
@@ -759,25 +790,34 @@ class Storyteller:
                 "(article_a IN (%s) OR article_b IN (%s))"
                 % (",".join("?" * len(ids)), ",".join("?" * len(ids))),
                 ids + ids).fetchall()]
-            if mine:  # developing story: refresh content, bump to top of the feed
+            if mine:  # developing story: refresh content, stamp the retell
+                # updated_at, NOT created_at: stamping created_at here reset the
+                # story's age to zero every run, so a storyline that accreted one
+                # article per cycle never aged out of the top of the feed. Ranking
+                # gives a retell bounded credit instead (see ranking.STALE_FLOOR).
+                # `trend` is None for an orphan event, which can now match a prior
+                # story by event_id — so guard the union instead of indexing None.
+                tids = mine["tids"] | ({trend["id"]} if trend else set())
                 con.execute(
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
-                    "connection_ids=?,created_at=? WHERE id=?",
+                    "connection_ids=?,updated_at=?,event_id=? WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
-                     db.j(sorted(mine["tids"] | {trend["id"]})), db.j(conn_ids),
-                     db.now(), mine["id"]))
+                     db.j(sorted(tids)), db.j(conn_ids),
+                     db.now(), event_id, mine["id"]))
                 mine["aids"] = set(ids)
+                mine["eid"] = event_id   # legacy row adopts its event identity
                 upd_ct += 1
             else:
                 con.execute(
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                    "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "created_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (db.new_id(), headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
-                     db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids), db.now()))
+                     db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids),
+                     db.now(), event_id))
                 new_ct += 1
             done_ids.update(ids)
             # Absorb superseded stories now fully covered by this trend story:
@@ -831,14 +871,18 @@ class Foresight:
                 f"{', '.join(dict.fromkeys(ents))[:120]} | {claim_txt} | {narr[:160]}")
 
     def run(self, con):
+        # Windows run from the last retell (COALESCE), so a storyline or forecast
+        # still being developed stays in scope past WINDOW_DAYS from its first
+        # telling — it just no longer gets to reset its rank age to zero.
         stories = con.execute(
             "SELECT id, headline, topic, narrative, credibility, claims, article_ids "
-            "FROM stories WHERE created_at > ? ORDER BY created_at DESC",
+            "FROM stories WHERE COALESCE(updated_at, created_at) > ? "
+            "ORDER BY COALESCE(updated_at, created_at) DESC",
             (db.now() - self.WINDOW_DAYS * 86400,)).fetchall()
         # Age out stale forecasts every run (instead of wiping all of them), so
         # a run that produces nothing new still leaves recent forecasts intact.
         pruned = con.execute(
-            "DELETE FROM signals WHERE created_at < ?",
+            "DELETE FROM signals WHERE COALESCE(updated_at, created_at) < ?",
             (db.now() - self.WINDOW_DAYS * 86400,)).rowcount
         if len(stories) < 4:
             con.commit()
@@ -910,7 +954,7 @@ class Foresight:
                 union = sorted(set(match["story_ids"]) | set(sids))
                 con.execute(
                     "UPDATE signals SET title=?, prediction=?, chain=?, watch=?, "
-                    "affected=?, horizon=?, confidence=?, story_ids=?, created_at=? "
+                    "affected=?, horizon=?, confidence=?, story_ids=?, updated_at=? "
                     "WHERE id=?",
                     (sig.get("title", match["title"]), sig.get("prediction", ""),
                      sig.get("chain", ""), sig.get("watch", ""),
@@ -922,8 +966,12 @@ class Foresight:
                 upd_ct += 1
             else:
                 nid = db.new_id()
+                # Explicit column list: a bare VALUES(...) is positional over
+                # every column, so it broke the moment updated_at was added.
                 con.execute(
-                    "INSERT INTO signals VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO signals (id,title,prediction,chain,watch,affected,"
+                    "horizon,confidence,story_ids,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (nid, sig.get("title", "Signal"), sig.get("prediction", ""),
                      sig.get("chain", ""), sig.get("watch", ""),
                      db.j(sig.get("affected", [])), sig.get("horizon", ""), conf,
@@ -950,7 +998,8 @@ class Personalizer:
     def run(self, con):
         users = con.execute("SELECT * FROM users").fetchall()
         stories = con.execute(
-            "SELECT * FROM stories WHERE created_at > ?", (db.now() - 7 * 86400,)).fetchall()
+            "SELECT * FROM stories WHERE COALESCE(updated_at, created_at) > ?",
+            (db.now() - 7 * 86400,)).fetchall()
         made = 0
         for u in users:
             ctx = db.uj(u["context"])
@@ -998,12 +1047,18 @@ class Personalizer:
 def detect_breaking(con, limit=8):
     """Scan recent stories with the no-LLM heuristic and return breaking-card dicts
     (highest urgency first). Source count = distinct sources across a story's
-    member articles; age from created_at. Pure read — the caller writes cards."""
+    member articles; age from the last retell. Pure read — caller writes cards."""
     window = config.BREAKING_WINDOW_HOURS
     min_src = config.BREAKING_MIN_SOURCES
+    # Retell time, not first telling: unlike the ranked lists, "breaking" SHOULD
+    # follow a developing story — a long-running storyline that just took a wave
+    # of fresh coverage is breaking news. The short window plus the age decay in
+    # _breaking_score keep that bounded without needing ranking's stale floor.
     rows = con.execute(
-        "SELECT id, headline, topic, article_ids, credibility, created_at "
-        "FROM stories WHERE created_at > ? ORDER BY created_at DESC LIMIT 60",
+        "SELECT id, headline, topic, article_ids, credibility, "
+        "COALESCE(updated_at, created_at) AS created_at "
+        "FROM stories WHERE COALESCE(updated_at, created_at) > ? "
+        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 60",
         (db.now() - window * 3600,)).fetchall()
     cards = []
     for s in rows:

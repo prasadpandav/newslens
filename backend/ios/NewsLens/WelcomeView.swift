@@ -43,6 +43,8 @@ struct GoogleGMark: View {
 }
 
 struct WelcomeView: View {
+    @Environment(\.palette) private var pal
+
     @EnvironmentObject var api: APIClient
     var onDone: () -> Void
 
@@ -59,20 +61,20 @@ struct WelcomeView: View {
                 Spacer()
                 Image(systemName: "circle.hexagongrid.circle")
                     .font(.system(size: 56))
-                    .foregroundStyle(BL.aiGradient)
+                    .foregroundStyle(pal.aiGradient)
                 Text("Descry")
                     .font(.system(.largeTitle, design: .serif, weight: .semibold))
                     .padding(.top, 14)
                 Text("News that tell stories, stories that matter.")
                     .font(.system(.callout, design: .serif))
                     .italic()
-                    .foregroundStyle(BL.accent)
+                    .foregroundStyle(pal.accent)
                     .multilineTextAlignment(.center)
                     .padding(.top, 6)
                     .padding(.horizontal, 24)
                 Text("Understand the news.\nNot just read it — go deeper.")
                     .font(.title3)
-                    .foregroundStyle(BL.text2)
+                    .foregroundStyle(pal.text2)
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
                 Spacer()
@@ -85,17 +87,17 @@ struct WelcomeView: View {
                     } label: {
                         Text("Skip for now")
                             .font(.subheadline.weight(.medium))
-                            .foregroundStyle(BL.text2)
+                            .foregroundStyle(pal.text2)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
 
                     if let error {
-                        Text(error).font(.caption).foregroundStyle(BL.breaking)
+                        Text(error).font(.caption).foregroundStyle(pal.breaking)
                             .multilineTextAlignment(.center)
                     }
                     Text("Always free — no payment, ever. Signing in keeps your saved articles and personalization across devices and reinstalls.")
-                        .font(.caption2).foregroundStyle(BL.text2.opacity(0.8))
+                        .font(.caption2).foregroundStyle(pal.text2.opacity(0.8))
                         .multilineTextAlignment(.center)
                 }
                 .padding(.horizontal, 28)
@@ -106,10 +108,10 @@ struct WelcomeView: View {
 
     private var orbs: some View {
         ZStack {
-            Circle().fill(BL.accent.opacity(0.16)).frame(width: 280)
+            Circle().fill(pal.accent.opacity(0.16)).frame(width: 280)
                 .blur(radius: 76)
                 .offset(x: drift ? 100 : -70, y: drift ? -200 : -140)
-            Circle().fill(BL.ai.opacity(0.13)).frame(width: 320)
+            Circle().fill(pal.ai.opacity(0.13)).frame(width: 320)
                 .blur(radius: 84)
                 .offset(x: drift ? -90 : 70, y: drift ? 280 : 220)
         }
@@ -132,10 +134,10 @@ struct WelcomeView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(BL.surface)
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(BL.hairline2, lineWidth: 1)))
+            .background(RoundedRectangle(cornerRadius: pal.r(14), style: .continuous)
+                .fill(pal.surface)
+                .overlay(RoundedRectangle(cornerRadius: pal.r(14), style: .continuous)
+                    .stroke(pal.hairline2, lineWidth: 1)))
         }
         .buttonStyle(.plain)
     }

@@ -139,8 +139,9 @@ def _important_events(con):
     rows = con.execute(
         "SELECT s.id, s.headline, s.topic, MAX(f.impact_score) imp "
         "FROM stories s JOIN feed_items f ON f.story_id = s.id "
-        "WHERE s.created_at > ? AND f.impact_score >= 2 "
-        "GROUP BY s.id ORDER BY imp DESC, s.created_at DESC LIMIT 5",
+        "WHERE COALESCE(s.updated_at, s.created_at) > ? AND f.impact_score >= 2 "
+        "GROUP BY s.id ORDER BY imp DESC, COALESCE(s.updated_at, s.created_at) DESC "
+        "LIMIT 5",
         (db.now() - 24 * 3600,)).fetchall()
     return [{
         "id": f"event-{r['id']}", "type": "event", "priority": 0.4 + 0.1 * (r["imp"] or 0),
@@ -212,11 +213,15 @@ def snapshot(con, categories=None, limit=12):
 def latest_story_marker(con):
     """(count, newest_id) over the last 7 days — the cheap 'is the feed newer?'
     signal pushed as a `feed-updated` SSE event so clients can show a banner."""
+    # COALESCE so a retell also moves the marker: the feed's content genuinely
+    # changed, and clients that reload on this signal should see the new telling.
     row = con.execute(
-        "SELECT COUNT(*) c, MAX(created_at) m FROM stories WHERE created_at > ?",
+        "SELECT COUNT(*) c, MAX(COALESCE(updated_at, created_at)) m FROM stories "
+        "WHERE COALESCE(updated_at, created_at) > ?",
         (db.now() - 7 * 86400,)).fetchone()
     newest = con.execute(
-        "SELECT id FROM stories WHERE created_at > ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM stories WHERE COALESCE(updated_at, created_at) > ? "
+        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1",
         (db.now() - 7 * 86400,)).fetchone()
     return {"count": row["c"] or 0, "newest_id": newest["id"] if newest else "",
             "at": row["m"] or 0}

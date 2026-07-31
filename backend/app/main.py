@@ -301,6 +301,9 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # `since` (epoch) returns only stories newer than the client's newest — the
     # cheap incremental fetch behind the "N new stories" banner. created_at is
     # exposed so the client can diff/merge without a second call.
+    # Retention is measured from the last retell, not first telling: created_at
+    # is immutable now, so a storyline still developing on day 8 would otherwise
+    # drop out of the feed entirely instead of merely ranking lower.
     floor = max(since, db.now() - 7 * 86400)
     # Candidate pool capped generously above realistic 7-day volume (a few
     # hundred at most — MAX_STORIES_PER_RUN * runs/week), so ranking still sees
@@ -309,23 +312,24 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # way the un-capped /trends and /signals queries just did in production.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.created_at, s.article_ids, s.trend_ids,
+                  s.topic, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
            LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
-           WHERE s.created_at > ?
-           ORDER BY s.created_at DESC LIMIT 1000""",
+           WHERE COALESCE(s.updated_at, s.created_at) > ?
+           ORDER BY COALESCE(s.updated_at, s.created_at) DESC LIMIT 1000""",
         (user_id, floor)).fetchall()
     con.close()
     items = [dict(r) for r in rows]
     # Impact metric: the personalized 0-3 relevance score for sort=foryou (that
-    # IS this user's impact signal); otherwise how many outlets corroborate the
-    # story — the same "how big is this" proxy trends already use (velocity).
+    # IS this user's impact signal, and already bounded); otherwise how many
+    # outlets corroborate the story — the same "how big is this" proxy trends
+    # use (velocity), damped because a developing storyline's count is unbounded.
     if sort == "foryou":
         impact_of = lambda it: it["impact_score"]
     else:
-        impact_of = lambda it: len(db.uj(it["article_ids"], []))
+        impact_of = lambda it: ranking.damped(len(db.uj(it["article_ids"], [])))
     items = ranking.sort_by_rank(items, impact_of)[:100]
     for it in items:
         del it["article_ids"]   # internal-only, not part of the API shape
@@ -404,12 +408,13 @@ def stories(limit: int = 30):
     # not just whatever the last `limit` by raw created_at happened to include.
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-        "created_at, article_ids, trend_ids FROM stories ORDER BY created_at DESC LIMIT ?",
+        "created_at, updated_at, article_ids, trend_ids FROM stories "
+        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ?",
         (max(limit * 10, 300),)).fetchall()
     con.close()
     items = [dict(r) for r in rows]
     items = ranking.sort_by_rank(
-        items, impact_of=lambda it: len(db.uj(it["article_ids"], [])))[:limit]
+        items, impact_of=lambda it: ranking.damped(len(db.uj(it["article_ids"], []))))[:limit]
     for it in items:
         del it["article_ids"]
         it["trend_ids"] = db.uj(it["trend_ids"], [])   # powers the story network
@@ -454,14 +459,18 @@ def trends():
     # (trends_kind_retired) so this stays fast as retired rows accumulate over
     # their TREND_RETIRE_PURGE_DAYS retention window instead of being deleted.
     q = ("SELECT id, kind, name, narrative, sectors, regions, article_ids, velocity, "
-         "created_at FROM trends WHERE kind=? AND retired_at IS NULL "
-         "ORDER BY created_at DESC LIMIT 500")
+         "created_at, updated_at FROM trends WHERE kind=? AND retired_at IS NULL "
+         "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 500")
+    # Damped for the same reason as /feed: macro velocity is an article count
+    # that grows for as long as a force stays live. Macro and micro are ranked
+    # as separate lists, so compressing each independently is order-preserving
+    # within the list the reader actually sees.
     macro = ranking.sort_by_rank(
         [dict(r) for r in con.execute(q, ("macro",)).fetchall()],
-        impact_of=lambda t: t["velocity"] or 0.0)[:40]
+        impact_of=lambda t: ranking.damped(t["velocity"] or 0.0))[:40]
     micro = ranking.sort_by_rank(
         [dict(r) for r in con.execute(q, ("micro",)).fetchall()],
-        impact_of=lambda t: t["velocity"] or 0.0)[:20]
+        impact_of=lambda t: ranking.damped(t["velocity"] or 0.0))[:20]
     con.close()
     out = []
     for d in macro + micro:
@@ -537,7 +546,8 @@ def signals(user_id: str = "", authorization: str = Header("")):
     # table to WINDOW_DAYS, so 200 is generous headroom, not a normal-path limit.
     rows = ranking.sort_by_rank(
         [dict(r) for r in con.execute(
-            "SELECT * FROM signals ORDER BY created_at DESC LIMIT 200").fetchall()],
+            "SELECT * FROM signals "
+            "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 200").fetchall()],
         impact_of=lambda g: g["confidence"] or 0.0)
     # One batched lookup for every story any signal in this list references,
     # instead of a query per (signal, story) pair.
@@ -947,6 +957,45 @@ def admin_dedupe_trends(token: str = "", authorization: str = Header("")):
                f"cleanup removed {macro} macro + {micro} micro dupes")
     con.close()
     return {"removed_macro": macro, "removed_micro": micro}
+
+
+@app.post("/admin/split-blob-stories")
+def admin_split_blob_stories(min_articles: int = 12, dry_run: bool = True,
+                             token: str = "", authorization: str = Header("")):
+    """One-off cleanup for stories written under the old one-story-per-macro-trend
+    scheme, which merged many unrelated events into a single row (production had
+    one holding 234 articles across ~225 distinct events).
+
+    Those rows can't fix themselves: the Storyteller treats their articles as
+    already covered, so the articles stay locked inside the blob instead of being
+    re-told per event. Deleting the blob releases them, and the next pipeline run
+    rebuilds proper one-event stories from the same articles.
+
+    Only rows with event_id IS NULL (i.e. pre-split) and at least `min_articles`
+    members are considered. Defaults to dry_run — pass dry_run=false to apply.
+    Bookmarks pointing at a deleted blob are removed with it, so review the
+    dry-run list first."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    victims = [
+        (r["id"], r["headline"], len(db.uj(r["article_ids"], [])))
+        for r in con.execute(
+            "SELECT id, headline, article_ids FROM stories WHERE event_id IS NULL")
+        if len(db.uj(r["article_ids"], [])) >= min_articles]
+    victims.sort(key=lambda v: -v[2])
+    if not dry_run:
+        for sid, _, _ in victims:
+            con.execute("DELETE FROM stories WHERE id=?", (sid,))
+            con.execute("DELETE FROM feed_items WHERE story_id=?", (sid,))
+            con.execute("DELETE FROM bookmarks WHERE story_id=?", (sid,))
+        con.commit()
+        db.log_run(con, "split_blob_stories", "ok",
+                   f"deleted {len(victims)} pre-split blob stories; next run re-tells them")
+    con.close()
+    return {"dry_run": dry_run, "matched": len(victims),
+            "articles_released": sum(v[2] for v in victims),
+            "stories": [{"id": i, "headline": h, "articles": n} for i, h, n in victims[:50]],
+            "next": "run the pipeline (or wait for the next scheduled run) to re-tell them"}
 
 
 @app.get("/admin/usage")

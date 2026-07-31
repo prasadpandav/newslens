@@ -8,6 +8,8 @@ import Combine
 /// Breaking cards are pinned first so genuine urgency always takes over (feature 3).
 /// The gear opens `LiveConfigView` to choose categories and order (feature 5).
 struct LiveHeroView: View {
+    @Environment(\.palette) private var pal
+
     @ObservedObject var stream: LiveStream
     @Binding var prefs: LivePrefs
     var onPrefsChanged: () -> Void
@@ -49,6 +51,7 @@ struct LiveHeroView: View {
                     prefs = updated
                     onPrefsChanged()
                 }
+                .skinned()
             }
         }
     }
@@ -56,16 +59,16 @@ struct LiveHeroView: View {
     private var header: some View {
         HStack(spacing: 7) {
             Circle()
-                .fill(stream.connected ? BL.breaking : BL.text2)
+                .fill(stream.connected ? pal.breaking : pal.text2)
                 .frame(width: 7, height: 7)
                 .modifier(PulseIfLive(active: stream.connected && !reduceMotion))
             Text(stream.connected ? "LIVE" : "LIVE · reconnecting")
                 .font(.caption2.weight(.bold)).kerning(1)
-                .foregroundStyle(BL.text2)
+                .foregroundStyle(pal.text2)
             Spacer()
             Button { showConfig = true } label: {
                 Image(systemName: "slider.horizontal.3")
-                    .font(.caption).foregroundStyle(BL.text2)
+                    .font(.caption).foregroundStyle(pal.text2)
             }
             .accessibilityLabel("Configure live section")
         }
@@ -85,8 +88,8 @@ struct LiveHeroView: View {
         HStack(spacing: 5) {
             ForEach(0..<count, id: \.self) { i in
                 Capsule()
-                    .fill(i == min(index, count - 1) ? AnyShapeStyle(BL.accent)
-                                                     : AnyShapeStyle(BL.surface2))
+                    .fill(i == min(index, count - 1) ? AnyShapeStyle(pal.accent)
+                                                     : AnyShapeStyle(pal.surface2))
                     .frame(width: i == min(index, count - 1) ? 16 : 5, height: 5)
             }
         }
@@ -117,15 +120,17 @@ private struct PulseIfLive: ViewModifier {
 
 /// One hero card. Colour + icon come from the card's category.
 struct LiveHeroCard: View {
+    @Environment(\.palette) private var pal
+
     let card: LiveCard
 
     private var tint: Color {
         switch card.type {
-        case "breaking": return BL.breaking
-        case "event":    return BL.warning
-        case "score":    return BL.accent
-        case "market":   return BL.trust
-        default:         return BL.accent
+        case "breaking": return pal.breaking
+        case "event":    return pal.warning
+        case "score":    return pal.accent
+        case "market":   return pal.trust
+        default:         return pal.accent
         }
     }
     private var icon: String { card.category?.icon ?? "dot.radiowaves.left.and.right" }
@@ -136,32 +141,32 @@ struct LiveHeroCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tint)
                 .frame(width: 34, height: 34)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .background(RoundedRectangle(cornerRadius: pal.r(10), style: .continuous)
                     .fill(tint.opacity(0.14)))
             VStack(alignment: .leading, spacing: 2) {
                 if card.type == "breaking" {
                     Text("BREAKING").font(.caption2.weight(.bold)).kerning(1)
-                        .foregroundStyle(BL.breaking)
+                        .foregroundStyle(pal.breaking)
                 }
                 Text(card.title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2).multilineTextAlignment(.leading)
                 if !card.subtitle.isEmpty {
                     Text(card.subtitle)
-                        .font(.caption2).foregroundStyle(BL.text2).lineLimit(1)
+                        .font(.caption2).foregroundStyle(pal.text2).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
             if card.storyID?.isEmpty == false {
                 Image(systemName: "chevron.right")
-                    .font(.caption2).foregroundStyle(BL.text2)
+                    .font(.caption2).foregroundStyle(pal.text2)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(BL.surface)
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: pal.r(14), style: .continuous)
+            .fill(pal.surface)
+            .overlay(RoundedRectangle(cornerRadius: pal.r(14), style: .continuous)
                 .stroke(tint.opacity(card.type == "breaking" ? 0.5 : 0.18), lineWidth: 1)))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(card.category?.label ?? "Live"): \(card.title). \(card.subtitle)")
@@ -173,6 +178,8 @@ struct LiveHeroCard: View {
 /// Choose which categories the hero shows, and their priority order. The list
 /// order IS the priority; toggles switch a category on/off. Saved to `live_prefs`.
 struct LiveConfigView: View {
+    @Environment(\.palette) private var pal
+
     var prefs: LivePrefs
     var onSave: (LivePrefs) -> Void
 
@@ -198,7 +205,7 @@ struct LiveConfigView: View {
             Form {
                 Section {
                     Toggle("Show live section", isOn: $enabled)
-                        .tint(BL.accent)
+                        .tint(pal.accent)
                 } footer: {
                     Text("A calm, auto-updating strip at the top of your home screen. Breaking news always takes priority.")
                 }
@@ -229,12 +236,12 @@ struct LiveConfigView: View {
         let isOn = on.contains(cat)
         HStack {
             Label(cat.label, systemImage: cat.icon)
-                .foregroundStyle(isOn ? Color.primary : BL.text2)
+                .foregroundStyle(isOn ? Color.primary : pal.text2)
             Spacer()
             Toggle("", isOn: Binding(
                 get: { on.contains(cat) },
                 set: { if $0 { on.insert(cat) } else { on.remove(cat) } }))
-                .labelsHidden().tint(BL.accent)
+                .labelsHidden().tint(pal.accent)
         }
     }
 

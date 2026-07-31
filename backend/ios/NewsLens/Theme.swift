@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // MARK: - Adaptive color helper (follows the device's light/dark mode)
 
@@ -10,60 +11,285 @@ extension Color {
     }
 }
 
-// MARK: - Bluelligent Native design tokens (adaptive)
+// MARK: - Skins
 
-enum BL {
-    // Backgrounds: deep ink in dark mode, soft paper in light mode.
-    static let ink = Color(light: Color(red: 0.965, green: 0.973, blue: 0.988),
-                           dark:  Color(red: 0.027, green: 0.043, blue: 0.078))
-    static let ink2 = Color(light: .white,
-                            dark:  Color(red: 0.043, green: 0.067, blue: 0.125))
-    static let surface = Color(light: .white,
-                               dark:  Color.white.opacity(0.045))
-    static let surface2 = Color(light: Color.black.opacity(0.05),
-                                dark:  Color.white.opacity(0.07))
-    static let hairline = Color(light: Color.black.opacity(0.08),
-                                dark:  Color.white.opacity(0.08))
-    static let hairline2 = Color(light: Color.black.opacity(0.15),
-                                 dark:  Color.white.opacity(0.14))
-    static let text2 = Color(light: Color(red: 0.35, green: 0.39, blue: 0.47),
-                             dark:  Color(red: 0.604, green: 0.647, blue: 0.722))
+/// The three looks, matching the web portal's `data-skin` values and the
+/// server's `ContextIn.theme` exactly — the value round-trips through the
+/// account context, so these raw values are a cross-platform contract.
+enum DescrySkin: String, CaseIterable, Identifiable, Codable {
+    case `default`, journal, signal
+    var id: String { rawValue }
 
-    // Semantic colors: darker variants in light mode for WCAG contrast on paper.
-    static let accent = Color(light: Color(red: 0.13, green: 0.42, blue: 0.90),
-                              dark:  Color(red: 0.302, green: 0.624, blue: 1.0))
-    static let ai = Color(light: Color(red: 0.40, green: 0.27, blue: 0.92),
-                          dark:  Color(red: 0.486, green: 0.361, blue: 1.0))
-    static let trust = Color(light: Color(red: 0.02, green: 0.59, blue: 0.41),
-                             dark:  Color(red: 0.239, green: 0.863, blue: 0.592))
-    static let warning = Color(light: Color(red: 0.72, green: 0.46, blue: 0.02),
-                               dark:  Color(red: 1.0, green: 0.761, blue: 0.302))
-    static let breaking = Color(light: Color(red: 0.83, green: 0.15, blue: 0.24),
-                                dark:  Color(red: 1.0, green: 0.365, blue: 0.451))
-    static let prediction = Color(light: Color(red: 0.49, green: 0.23, blue: 0.93),
-                                  dark:  Color(red: 0.706, green: 0.549, blue: 1.0))
+    var name: String {
+        switch self {
+        case .default: return "Descry"
+        case .journal: return "The Journal"
+        case .signal:  return "The Signal"
+        }
+    }
+    var blurb: String {
+        switch self {
+        case .default: return "The standard look."
+        case .journal: return "Warm editorial broadsheet — serif headlines, cream paper, one carmine accent."
+        case .signal:  return "Swiss precision instrument — mono numerals, flat white, one vermilion accent."
+        }
+    }
+    /// Swatch shown in the picker, mirroring the web picker's three chips.
+    var swatch: [Color] {
+        switch self {
+        case .default: return [Color(red: 0.302, green: 0.624, blue: 1.0),
+                               Color(red: 0.486, green: 0.361, blue: 1.0),
+                               Color(red: 0.961, green: 0.969, blue: 0.984)]
+        case .journal: return [Color(red: 0.557, green: 0.169, blue: 0.118),
+                               Color(red: 0.098, green: 0.082, blue: 0.067),
+                               Color(red: 0.961, green: 0.945, blue: 0.910)]
+        case .signal:  return [Color(red: 0.847, green: 0.216, blue: 0.110),
+                               Color(red: 0.071, green: 0.071, blue: 0.063),
+                               Color(red: 0.984, green: 0.984, blue: 0.976)]
+        }
+    }
+    init(storage: String?) { self = DescrySkin(rawValue: storage ?? "") ?? .default }
+}
 
-    static let aiGradient = LinearGradient(colors: [accent, ai],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let spring = Animation.spring(response: 0.45, dampingFraction: 0.85)
+// MARK: - Palette
 
-    static func credColor(_ score: Double) -> Color {
+/// Every colour and shape token the UI draws with, as an *instance* rather than
+/// a set of globals.
+///
+/// This is deliberately not `static let`s on `BL` any more. Statics can't tell
+/// SwiftUI that anything changed: a view whose stored properties are unchanged
+/// is not re-evaluated, so after a theme switch it keeps rendering the colours
+/// it captured the first time — which is precisely the "one page shows the
+/// previous theme, another shows something else" symptom. Reading the palette
+/// out of the Environment instead makes the dependency explicit, so SwiftUI
+/// invalidates exactly the views that draw with it, all in the same frame.
+struct Palette {
+    var skin: DescrySkin = .default
+
+    var ink: Color, ink2: Color, surface: Color, surface2: Color
+    var hairline: Color, hairline2: Color
+    var text: Color, text2: Color
+    var accent: Color, ai: Color
+    var trust: Color, warning: Color, breaking: Color, prediction: Color
+
+    /// Corner radius for content cards. The two editorial skins are near-square;
+    /// Signal is fully square, which is one of its stated design goals.
+    var radius: CGFloat = 18
+    /// Journal is serif-led; the others are the system sans.
+    var serifBody: Bool = false
+    /// Ambient background glows belong to the default skin only — "nothing
+    /// glows" is the whole point of both editorial skins.
+    var ambientGlow: Bool = true
+    /// Shadows under cards, likewise.
+    var cardShadow: Bool = true
+
+    var aiGradient: LinearGradient {
+        // Both editorial skins are single-accent by design, so what is a
+        // two-stop gradient in the default skin collapses to a flat fill
+        // rather than inventing a second hue they don't have.
+        LinearGradient(colors: skin == .default ? [accent, ai] : [accent, accent],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    func credColor(_ score: Double) -> Color {
         score >= 75 ? trust : score >= 50 ? warning : breaking
     }
+
+    /// Scale a hand-tuned corner radius to the skin. Views carry radii chosen for
+    /// the default look (10, 12, 14…); passing them through here is what stops
+    /// Signal — whose whole premise is zero radius — from rendering rounded
+    /// buttons and panels next to its square cards.
+    func r(_ designed: CGFloat) -> CGFloat {
+        switch skin {
+        case .default: return designed
+        case .journal: return min(designed, 3)
+        case .signal:  return 0
+        }
+    }
+
+    /// An accent glow, or nothing on the skins that don't glow.
+    func glow(_ color: Color, _ opacity: Double) -> Color {
+        cardShadow ? color.opacity(opacity) : .clear
+    }
+
+    /// Body/headline font honouring the skin's typographic intent.
+    func font(_ style: Font.TextStyle, weight: Font.Weight? = nil) -> Font {
+        let f = serifBody ? Font.system(style, design: .serif) : Font.system(style)
+        return weight.map { f.weight($0) } ?? f
+    }
+
+    // MARK: Skin definitions
+
+    /// The existing Descry look, unchanged — light/dark adaptive.
+    static let descry = Palette(
+        skin: .default,
+        ink:  Color(light: Color(red: 0.965, green: 0.973, blue: 0.988),
+                    dark:  Color(red: 0.027, green: 0.043, blue: 0.078)),
+        ink2: Color(light: .white,
+                    dark:  Color(red: 0.043, green: 0.067, blue: 0.125)),
+        surface:  Color(light: .white, dark: Color.white.opacity(0.045)),
+        surface2: Color(light: Color.black.opacity(0.05), dark: Color.white.opacity(0.07)),
+        hairline:  Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.08)),
+        hairline2: Color(light: Color.black.opacity(0.15), dark: Color.white.opacity(0.14)),
+        text:  Color(light: Color(red: 0.086, green: 0.106, blue: 0.149), dark: Color(red: 0.910, green: 0.925, blue: 0.957)),
+        text2: Color(light: Color(red: 0.35, green: 0.39, blue: 0.47),
+                     dark:  Color(red: 0.604, green: 0.647, blue: 0.722)),
+        accent: Color(light: Color(red: 0.13, green: 0.42, blue: 0.90),
+                      dark:  Color(red: 0.302, green: 0.624, blue: 1.0)),
+        ai: Color(light: Color(red: 0.40, green: 0.27, blue: 0.92),
+                  dark:  Color(red: 0.486, green: 0.361, blue: 1.0)),
+        trust: Color(light: Color(red: 0.02, green: 0.59, blue: 0.41),
+                     dark:  Color(red: 0.239, green: 0.863, blue: 0.592)),
+        warning: Color(light: Color(red: 0.72, green: 0.46, blue: 0.02),
+                       dark:  Color(red: 1.0, green: 0.761, blue: 0.302)),
+        breaking: Color(light: Color(red: 0.83, green: 0.15, blue: 0.24),
+                        dark:  Color(red: 1.0, green: 0.365, blue: 0.451)),
+        prediction: Color(light: Color(red: 0.49, green: 0.23, blue: 0.93),
+                          dark:  Color(red: 0.706, green: 0.549, blue: 1.0)),
+        radius: 18, serifBody: false, ambientGlow: true, cardShadow: true)
+
+    /// "The Journal" — ink on cream paper, one carmine accent. A fixed palette,
+    /// not a light/dark pair: a picked skin is a deliberate look, which is the
+    /// same call the web makes by letting :root[data-skin] beat the dark-mode
+    /// block. Trust/warning stay inked; an editorial page signals "fine" with
+    /// restraint rather than a green light.
+    static let journal = Palette(
+        skin: .journal,
+        ink:  Color(red: 0.961, green: 0.945, blue: 0.910),
+        ink2: Color(red: 0.937, green: 0.918, blue: 0.867),
+        surface:  Color(red: 0.098, green: 0.082, blue: 0.067).opacity(0.035),
+        surface2: Color(red: 0.098, green: 0.082, blue: 0.067).opacity(0.06),
+        hairline:  Color(red: 0.788, green: 0.757, blue: 0.698),
+        hairline2: Color(red: 0.098, green: 0.082, blue: 0.067),
+        text:  Color(red: 0.098, green: 0.082, blue: 0.067),
+        text2: Color(red: 0.361, green: 0.329, blue: 0.290),
+        accent: Color(red: 0.557, green: 0.169, blue: 0.118),
+        ai:     Color(red: 0.557, green: 0.169, blue: 0.118),
+        trust:    Color(red: 0.098, green: 0.082, blue: 0.067),
+        warning:  Color(red: 0.361, green: 0.329, blue: 0.290),
+        breaking: Color(red: 0.557, green: 0.169, blue: 0.118),
+        prediction: Color(red: 0.098, green: 0.082, blue: 0.067),
+        radius: 3, serifBody: true, ambientGlow: false, cardShadow: false)
+
+    /// "The Signal" — Swiss instrument. Zero radius, zero shadow, zero gradient;
+    /// vermilion reserved for alert states, everything else ink or grey.
+    static let signal = Palette(
+        skin: .signal,
+        ink:  Color(red: 0.984, green: 0.984, blue: 0.976),
+        ink2: .white,
+        surface:  Color(red: 0.071, green: 0.071, blue: 0.063).opacity(0.03),
+        surface2: Color(red: 0.071, green: 0.071, blue: 0.063).opacity(0.05),
+        hairline:  Color(red: 0.867, green: 0.863, blue: 0.831),
+        hairline2: Color(red: 0.071, green: 0.071, blue: 0.063),
+        text:  Color(red: 0.071, green: 0.071, blue: 0.063),
+        text2: Color(red: 0.431, green: 0.427, blue: 0.400),
+        accent: Color(red: 0.847, green: 0.216, blue: 0.110),
+        ai:     Color(red: 0.847, green: 0.216, blue: 0.110),
+        trust:    Color(red: 0.071, green: 0.071, blue: 0.063),
+        warning:  Color(red: 0.431, green: 0.427, blue: 0.400),
+        breaking: Color(red: 0.847, green: 0.216, blue: 0.110),
+        prediction: Color(red: 0.071, green: 0.071, blue: 0.063),
+        radius: 0, serifBody: false, ambientGlow: false, cardShadow: false)
+
+    static func of(_ skin: DescrySkin) -> Palette {
+        switch skin {
+        case .default: return .descry
+        case .journal: return .journal
+        case .signal:  return .signal
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Read with `@Environment(\.palette) private var pal`.
+    var palette: Palette {
+        get { self[PaletteKey.self] }
+        set { self[PaletteKey.self] = newValue }
+    }
+}
+private struct PaletteKey: EnvironmentKey {
+    static let defaultValue = Palette.descry
+}
+
+/// Re-asserts the current skin's palette from the ThemeStore.
+///
+/// The root injection covers the whole tab tree, but a `.sheet` is presented
+/// from its own hosting controller. Environment propagation into sheets is
+/// reliable in current SwiftUI, and this codebase already re-passes
+/// `.environmentObject(api)` at every sheet for the same reason — so a sheet
+/// that missed the palette would silently fall back to `Palette.descry` and
+/// show the default look on top of a themed app, which is precisely the
+/// "one screen is a different theme" failure being fixed. Cheap insurance.
+struct Skinned: ViewModifier {
+    @EnvironmentObject private var theme: ThemeStore
+    func body(content: Content) -> some View {
+        content.environment(\.palette, theme.palette)
+    }
+}
+
+extension View {
+    func skinned() -> some View { modifier(Skinned()) }
+}
+
+// MARK: - Theme store
+
+/// Owns the chosen skin. Persisted locally so the very first frame after launch
+/// is already the right colour (no flash of the default look), then reconciled
+/// with the account, which is the source of truth across devices.
+@MainActor
+final class ThemeStore: ObservableObject {
+    static let shared = ThemeStore()
+    private static let key = "bl_skin"
+
+    @Published private(set) var skin: DescrySkin = .default
+
+    private init() {
+        skin = DescrySkin(storage: UserDefaults.standard.string(forKey: Self.key))
+    }
+
+    var palette: Palette { .of(skin) }
+
+    /// Local-only switch — instant, no round trip. Used for the picker's
+    /// immediate feedback and to fall back on sign-out.
+    func set(_ new: DescrySkin) {
+        guard new != skin else { return }
+        skin = new
+        UserDefaults.standard.set(new.rawValue, forKey: Self.key)
+    }
+
+    /// Adopt whatever this account saved elsewhere (web, another device).
+    func adopt(fromContext theme: String?) { set(DescrySkin(storage: theme)) }
+
+    func reset() { set(.default) }
+}
+
+// MARK: - Non-visual tokens
+
+/// What is left of the old global token bag. The colours that used to live here
+/// are gone on purpose: they are now `Palette` values read from the Environment,
+/// so a skin change invalidates the views that draw with them. Anything that is
+/// genuinely skin-independent can still live here.
+enum BL {
+    static let spring = Animation.spring(response: 0.45, dampingFraction: 0.85)
 }
 
 // MARK: - Background (ambient radial glows; adapts to mode)
 
 struct InkBackground: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.palette) private var pal
 
     var body: some View {
         ZStack {
-            BL.ink.ignoresSafeArea()
-            RadialGradient(colors: [BL.accent.opacity(scheme == .dark ? 0.13 : 0.07), .clear],
-                           center: .init(x: 0.85, y: -0.05), startRadius: 0, endRadius: 420)
-            RadialGradient(colors: [BL.ai.opacity(scheme == .dark ? 0.10 : 0.05), .clear],
-                           center: .init(x: 0.05, y: 1.05), startRadius: 0, endRadius: 380)
+            pal.ink.ignoresSafeArea()
+            // Both editorial skins exist to get away from a floating glow, so
+            // the ambient radials are the default skin's alone.
+            if pal.ambientGlow {
+                RadialGradient(colors: [pal.accent.opacity(scheme == .dark ? 0.13 : 0.07), .clear],
+                               center: .init(x: 0.85, y: -0.05), startRadius: 0, endRadius: 420)
+                RadialGradient(colors: [pal.ai.opacity(scheme == .dark ? 0.10 : 0.05), .clear],
+                               center: .init(x: 0.05, y: 1.05), startRadius: 0, endRadius: 380)
+            }
         }
         .ignoresSafeArea()
     }
@@ -71,28 +297,58 @@ struct InkBackground: View {
 
 // MARK: - Liquid Glass with graceful fallback (functional layer only)
 
+/// These are `ViewModifier`s rather than plain `View` extension methods because
+/// a method on `View` has nowhere to read `@Environment` from — it would have to
+/// close over a global, which is exactly the staleness this refactor removes.
+private struct BLGlass<S: Shape>: ViewModifier {
+    let shape: S
+    @Environment(\.palette) private var pal
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        // Paper doesn't blur: the editorial skins take the opaque path even on
+        // iOS 26, where the default skin gets Liquid Glass.
+        if #available(iOS 26.0, *), pal.skin == .default {
+            content.glassEffect(.regular, in: shape)
+        } else if pal.skin == .default {
+            content.background(.ultraThinMaterial, in: shape)
+                .overlay(shape.stroke(pal.hairline2, lineWidth: 1))
+        } else {
+            content.background(pal.ink2, in: shape)
+                .overlay(shape.stroke(pal.hairline2, lineWidth: 1))
+        }
+    }
+}
+
+private struct BLCard: ViewModifier {
+    var radius: CGFloat?
+    @Environment(\.palette) private var pal
+
+    func body(content: Content) -> some View {
+        // An explicitly passed radius is a value tuned for the default look, so
+        // it goes through the skin's scale too rather than straight to the shape.
+        let r = radius.map(pal.r) ?? pal.radius
+        return content
+            .background(
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .fill(pal.surface)
+                    .overlay(RoundedRectangle(cornerRadius: r, style: .continuous)
+                        .stroke(pal.hairline, lineWidth: 1)))
+            .shadow(color: pal.cardShadow ? Color(light: .black.opacity(0.06), dark: .clear) : .clear,
+                    radius: pal.cardShadow ? 10 : 0, y: pal.cardShadow ? 4 : 0)
+    }
+}
+
 extension View {
     /// iOS 26 Liquid Glass on the functional layer; material fallback earlier.
-    @ViewBuilder
     func blGlass(in shape: some Shape = Capsule()) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular, in: shape)
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-                .overlay(shape.stroke(BL.hairline2, lineWidth: 1))
-        }
+        modifier(BLGlass(shape: shape))
     }
 
     /// Content-layer card: opaque surface (never glass, per HIG guidance).
-    /// Dark mode: ink surface + hairline. Light mode: white card + soft shadow.
-    func blCard(radius: CGFloat = 18) -> some View {
-        self.background(
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(BL.surface)
-                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(BL.hairline, lineWidth: 1)))
-            .shadow(color: Color(light: .black.opacity(0.06), dark: .clear),
-                    radius: 10, y: 4)
+    /// Passing no radius takes the skin's own corner treatment.
+    func blCard(radius: CGFloat? = nil) -> some View {
+        modifier(BLCard(radius: radius))
     }
 }
 
@@ -100,16 +356,27 @@ extension View {
 
 struct Chip: View {
     var text: String
-    var color: Color = BL.text2
+    /// Nil means "the skin's secondary text colour" — resolved in `body`, since
+    /// a stored property's default value can't read the Environment.
+    var color: Color?
     var filled: Bool = false
+    @Environment(\.palette) private var pal
 
     var body: some View {
-        Text(text)
+        let c = color ?? pal.text2
+        // Signal's tags are solid ink blocks with the paper knocked out of them,
+        // not tinted capsules; the other two skins keep the tinted pill.
+        let square = pal.skin == .signal
+        return Text(text)
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Capsule().fill(filled ? color.opacity(0.16) : BL.surface2))
-            .overlay(Capsule().stroke(filled ? color.opacity(0.4) : BL.hairline, lineWidth: 1))
-            .foregroundStyle(filled ? color : BL.text2)
+            .background(shape.fill(filled ? (square ? c : c.opacity(0.16)) : pal.surface2))
+            .overlay(shape.stroke(filled ? c.opacity(square ? 1 : 0.4) : pal.hairline, lineWidth: 1))
+            .foregroundStyle(filled ? (square ? pal.ink : c) : pal.text2)
+    }
+
+    private var shape: AnyShape {
+        pal.radius == 0 ? AnyShape(Rectangle()) : AnyShape(Capsule())
     }
 }
 
@@ -230,12 +497,13 @@ struct LastToldChip: View {
 /// Compact caption form for dense rows (cards) where a full chip is too heavy.
 struct LastToldLabel: View {
     var at: Double?
+    @Environment(\.palette) private var pal
 
     var body: some View {
         if let rel = LastTold.relative(at) {
             Text(rel)
                 .font(.caption2)
-                .foregroundStyle(BL.text2)
+                .foregroundStyle(pal.text2)
                 .accessibilityLabel(Text("Last told \(LastTold.full(at) ?? rel)"))
         }
     }
@@ -247,18 +515,23 @@ struct TrustRing: View {
     var score: Double
     var size: CGFloat = 46
     @State private var animated = false
+    @Environment(\.palette) private var pal
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.09), lineWidth: 4.5)
+            // Was Color.white.opacity(0.09) — a white track is invisible on a
+            // white card, so in light mode the ring had no groove at all and on
+            // paper it was worse. The neutral track has to come from the skin.
+            Circle().stroke(pal.surface2, lineWidth: 4.5)
             Circle()
                 .trim(from: 0, to: animated ? score / 100 : 0)
-                .stroke(BL.credColor(score),
-                        style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+                .stroke(pal.credColor(score),
+                        style: StrokeStyle(lineWidth: 4.5,
+                                           lineCap: pal.radius == 0 ? .butt : .round))
                 .rotationEffect(.degrees(-90))
             Text("\(Int(score))")
                 .font(.system(size: size * 0.3, weight: .bold, design: .monospaced))
-                .foregroundStyle(BL.credColor(score))
+                .foregroundStyle(pal.credColor(score))
         }
         .frame(width: size, height: size)
         .onAppear { withAnimation(BL.spring.delay(0.2)) { animated = true } }
@@ -278,26 +551,33 @@ struct TrustMeter: View {
     private var label: String {
         score >= 75 ? "Highly corroborated" : score >= 50 ? "Developing story" : "Limited corroboration"
     }
+    @Environment(\.palette) private var pal
 
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(BL.credColor(score))
+                .foregroundStyle(pal.credColor(score))
                 .lineLimit(1)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.08))
-                    Capsule().fill(BL.credColor(score))
+                    // Same bug as TrustRing's track: a hardcoded white bar is
+                    // invisible in light mode and on both paper skins.
+                    bar.fill(pal.surface2)
+                    bar.fill(pal.credColor(score))
                         .frame(width: geo.size.width * score / 100)
                 }
             }
             .frame(height: 5)
             Text("\(Int(score))%")
                 .font(.caption2.weight(.semibold).monospaced())
-                .foregroundStyle(BL.credColor(score))
+                .foregroundStyle(pal.credColor(score))
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var bar: AnyShape {
+        pal.radius == 0 ? AnyShape(Rectangle()) : AnyShape(Capsule())
     }
 }
 
@@ -305,8 +585,9 @@ struct TrustMeter: View {
 
 struct ImpactBadge: View {
     var score: Int
+    @Environment(\.palette) private var pal
     private var label: String { ["", "For you", "Affects you", "High impact"][min(score, 3)] }
-    private var color: Color { [BL.text2, BL.accent, BL.warning, BL.breaking][min(score, 3)] }
+    private var color: Color { [pal.text2, pal.accent, pal.warning, pal.breaking][min(score, 3)] }
     var body: some View {
         if score > 0 { Chip(text: label, color: color, filled: true) }
     }
@@ -316,12 +597,16 @@ struct ImpactBadge: View {
 
 struct Sparkline: View {
     var seed: String
-    var color: Color = BL.accent
+    /// Nil takes the skin's accent — a stored default can't read the Environment.
+    var color: Color?
     var width: CGFloat = 72
     var height: CGFloat = 22
+    @Environment(\.palette) private var pal
 
     var body: some View {
         let pts = Self.points(seed: seed)
+        let stroke = color ?? pal.accent
+        let down = pal.breaking
         Canvas { ctx, size in
             var path = Path()
             for (i, p) in pts.enumerated() {
@@ -330,7 +615,7 @@ struct Sparkline: View {
                 i == 0 ? path.move(to: pt) : path.addLine(to: pt)
             }
             let up = pts.last! >= pts.first!
-            ctx.stroke(path, with: .color(up ? color : BL.breaking),
+            ctx.stroke(path, with: .color(up ? stroke : down),
                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
         }
         .frame(width: width, height: height)
@@ -385,6 +670,7 @@ extension View {
 struct LinkedText: View {
     let text: String
     var refs: [StoryRef] = []
+    @Environment(\.palette) private var pal
 
     var body: some View { Text(attributed) }
 
@@ -397,7 +683,7 @@ struct LinkedText: View {
             var from = s.startIndex
             while from < s.endIndex, let r = s[from...].range(of: ref.headline) {
                 s[r].link = url
-                s[r].foregroundColor = BL.accent
+                s[r].foregroundColor = pal.accent
                 s[r].underlineStyle = .single
                 from = r.upperBound
             }

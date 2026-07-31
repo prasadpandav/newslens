@@ -2564,7 +2564,14 @@ const Calib = {
         native_language: $('#callang').value.trim(),
         preferred_language: cur.preferred_language || 'English',
         micro: this.micro,
-        live_prefs: cur.live_prefs || S.live
+        live_prefs: cur.live_prefs || S.live,
+        /* PUT /context replaces the whole blob and ContextIn.theme defaults to
+           "default", so every field this body omits is not "left alone" — it is
+           reset. Leaving theme out meant saving your interests silently threw
+           away your chosen look, and syncFromAccount() then pulled that
+           "default" back down and repainted mid-session, which is what made the
+           theme look like it randomly reverted between pages. */
+        theme: cur.theme || Theme.current()
       };
       await api(`/users/${S.creds.user_id}/context`,{method:'PUT',body:JSON.stringify(body)});
       S.ctx = body; if (S.creds) S.creds.has_context = true;

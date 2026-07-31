@@ -88,6 +88,8 @@ final class LocationOnce: NSObject, CLLocationManagerDelegate {
 /// "Calibrate your lens" — conversational, optional-everything context capture,
 /// rebuilt with the Bluelligent Native design language.
 struct OnboardingView: View {
+    @Environment(\.palette) private var pal
+
     @EnvironmentObject var api: APIClient
     var initial: UserContext? = nil   // existing prefs to prefill when editing
     var onDone: () -> Void
@@ -160,10 +162,10 @@ struct OnboardingView: View {
     @State private var drift = false
     private var orbs: some View {
         ZStack {
-            Circle().fill(BL.accent.opacity(0.18)).frame(width: 260)
+            Circle().fill(pal.accent.opacity(0.18)).frame(width: 260)
                 .blur(radius: 70)
                 .offset(x: drift ? 90 : -60, y: drift ? -180 : -120)
-            Circle().fill(BL.ai.opacity(0.15)).frame(width: 300)
+            Circle().fill(pal.ai.opacity(0.15)).frame(width: 300)
                 .blur(radius: 80)
                 .offset(x: drift ? -80 : 60, y: drift ? 260 : 200)
         }
@@ -180,7 +182,7 @@ struct OnboardingView: View {
         HStack(spacing: 7) {
             ForEach(0..<totalSteps, id: \.self) { i in
                 Capsule()
-                    .fill(i <= step ? AnyShapeStyle(BL.aiGradient) : AnyShapeStyle(BL.surface2))
+                    .fill(i <= step ? AnyShapeStyle(pal.aiGradient) : AnyShapeStyle(pal.surface2))
                     .frame(width: i == step ? 22 : 7, height: 7)
                     .animation(BL.spring, value: step)
             }
@@ -203,7 +205,7 @@ struct OnboardingView: View {
                     customInterest = ""
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(BL.accent)
+                .foregroundStyle(pal.accent)
             }
         }
     }
@@ -212,13 +214,13 @@ struct OnboardingView: View {
         StepCard(title: "What's your world of work?",
                  subtitle: "Tap what fits — every story can then explain what it means for your work. Pick more than one if you like.") {
             Text("YOUR FIELD").font(.caption2.weight(.bold)).kerning(1)
-                .foregroundStyle(BL.text2)
+                .foregroundStyle(pal.text2)
             FlowChips(options: fieldOptions, selected: $fields)
             Text("YOUR ROLE").font(.caption2.weight(.bold)).kerning(1)
-                .foregroundStyle(BL.text2).padding(.top, 6)
+                .foregroundStyle(pal.text2).padding(.top, 6)
             FlowChips(options: roleOptions, selected: $role)
             Text("ANYTHING SPECIFIC? (OPTIONAL)").font(.caption2.weight(.bold)).kerning(1)
-                .foregroundStyle(BL.text2).padding(.top, 6)
+                .foregroundStyle(pal.text2).padding(.top, 6)
             field("e.g. retail pharmacy chain, 3 stores", text: $ctx.lineOfBusiness)
         }
         .onChange(of: fields) { syncProfession() }
@@ -261,15 +263,15 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .foregroundStyle(.white)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(BL.aiGradient))
+                    .background(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous)
+                        .fill(pal.aiGradient))
             }
             .disabled(locating)
             if let locationNote {
-                Text(locationNote).font(.caption).foregroundStyle(BL.warning)
+                Text(locationNote).font(.caption).foregroundStyle(pal.warning)
             }
             Text("Your precise location never leaves the phone — only the city name is saved.")
-                .font(.caption2).foregroundStyle(BL.text2)
+                .font(.caption2).foregroundStyle(pal.text2)
             field("City", text: $ctx.location.city)
             field("State / Region", text: $ctx.location.region)
             field("Country", text: $ctx.location.country)
@@ -288,7 +290,7 @@ struct OnboardingView: View {
             Toggle("Read news in English", isOn: Binding(
                 get: { ctx.preferredLanguage == "English" },
                 set: { ctx.preferredLanguage = $0 ? "English" : ctx.nativeLanguage }))
-                .tint(BL.accent)
+                .tint(pal.accent)
         }
     }
 
@@ -297,14 +299,14 @@ struct OnboardingView: View {
                  subtitle: "Anything news could touch — commute, investments, kids' school, supply chains, goals.") {
             ForEach(Array(ctx.micro.keys.sorted()), id: \.self) { key in
                 HStack {
-                    Text(key).font(.caption).foregroundStyle(BL.text2)
+                    Text(key).font(.caption).foregroundStyle(pal.text2)
                     Text(ctx.micro[key] ?? "").font(.footnote)
                     Spacer()
                     Button(role: .destructive) { ctx.micro.removeValue(forKey: key) }
-                    label: { Image(systemName: "xmark.circle.fill").foregroundStyle(BL.text2) }
+                    label: { Image(systemName: "xmark.circle.fill").foregroundStyle(pal.text2) }
                 }
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BL.surface2))
+                .background(RoundedRectangle(cornerRadius: pal.r(10), style: .continuous).fill(pal.surface2))
             }
             HStack {
                 field("e.g. commute", text: $microKey)
@@ -316,7 +318,7 @@ struct OnboardingView: View {
                     microKey = ""; microValue = ""
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(BL.accent)
+                .foregroundStyle(pal.accent)
             }
         }
     }
@@ -335,7 +337,7 @@ struct OnboardingView: View {
                     .joined(separator: " · "))
             }
             if let error {
-                Text(error).foregroundStyle(BL.breaking).font(.caption)
+                Text(error).foregroundStyle(pal.breaking).font(.caption)
             }
         }
     }
@@ -346,14 +348,14 @@ struct OnboardingView: View {
         TextField(placeholder, text: text)
             .textFieldStyle(.plain)
             .padding(.horizontal, 14).padding(.vertical, 11)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BL.surface2))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(BL.hairline, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous).fill(pal.surface2))
+            .overlay(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous)
+                .stroke(pal.hairline, lineWidth: 1))
     }
 
     private func row(_ label: String, _ value: String) -> some View {
         HStack(alignment: .top) {
-            Text(label).font(.caption).foregroundStyle(BL.text2)
+            Text(label).font(.caption).foregroundStyle(pal.text2)
                 .frame(width: 110, alignment: .leading)
             Text(value.isEmpty ? "—" : value).font(.callout)
             Spacer()
@@ -365,12 +367,12 @@ struct OnboardingView: View {
         HStack {
             if step > 0 {
                 Button("Back") { withAnimation(BL.spring) { step -= 1 } }
-                    .foregroundStyle(BL.text2)
+                    .foregroundStyle(pal.text2)
             }
             Spacer()
             if step < totalSteps - 1 {
                 Button("Skip") { withAnimation(BL.spring) { step += 1 } }
-                    .foregroundStyle(BL.text2)
+                    .foregroundStyle(pal.text2)
                     .padding(.trailing, 8)
                 Button {
                     withAnimation(BL.spring) { step += 1 }
@@ -379,7 +381,7 @@ struct OnboardingView: View {
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 24).padding(.vertical, 12)
                         .foregroundStyle(.white)
-                        .background(Capsule().fill(BL.aiGradient))
+                        .background(Capsule().fill(pal.aiGradient))
                 }
             } else {
                 Button {
@@ -398,8 +400,8 @@ struct OnboardingView: View {
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 24).padding(.vertical, 12)
                         .foregroundStyle(.white)
-                        .background(Capsule().fill(BL.aiGradient))
-                        .shadow(color: BL.ai.opacity(0.4), radius: 12, y: 5)
+                        .background(Capsule().fill(pal.aiGradient))
+                        .shadow(color: pal.glow(pal.ai, 0.4), radius: 12, y: 5)
                 }
                 .disabled(saving)
             }
@@ -411,6 +413,8 @@ struct OnboardingView: View {
 // MARK: - Reusable pieces
 
 struct StepCard<Content: View>: View {
+    @Environment(\.palette) private var pal
+
     let title: String
     let subtitle: String
     @ViewBuilder var content: Content
@@ -420,7 +424,7 @@ struct StepCard<Content: View>: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(title)
                     .font(.system(.largeTitle, design: .serif, weight: .semibold))
-                Text(subtitle).foregroundStyle(BL.text2)
+                Text(subtitle).foregroundStyle(pal.text2)
                 content
             }
             .padding(22)
@@ -430,6 +434,8 @@ struct StepCard<Content: View>: View {
 }
 
 struct FlowChips: View {
+    @Environment(\.palette) private var pal
+
     let options: [String]
     @Binding var selected: [String]
 
@@ -447,10 +453,10 @@ struct FlowChips: View {
                         .font(.footnote.weight(.medium))
                         .padding(.vertical, 9)
                         .frame(maxWidth: .infinity)
-                        .background(Capsule().fill(isOn ? BL.accent.opacity(0.2) : BL.surface2))
-                        .overlay(Capsule().stroke(isOn ? BL.accent.opacity(0.5) : BL.hairline,
+                        .background(Capsule().fill(isOn ? pal.accent.opacity(0.2) : pal.surface2))
+                        .overlay(Capsule().stroke(isOn ? pal.accent.opacity(0.5) : pal.hairline,
                                                   lineWidth: 1))
-                        .foregroundStyle(isOn ? BL.accent : .white)
+                        .foregroundStyle(isOn ? pal.accent : .white)
                 }
                 .sensoryFeedback(.selection, trigger: isOn)
             }

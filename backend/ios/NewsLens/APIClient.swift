@@ -78,6 +78,11 @@ final class APIClient: ObservableObject {
     func saveContext(_ ctx: UserContext) async throws {
         try await ensureUser()
         guard let userID else { return }
+        // PUT replaces the whole context blob, so the theme has to ride along on
+        // every write or the server's ContextIn default silently resets it. The
+        // caller shouldn't have to remember this, so it is stamped here.
+        var ctx = ctx
+        ctx.theme = ThemeStore.shared.skin.rawValue
         _ = try await request("users/\(userID)/context", method: "PUT", body: ctx)
         UserDefaults.standard.set(true, forKey: "onboarded")
         UserDefaults.standard.set(ctx.interests, forKey: "user_interests")
@@ -162,6 +167,9 @@ final class APIClient: ObservableObject {
                let ctx = try? JSONDecoder().decode(UserContext.self, from: ctxData) {
                 d.set(try? JSONEncoder().encode(ctx), forKey: "saved_context")
                 d.set(ctx.interests, forKey: "user_interests")
+                // The look follows the account, not the device — the promise the
+                // web picker makes. Adopt whatever this account last chose.
+                ThemeStore.shared.adopt(fromContext: ctx.theme)
             }
         }
         return out.has_context
@@ -199,6 +207,9 @@ final class APIClient: ObservableObject {
                     "saved_context"] {
             d.removeObject(forKey: key)
         }
+        // Theming is a signed-in personalization; don't keep showing a signed-out
+        // visitor someone else's chosen look. Matches Theme.reset() on the web.
+        ThemeStore.shared.reset()
     }
 
     // MARK: - Bookmarks (saved articles)

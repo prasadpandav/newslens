@@ -14,6 +14,17 @@ struct UserContext: Codable {
     // Dynamic-hero config. Optional so older stored contexts (no live_prefs) still
     // decode — the synthesized decoder treats a missing Optional key as nil.
     var livePrefs: LivePrefs?
+    /// Chosen look — "default" | "journal" | "signal". This has to be modelled
+    /// even though only the UI consumes it: PUT /users/{id}/context REPLACES the
+    /// whole blob and the server's ContextIn.theme defaults to "default", so a
+    /// field this struct doesn't carry isn't preserved across a save — it is
+    /// reset. Before this existed, editing interests or the hero config on iOS
+    /// silently threw away a theme picked on the web.
+    ///
+    /// Optional for the same reason livePrefs is: a context saved before this
+    /// field existed has no `theme` key, and the synthesized decoder throws on a
+    /// missing key for a non-Optional property regardless of its default value.
+    var theme: String?
 
     struct Location: Codable {
         var city: String = ""
@@ -22,7 +33,7 @@ struct UserContext: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case interests, profession, location, micro
+        case interests, profession, location, micro, theme
         case lineOfBusiness = "line_of_business"
         case roleSeniority = "role_seniority"
         case nativeLanguage = "native_language"

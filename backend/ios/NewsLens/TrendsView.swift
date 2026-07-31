@@ -2,11 +2,14 @@ import SwiftUI
 
 /// Trend Radar — macro forces and 72-hour early signals.
 struct TrendsView: View {
+    @Environment(\.palette) private var pal
+
     @EnvironmentObject var api: APIClient
     @State private var trends: [Trend] = []
     @State private var signals: [Signal] = []
     @State private var tab = "signals"
     @State private var loading = true
+    @Environment(\.scenePhase) private var scenePhase
 
     private var filteredTrends: [Trend] { trends.filter { $0.kind == "macro" } }
 
@@ -20,7 +23,7 @@ struct TrendsView: View {
                             Text("Trends")
                                 .font(.system(.largeTitle, design: .serif, weight: .semibold))
                             Text("what's building up — and what may happen next")
-                                .font(.footnote).foregroundStyle(BL.text2)
+                                .font(.footnote).foregroundStyle(pal.text2)
                         }
                         .padding(.top, 8)
 
@@ -31,7 +34,7 @@ struct TrendsView: View {
                         .pickerStyle(.segmented)
 
                         if loading {
-                            ProgressView().tint(BL.accent)
+                            ProgressView().tint(pal.accent)
                                 .frame(maxWidth: .infinity).padding(.top, 60)
                         } else if tab == "signals" {
                             if signals.isEmpty {
@@ -78,6 +81,13 @@ struct TrendsView: View {
             .navigationDestination(for: FeedItem.self) { StoryDetailView(storyID: $0.id) }
             .task { await load() }
             .refreshable { await load() }
+            // Like BriefView, this view lives inside a persistent TabView, so
+            // .task fires once per app launch and never again — without this,
+            // trends/signals ranked on day one stay pinned at the top no
+            // matter how long the app stays backgrounded and resumed.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await load() } }
+            }
         }
     }
 
@@ -93,6 +103,8 @@ struct TrendsView: View {
 // MARK: - Trend deep-dive
 
 struct TrendDetailView: View {
+    @Environment(\.palette) private var pal
+
     let trend: Trend
     @EnvironmentObject var api: APIClient
     @State private var detail: TrendDetail?
@@ -108,14 +120,14 @@ struct TrendDetailView: View {
                             Chip(text: "Past trend")
                         } else {
                             Chip(text: trend.kind == "micro" ? "Picking up speed" : "Big trend",
-                                 color: trend.kind == "micro" ? BL.prediction : BL.accent,
+                                 color: trend.kind == "micro" ? pal.prediction : pal.accent,
                                  filled: true)
                         }
                         LastToldChip(at: detail?.createdAt ?? trend.createdAt)
                         Spacer()
                         if !retired {
                             Sparkline(seed: trend.name,
-                                      color: trend.kind == "micro" ? BL.prediction : BL.accent,
+                                      color: trend.kind == "micro" ? pal.prediction : pal.accent,
                                       width: 90, height: 26)
                         }
                     }
@@ -126,20 +138,20 @@ struct TrendDetailView: View {
                     if retired { retiredBanner }
                     LinkedText(text: detail?.narrative ?? trend.narrative,
                                refs: detail?.storyRefs ?? [])
-                        .font(.subheadline).foregroundStyle(BL.text2)
+                        .font(.subheadline).foregroundStyle(pal.text2)
                     if let sectors = detail?.sectors ?? trend.sectors, !sectors.isEmpty {
                         HStack(spacing: 8) {
                             ForEach(sectors.prefix(4), id: \.self) { Chip(text: $0) }
                         }
                     }
-                    Divider().overlay(BL.hairline)
+                    Divider().overlay(pal.hairline)
                     Text("THE STORIES BEHIND THIS TREND")
                         .font(.caption2.weight(.bold)).kerning(1)
-                        .foregroundStyle(BL.text2)
+                        .foregroundStyle(pal.text2)
                     if let stories = detail?.stories {
                         if stories.isEmpty {
                             Text("No stories linked yet — the next pipeline run will connect them.")
-                                .font(.footnote).foregroundStyle(BL.text2)
+                                .font(.footnote).foregroundStyle(pal.text2)
                         } else {
                             LazyVStack(spacing: 12) {
                                 ForEach(stories) { s in
@@ -149,7 +161,7 @@ struct TrendDetailView: View {
                             }
                         }
                     } else {
-                        ProgressView().tint(BL.accent)
+                        ProgressView().tint(pal.accent)
                             .frame(maxWidth: .infinity).padding(.top, 20)
                     }
                 }
@@ -168,7 +180,7 @@ struct TrendDetailView: View {
                           subject: Text(trend.name),
                           message: Text("\(BriefView.cleanName(trend.name)) — via Descry")) {
                     Image(systemName: "square.and.arrow.up")
-                        .foregroundStyle(BL.accent)
+                        .foregroundStyle(pal.accent)
                 }
                 .accessibilityLabel("Share this trend")
             }
@@ -183,24 +195,26 @@ struct TrendDetailView: View {
     private var retiredBanner: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "archivebox")
-                .font(.footnote).foregroundStyle(BL.warning)
+                .font(.footnote).foregroundStyle(pal.warning)
             VStack(alignment: .leading, spacing: 3) {
                 Text("No longer an active trend.")
                     .font(.footnote.weight(.semibold))
                 Text("Descry stopped tracking this\(LastTold.relative(detail?.retiredAt).map { " \($0)" } ?? "") because recent coverage moved on. Everything below is kept as it was reported at the time.")
-                    .font(.caption).foregroundStyle(BL.text2)
+                    .font(.caption).foregroundStyle(pal.text2)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(BL.warning.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(BL.warning.opacity(0.3), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous)
+            .fill(pal.warning.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous)
+            .stroke(pal.warning.opacity(0.3), lineWidth: 1))
     }
 }
 
 struct TrendCard: View {
+    @Environment(\.palette) private var pal
+
     let trend: Trend
 
     var body: some View {
@@ -211,21 +225,21 @@ struct TrendCard: View {
                     .multilineTextAlignment(.leading)
                 Spacer()
                 Sparkline(seed: trend.name,
-                          color: trend.kind == "micro" ? BL.prediction : BL.accent,
+                          color: trend.kind == "micro" ? pal.prediction : pal.accent,
                           width: 84, height: 26)
             }
             Text(trend.narrative)
-                .font(.subheadline).foregroundStyle(BL.text2)
+                .font(.subheadline).foregroundStyle(pal.text2)
             HStack(spacing: 8) {
                 ForEach((trend.sectors ?? []).prefix(3), id: \.self) { s in
                     Chip(text: s)
                 }
                 if trend.kind == "micro" {
-                    Chip(text: "picking up speed", color: BL.prediction, filled: true)
+                    Chip(text: "picking up speed", color: pal.prediction, filled: true)
                 }
                 Spacer()
                 Text("\(trend.articleCount ?? 0) stories")
-                    .font(.caption2.monospaced()).foregroundStyle(BL.text2)
+                    .font(.caption2.monospaced()).foregroundStyle(pal.text2)
                 LastToldLabel(at: trend.createdAt)
             }
         }

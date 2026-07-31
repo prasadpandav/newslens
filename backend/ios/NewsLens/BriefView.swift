@@ -4,6 +4,8 @@ import Combine
 /// Daily Brief — the redesigned home. Greeting, intelligence summary, glass topic
 /// filter, story cards with scroll-driven motion and zoom hero transitions.
 struct BriefView: View {
+    @Environment(\.palette) private var pal
+
     @EnvironmentObject var api: APIClient
     @StateObject private var eng = Engagement.shared
     // Live SSE channel for the hero + feed-freshness. Seeded with the shared client
@@ -49,7 +51,7 @@ struct BriefView: View {
             ZStack {
                 InkBackground()
                 if loading {
-                    ProgressView("Building your lens…").tint(BL.accent)
+                    ProgressView("Building your lens…").tint(pal.accent)
                 } else if let error {
                     ContentUnavailableView {
                         Label("Can't load your brief", systemImage: "wifi.exclamationmark")
@@ -60,7 +62,7 @@ struct BriefView: View {
                             loading = true
                             Task { await load() }
                         }
-                        .buttonStyle(.borderedProminent).tint(BL.accent)
+                        .buttonStyle(.borderedProminent).tint(pal.accent)
                     }
                 } else {
                     content
@@ -90,7 +92,14 @@ struct BriefView: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
                     live.start()
-                    Task { await checkNew() }
+                    // A full reload, not just checkNew(): checkNew() only stages
+                    // stories newer than what's on screen, so a story ranked #1
+                    // when the app was backgrounded stays #1 forever even after
+                    // the backend's recency-decayed score has moved it well down
+                    // the list. Resuming from background is an acceptable place
+                    // to let the list re-rank and jump scroll — the user is
+                    // arriving fresh, not mid-read.
+                    Task { await load() }
                 } else {
                     live.stop()
                 }
@@ -148,10 +157,10 @@ struct BriefView: View {
                 .font(.system(.title2, design: .serif, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
-                Circle().fill(live.connected ? BL.trust : BL.text2).frame(width: 5, height: 5)
+                Circle().fill(live.connected ? pal.trust : pal.text2).frame(width: 5, height: 5)
                 Text(metaLine)
                     .font(.caption2)
-                    .foregroundStyle(BL.text2)
+                    .foregroundStyle(pal.text2)
                     .lineLimit(1)
             }
         }
@@ -171,16 +180,12 @@ struct BriefView: View {
         return "\(s / 3600)h ago"
     }
 
-    /// "N new stories" pill — merges staged items at the top without disturbing scroll.
+    /// "N new stories" pill — a full reload, so the whole list picks up the
+    /// backend's current rank order rather than just prepending the staged
+    /// items onto a list that was ranked at some earlier point in time.
     private var newStoriesBanner: some View {
         Button {
-            withAnimation(BL.spring) {
-                let existing = Set(items.map(\.id))
-                items = (newItems.filter { !existing.contains($0.id) } + items)
-                    .sorted { ($0.createdAt ?? 0) > ($1.createdAt ?? 0) }
-                newItems = []
-                lastLoaded = Date()
-            }
+            Task { await load() }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -189,7 +194,7 @@ struct BriefView: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16).padding(.vertical, 9)
-            .background(Capsule().fill(BL.aiGradient))
+            .background(Capsule().fill(pal.aiGradient))
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
@@ -203,20 +208,20 @@ struct BriefView: View {
             // sheet it opens.
             HStack(spacing: 9) {
                 Image(systemName: "scope")
-                    .font(.caption.weight(.semibold)).foregroundStyle(BL.accent)
+                    .font(.caption.weight(.semibold)).foregroundStyle(pal.accent)
                 Text("Personalize my news")
                     .font(.footnote.weight(.semibold))
                 Text("— what each story means for you")
-                    .font(.caption2).foregroundStyle(BL.text2)
+                    .font(.caption2).foregroundStyle(pal.text2)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(BL.text2)
+                    .font(.caption2.weight(.semibold)).foregroundStyle(pal.text2)
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(Capsule()
-                .fill(BL.aiGradient.opacity(0.12))
-                .overlay(Capsule().stroke(BL.accent.opacity(0.3), lineWidth: 1)))
+                .fill(pal.aiGradient.opacity(0.12))
+                .overlay(Capsule().stroke(pal.accent.opacity(0.3), lineWidth: 1)))
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showPersonalize) {
@@ -225,7 +230,7 @@ struct BriefView: View {
                 showPersonalize = false
                 Task { await load() }
             }
-            .environmentObject(api)
+            .environmentObject(api).skinned()
         }
     }
 
@@ -233,7 +238,7 @@ struct BriefView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("WHAT MAY HAPPEN NEXT")
                 .font(.caption2.weight(.bold)).kerning(1)
-                .foregroundStyle(BL.prediction)
+                .foregroundStyle(pal.prediction)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(signals) { sig in
@@ -269,7 +274,7 @@ struct BriefView: View {
                         withAnimation(BL.spring) { topic = t }
                     } label: {
                         Chip(text: t == "all" ? "All" : t.topicLabel,
-                             color: t == topic ? BL.accent : BL.text2,
+                             color: t == topic ? pal.accent : pal.text2,
                              filled: t == topic)
                     }
                 }
@@ -280,11 +285,11 @@ struct BriefView: View {
 
     private var statsCard: some View {
         HStack {
-            stat("flame.fill", "\(eng.streak)", "day streak", BL.warning)
-            Divider().frame(height: 34).overlay(BL.hairline)
-            stat("checkmark.seal.fill", "\(eng.understood)", "completed", BL.trust)
-            Divider().frame(height: 34).overlay(BL.hairline)
-            stat("safari.fill", "\(eng.topics.count)", "topics", BL.accent)
+            stat("flame.fill", "\(eng.streak)", "day streak", pal.warning)
+            Divider().frame(height: 34).overlay(pal.hairline)
+            stat("checkmark.seal.fill", "\(eng.understood)", "completed", pal.trust)
+            Divider().frame(height: 34).overlay(pal.hairline)
+            stat("safari.fill", "\(eng.topics.count)", "topics", pal.accent)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
@@ -296,7 +301,7 @@ struct BriefView: View {
         VStack(spacing: 3) {
             Image(systemName: icon).font(.footnote).foregroundStyle(color)
             Text(value).font(.headline.monospaced())
-            Text(label).font(.caption2).foregroundStyle(BL.text2)
+            Text(label).font(.caption2).foregroundStyle(pal.text2)
         }
         .frame(maxWidth: .infinity)
     }
@@ -350,6 +355,8 @@ struct BriefView: View {
 // MARK: - Story card
 
 struct StoryCard: View {
+    @Environment(\.palette) private var pal
+
     let item: FeedItem
 
     var body: some View {
@@ -366,18 +373,18 @@ struct StoryCard: View {
                 .multilineTextAlignment(.leading)
             Text(item.narrative)
                 .font(.subheadline)
-                .foregroundStyle(BL.text2)
+                .foregroundStyle(pal.text2)
                 .lineLimit(3)
             if let impact = item.impactText, !impact.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "person.crop.circle.badge.exclamationmark")
-                        .font(.caption).foregroundStyle(BL.accent)
-                    Text(impact).font(.caption).foregroundStyle(BL.text2).lineLimit(2)
+                        .font(.caption).foregroundStyle(pal.accent)
+                    Text(impact).font(.caption).foregroundStyle(pal.text2).lineLimit(2)
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(BL.accent.opacity(0.08)))
+                .background(RoundedRectangle(cornerRadius: pal.r(10), style: .continuous)
+                    .fill(pal.accent.opacity(0.08)))
             }
             TrustMeter(score: item.credibility)
         }
