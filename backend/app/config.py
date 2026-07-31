@@ -150,6 +150,20 @@ DEDUPE_WINDOW_HOURS = float(os.environ.get("DEDUPE_WINDOW_HOURS", "48"))
 # back out — the anti-chaining guard (A~B, B~C must not silently merge A and C).
 DEDUPE_COHESION = float(os.environ.get("DEDUPE_COHESION", "0.34"))
 
+# A story is only split when its articles form this many or more distinct
+# subjects. Size alone is never the trigger: a heavily-corroborated single event
+# with 200 sources is one story, and a 2-article story about two unrelated things
+# is two — what matters is whether the CONTENT is coherent, not how big it is.
+STORY_SPLIT_MIN_ARTICLES = int(os.environ.get("STORY_SPLIT_MIN_ARTICLES", "2"))
+# Linking thresholds for textmerge.subject_clusters. Two articles in one story
+# are treated as the SAME subject when they share an anchor (a name/number) and
+# have at least ANCHOR_LINK_COS text overlap, or when text alone reaches
+# LINK_COS. Measured on real articles: same-subject pairs share 2-3 anchors at
+# cosine 0.24-0.40, unrelated pairs share none at cosine 0.000 — so these sit in
+# a wide empty gap, and both err toward keeping a story together.
+STORY_SPLIT_ANCHOR_LINK_COS = float(os.environ.get("STORY_SPLIT_ANCHOR_LINK_COS", "0.05"))
+STORY_SPLIT_LINK_COS = float(os.environ.get("STORY_SPLIT_LINK_COS", "0.45"))
+
 # Borderline pairs resolved by ONE batched LLM call ("same event?"). Off = those
 # pairs simply stay unmerged (fully deterministic, zero added cost).
 SAMESTORY_VERIFY = os.environ.get("SAMESTORY_VERIFY", "1").lower() not in ("0", "false", "no")

@@ -307,8 +307,7 @@ class _Doc:
         self.aidf = aidf        # shared corpus anchor-IDF (set by _prepare)
 
 
-def _prepare(rows):
-    """rows -> list[_Doc]. Each row needs id/title/summary and a timestamp."""
+def _clean_rows(rows):
     cleaned = []
     for r in rows:
         title = clean_text(r["title"] if "title" in r.keys() else "")
@@ -319,15 +318,50 @@ def _prepare(rows):
                 at = float(r[key])
                 break
         cleaned.append((r["id"], title, summary, at))
+    return cleaned
+
+
+def corpus_stats(rows):
+    """Term/anchor rarity statistics computed over a REFERENCE corpus, to be
+    passed to `group_articles(..., stats=...)`.
+
+    Needed when clustering a set that is mostly one event. The rarity gate in
+    anchor_sim asks whether a shared anchor is rare *in the batch*; if the batch
+    IS the event, that event's own names occur in every member, look common, and
+    the gate zeroes the score — so the more corroborated an event, the less it
+    looks like one. Deriving the statistics from a broad, separate sample of
+    recent news restores the intended meaning: rare *in the news at large*.
+    """
+    cleaned = _clean_rows(rows)
     idf = build_idf([feature_counts(t, s) for _, t, s, _ in cleaned])
     anchor_sets = [anchors(t) | anchors(s[:200]) for _, t, s, _ in cleaned]
-    # How rare each anchor is across this batch — "meta" is everywhere, "jackdaw"
-    # is not, and only the rare ones should imply two reports share an event.
     adf = Counter()
     for s_ in anchor_sets:
         adf.update(s_)
-    astats = {"idf": build_idf([Counter(a) for a in anchor_sets]),
-              "df": adf, "n": len(anchor_sets)}
+    return idf, {"idf": build_idf([Counter(a) for a in anchor_sets]),
+                 "df": adf, "n": len(anchor_sets),
+                 "ids": {c[0] for c in cleaned}}
+
+
+def _prepare(rows, stats=None):
+    """rows -> list[_Doc]. Each row needs id/title/summary and a timestamp.
+
+    `stats` is an optional (idf, astats) pair from corpus_stats(); when omitted
+    the statistics are derived from `rows` themselves, which is right for ingest
+    dedupe (a fetch cycle is already a broad, mixed sample)."""
+    cleaned = _clean_rows(rows)
+    anchor_sets = [anchors(t) | anchors(s[:200]) for _, t, s, _ in cleaned]
+    if stats is not None:
+        idf, astats = stats
+    else:
+        idf = build_idf([feature_counts(t, s) for _, t, s, _ in cleaned])
+        # How rare each anchor is across this batch — "meta" is everywhere,
+        # "jackdaw" is not, and only the rare ones should imply a shared event.
+        adf = Counter()
+        for s_ in anchor_sets:
+            adf.update(s_)
+        astats = {"idf": build_idf([Counter(a) for a in anchor_sets]),
+                  "df": adf, "n": len(anchor_sets)}
     docs = []
     for (aid, title, summary, at), anc in zip(cleaned, anchor_sets):
         docs.append(_Doc(
@@ -416,6 +450,12 @@ def group_articles(rows, verify=None):
     `verify(pairs) -> set of accepted indices` optionally resolves the ambiguous
     middle band (typically one batched LLM call). Returns
     (clusters, stats) where clusters is a list of lists of article ids.
+
+    `window_hours` overrides the same-event time gate. Ingest dedupe wants the
+    tight default (two outlets reporting one event do so within hours). Deciding
+    whether an *existing story* actually holds one subject wants a wide one:
+    there the question is "is this the same context", and a genuinely developing
+    story spans days, so the tight gate would split it purely on elapsed time.
     """
     docs, idf = _prepare(rows)
     n = len(docs)
@@ -472,6 +512,48 @@ def group_articles(rows, verify=None):
     merged = sum(len(c) - 1 for c in out)
     return out, {"pairs": len(strong), "merged": merged,
                  "borderline": len(borderline), "verified": verified}
+
+
+def subject_clusters(rows, stats=None, link_cos=None, anchor_link_cos=None):
+    """Split an EXISTING story's articles into distinct subjects.
+
+    A separate, deliberately permissive pass rather than a reuse of
+    group_articles, because the two questions are opposites. Ingest asks "is
+    there enough evidence to MERGE these?" and rightly refuses when unsure.
+    Splitting a story that already exists must ask "is there enough evidence
+    that these are DIFFERENT?" — reusing the merge test would treat "not proven
+    identical" as "proven unrelated" and shred a real story into fragments
+    (two differently-worded reports of one event share only a name or two, which
+    the merge gate rejects outright).
+
+    So the burden of proof sits on difference. Two articles are linked when they
+    share any anchor and have some textual overlap, or when the text alone is
+    strongly similar; links are then closed transitively with no anti-chaining
+    eviction, since chaining errs toward keeping a story whole. Measured on real
+    articles the two populations are far apart — same-subject pairs share 2-3
+    anchors at cosine 0.24-0.40, genuinely unrelated ones share no anchor at
+    cosine 0.000 — so this separates cleanly with a wide safety margin.
+
+    Returns a list of lists of article ids.
+    """
+    link_cos = config.STORY_SPLIT_LINK_COS if link_cos is None else link_cos
+    anchor_link_cos = (config.STORY_SPLIT_ANCHOR_LINK_COS
+                       if anchor_link_cos is None else anchor_link_cos)
+    docs, _ = _prepare(rows, stats=stats)
+    n = len(docs)
+    if n == 0:
+        return []
+    uf = _UF(n)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = docs[i], docs[j]
+            cos = cosine(a.vec, b.vec)
+            if cos >= link_cos or (a.anchors & b.anchors and cos >= anchor_link_cos):
+                uf.union(i, j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(uf.find(i), []).append(docs[i].id)
+    return list(groups.values())
 
 
 # -------------------------------------------------------------- fact merging

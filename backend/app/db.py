@@ -107,13 +107,28 @@ def connect():
         # retell stamped created_at = now, which reset the item's age to zero in
         # ranking.rank_score and let a storyline that accreted a single article
         # per run sit at rank #1 indefinitely — the exact staleness the ranking
-        # module exists to prevent. NULL here means "never retold"; every reader
-        # COALESCEs back to created_at, so existing rows need no backfill.
+        # module exists to prevent.
+        #
+        # Backfilled to created_at rather than left NULL, and never written NULL
+        # afterwards, because readers previously had to say
+        # COALESCE(updated_at, created_at) — an expression over two columns, which
+        # no index can serve. That turned every feed/trends/signals read into a
+        # full table SCAN plus a temp B-TREE sort (confirmed via EXPLAIN QUERY
+        # PLAN) instead of an index SEARCH, and the per-event story split
+        # multiplies the row count those scans walk. With the column always
+        # populated, readers use the bare column and the indexes below apply.
         for table in ("stories", "trends", "signals"):
             try:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN updated_at REAL")
             except sqlite3.OperationalError:
                 pass  # column already exists
+            # Idempotent: only ever touches rows still carrying the old NULL.
+            con.execute(f"UPDATE {table} SET updated_at = created_at "
+                        f"WHERE updated_at IS NULL")
+        con.execute("CREATE INDEX IF NOT EXISTS stories_updated "
+                    "ON stories(updated_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS signals_updated "
+                    "ON signals(updated_at)")
         # Which EVENT a story tells — the articles' shared group_id. A story used
         # to be identified by its macro trend, but a trend is a theme spanning
         # many separate events, so every event of a theme was folded into one row.
@@ -126,8 +141,10 @@ def connect():
         # Retired rows are now kept (not deleted) for TREND_RETIRE_PURGE_DAYS, so
         # without this index that scan gets slower every day instead of staying
         # flat — must run after the ALTER TABLE above, since it covers that column.
+        # /trends always filters kind + retired_at and then orders by recency, so
+        # carrying updated_at in the same index lets one seek serve all three.
         con.execute("CREATE INDEX IF NOT EXISTS trends_kind_retired "
-                   "ON trends(kind, retired_at)")
+                   "ON trends(kind, retired_at, updated_at)")
         _schema_ready = True
     return con
 

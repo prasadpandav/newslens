@@ -478,10 +478,13 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
             upd_ct += 1
         else:
             con.execute(
+                # updated_at seeded to created_at, never NULL: readers sort on the
+                # bare column so an index can serve them (see db.py migration).
                 "INSERT INTO trends (id,kind,name,narrative,sectors,regions,article_ids,"
-                "velocity,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "velocity,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (db.new_id(), kind, f["name"], f["narrative"], db.j(f["sectors"]),
-                 db.j(f["regions"]), db.j(f["article_ids"]), f["velocity"], db.now()))
+                 db.j(f["regions"]), db.j(f["article_ids"]), f["velocity"],
+                 db.now(), db.now()))
             new_ct += 1
     retired = 0
     if prune:
@@ -813,11 +816,11 @@ class Storyteller:
                 con.execute(
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                    "created_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "created_at,updated_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (db.new_id(), headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
                      db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids),
-                     db.now(), event_id))
+                     db.now(), db.now(), event_id))
                 new_ct += 1
             done_ids.update(ids)
             # Absorb superseded stories now fully covered by this trend story:
@@ -876,13 +879,13 @@ class Foresight:
         # telling — it just no longer gets to reset its rank age to zero.
         stories = con.execute(
             "SELECT id, headline, topic, narrative, credibility, claims, article_ids "
-            "FROM stories WHERE COALESCE(updated_at, created_at) > ? "
-            "ORDER BY COALESCE(updated_at, created_at) DESC",
+            "FROM stories WHERE updated_at > ? "
+            "ORDER BY updated_at DESC",
             (db.now() - self.WINDOW_DAYS * 86400,)).fetchall()
         # Age out stale forecasts every run (instead of wiping all of them), so
         # a run that produces nothing new still leaves recent forecasts intact.
         pruned = con.execute(
-            "DELETE FROM signals WHERE COALESCE(updated_at, created_at) < ?",
+            "DELETE FROM signals WHERE updated_at < ?",
             (db.now() - self.WINDOW_DAYS * 86400,)).rowcount
         if len(stories) < 4:
             con.commit()
@@ -970,12 +973,12 @@ class Foresight:
                 # every column, so it broke the moment updated_at was added.
                 con.execute(
                     "INSERT INTO signals (id,title,prediction,chain,watch,affected,"
-                    "horizon,confidence,story_ids,created_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "horizon,confidence,story_ids,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (nid, sig.get("title", "Signal"), sig.get("prediction", ""),
                      sig.get("chain", ""), sig.get("watch", ""),
                      db.j(sig.get("affected", [])), sig.get("horizon", ""), conf,
-                     db.j(sids), db.now()))
+                     db.j(sids), db.now(), db.now()))
                 existing.append({"id": nid, "title": sig.get("title", "Signal"),
                                  "vec": vec, "story_ids": sids})
                 new_ct += 1
@@ -998,7 +1001,7 @@ class Personalizer:
     def run(self, con):
         users = con.execute("SELECT * FROM users").fetchall()
         stories = con.execute(
-            "SELECT * FROM stories WHERE COALESCE(updated_at, created_at) > ?",
+            "SELECT * FROM stories WHERE updated_at > ?",
             (db.now() - 7 * 86400,)).fetchall()
         made = 0
         for u in users:
@@ -1056,9 +1059,9 @@ def detect_breaking(con, limit=8):
     # _breaking_score keep that bounded without needing ranking's stale floor.
     rows = con.execute(
         "SELECT id, headline, topic, article_ids, credibility, "
-        "COALESCE(updated_at, created_at) AS created_at "
-        "FROM stories WHERE COALESCE(updated_at, created_at) > ? "
-        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 60",
+        "updated_at AS created_at "
+        "FROM stories WHERE updated_at > ? "
+        "ORDER BY updated_at DESC LIMIT 60",
         (db.now() - window * 3600,)).fetchall()
     cards = []
     for s in rows:

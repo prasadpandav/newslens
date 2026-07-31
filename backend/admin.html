@@ -465,15 +465,18 @@ function confirmSplitBlobStories(n){
     applySplitBlobStories();
 }
 async function applySplitBlobStories(){
-  $('#result').textContent = 'Splitting…';
+  $('#result').textContent = 'Starting…';
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
   try{
+    // Runs as a background job (like Rebuild all trends & forecasts) — a batch
+    // covering a dozen-plus oversized stories is too much writing to do inside
+    // one HTTP request. This call only starts it; watch Recent pipeline runs
+    // below for stage="split_blob_stories" to see it finish.
     const r = await adminPost('/admin/split-blob-stories?dry_run=false');
     const j = await r.json().catch(()=>({}));
     if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
-    else { $('#result').textContent =
-        `Split ${j.matched} stories into ${j.events_created} new one-event stories — nothing deleted.`;
-      toast('Blob stories split'); }
+    else { $('#result').textContent = j.status || j.detail || JSON.stringify(j);
+      toast('Started — results appear in Recent runs'); }
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
   setTimeout(refresh, 1500);

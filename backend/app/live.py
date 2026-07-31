@@ -139,8 +139,8 @@ def _important_events(con):
     rows = con.execute(
         "SELECT s.id, s.headline, s.topic, MAX(f.impact_score) imp "
         "FROM stories s JOIN feed_items f ON f.story_id = s.id "
-        "WHERE COALESCE(s.updated_at, s.created_at) > ? AND f.impact_score >= 2 "
-        "GROUP BY s.id ORDER BY imp DESC, COALESCE(s.updated_at, s.created_at) DESC "
+        "WHERE s.updated_at > ? AND f.impact_score >= 2 "
+        "GROUP BY s.id ORDER BY imp DESC, s.updated_at DESC "
         "LIMIT 5",
         (db.now() - 24 * 3600,)).fetchall()
     return [{
@@ -216,12 +216,12 @@ def latest_story_marker(con):
     # COALESCE so a retell also moves the marker: the feed's content genuinely
     # changed, and clients that reload on this signal should see the new telling.
     row = con.execute(
-        "SELECT COUNT(*) c, MAX(COALESCE(updated_at, created_at)) m FROM stories "
-        "WHERE COALESCE(updated_at, created_at) > ?",
+        "SELECT COUNT(*) c, MAX(updated_at) m FROM stories "
+        "WHERE updated_at > ?",
         (db.now() - 7 * 86400,)).fetchone()
     newest = con.execute(
-        "SELECT id FROM stories WHERE COALESCE(updated_at, created_at) > ? "
-        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1",
+        "SELECT id FROM stories WHERE updated_at > ? "
+        "ORDER BY updated_at DESC LIMIT 1",
         (db.now() - 7 * 86400,)).fetchone()
     return {"count": row["c"] or 0, "newest_id": newest["id"] if newest else "",
             "at": row["m"] or 0}

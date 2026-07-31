@@ -12,7 +12,7 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
                                Response)
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import config, db, llm, live, analytics, ranking
+from . import config, db, llm, live, analytics, ranking, textmerge
 from .agents import prompt, _dedupe_trends, linkify, story_refs
 from .orchestrator import run_pipeline, STAGES
 
@@ -317,8 +317,8 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
            LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
-           WHERE COALESCE(s.updated_at, s.created_at) > ?
-           ORDER BY COALESCE(s.updated_at, s.created_at) DESC LIMIT 1000""",
+           WHERE s.updated_at > ?
+           ORDER BY s.updated_at DESC LIMIT 1000""",
         (user_id, floor)).fetchall()
     con.close()
     items = [dict(r) for r in rows]
@@ -409,7 +409,7 @@ def stories(limit: int = 30):
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
         "created_at, updated_at, article_ids, trend_ids FROM stories "
-        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ?",
+        "ORDER BY updated_at DESC LIMIT ?",
         (max(limit * 10, 300),)).fetchall()
     con.close()
     items = [dict(r) for r in rows]
@@ -460,7 +460,7 @@ def trends():
     # their TREND_RETIRE_PURGE_DAYS retention window instead of being deleted.
     q = ("SELECT id, kind, name, narrative, sectors, regions, article_ids, velocity, "
          "created_at, updated_at FROM trends WHERE kind=? AND retired_at IS NULL "
-         "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 500")
+         "ORDER BY updated_at DESC LIMIT 500")
     # Damped for the same reason as /feed: macro velocity is an article count
     # that grows for as long as a force stays live. Macro and micro are ranked
     # as separate lists, so compressing each independently is order-preserving
@@ -547,7 +547,7 @@ def signals(user_id: str = "", authorization: str = Header("")):
     rows = ranking.sort_by_rank(
         [dict(r) for r in con.execute(
             "SELECT * FROM signals "
-            "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 200").fetchall()],
+            "ORDER BY updated_at DESC LIMIT 200").fetchall()],
         impact_of=lambda g: g["confidence"] or 0.0)
     # One batched lookup for every story any signal in this list references,
     # instead of a query per (signal, story) pair.
@@ -959,96 +959,190 @@ def admin_dedupe_trends(token: str = "", authorization: str = Header("")):
     return {"removed_macro": macro, "removed_micro": micro}
 
 
+def _chunks(seq, n=400):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
+def _idf_corpus(con, limit=1500):
+    """Rarity statistics over a broad sample of recent news, computed once per
+    split run and reused for every story — see textmerge.corpus_stats."""
+    rows = con.execute(
+        "SELECT id, title, summary, published, fetched_at FROM articles "
+        "ORDER BY fetched_at DESC LIMIT ?", (limit,)).fetchall()
+    return textmerge.corpus_stats(rows) if rows else None
+
+
+def _subjects_of(con, article_ids, stats=None):
+    """Group a story's own articles by SUBJECT, using the same same-event scorer
+    scorer in textmerge.subject_clusters.
+
+    Deliberately NOT the stored group_id: group_id only ever merged near-duplicate
+    reports of one event at ingest time, so a legacy row that swept up 200
+    unrelated articles has 200 distinct group_ids and would "split" purely because
+    it is big. Re-scoring the actual text answers the question that matters —
+    are these articles about the same thing — so a heavily-corroborated single
+    event stays one story no matter how many sources it has, and a two-article
+    story about two unrelated things is correctly seen as two.
+
+    `stats` supplies IDF measured over a broad sample of recent news rather than
+    over this one story, so "distinctive word" keeps its usual meaning inside a
+    set of articles that all talk about the same thing.
+
+    Returns {subject_key: [article_id, ...]}.
+    """
+    own = []
+    for chunk in _chunks(list(article_ids)):
+        own += con.execute(
+            "SELECT id, title, summary, published, fetched_at FROM articles "
+            "WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk).fetchall()
+    if not own:
+        return {}
+    clusters = textmerge.subject_clusters(own, stats=stats)
+    # Keyed by earliest member so the mapping is stable across runs.
+    return {sorted(c)[0]: sorted(c) for c in clusters if c}
+
+
 def _blob_candidates(con, min_articles):
-    """Rows written under the old one-story-per-macro-trend scheme (event_id IS
-    NULL) that hold at least min_articles, split by the articles' group_id — the
-    same event key Storyteller now uses. A row that turns out to be ONE real
-    event with lots of corroboration (single group) is not a blob; it's stamped
-    with that event_id and left alone rather than reported as splittable."""
+    """Stories whose articles cover more than one subject, newest first.
+
+    `min_articles` is only a cheap pre-filter (a 1-article story cannot be
+    incoherent) — it is NOT the split criterion. Every story with at least that
+    many articles is re-scored on content; only genuine multi-subject rows are
+    returned."""
+    stats = _idf_corpus(con)
     out = []
     for r in con.execute(
-            "SELECT id, headline, narrative, credibility, article_ids, trend_ids "
-            "FROM stories WHERE event_id IS NULL"):
+            "SELECT id, headline, narrative, credibility, article_ids, trend_ids, "
+            "event_id FROM stories ORDER BY updated_at DESC").fetchall():
         ids = db.uj(r["article_ids"], [])
-        if len(ids) < min_articles:
+        if len(ids) < max(min_articles, 2):
             continue
-        by_event = {}
-        for a in con.execute(
-                "SELECT id, group_id FROM articles WHERE id IN (%s)"
-                % ",".join("?" * len(ids)), ids).fetchall():
-            by_event.setdefault(a["group_id"] or a["id"], []).append(a["id"])
-        out.append((dict(r), by_event))
+        subjects = _subjects_of(con, ids, stats)
+        if len(subjects) > 1:
+            out.append((dict(r), subjects))
     return out
 
 
-@app.post("/admin/split-blob-stories")
-def admin_split_blob_stories(min_articles: int = 12, dry_run: bool = True,
-                             token: str = "", authorization: str = Header("")):
-    """One-off cleanup for stories written under the old one-story-per-macro-trend
-    scheme, which merged many unrelated events into a single row (production had
-    one holding 234 articles across ~225 distinct events).
-
-    Splits IN PLACE — nothing is deleted, no bookmarks are touched. For each
-    oversized row, its articles are regrouped by event (the same group_id
-    Storyteller uses). The largest event keeps the original story: same id,
-    headline, narrative, bookmarks — just trimmed to its own articles. Every
-    other event becomes a NEW story row, mechanically titled off its own lead
-    article (no LLM call here — that would mean an LLM call per event, and one
-    blob had ~225 of them). A mechanically-titled story is a normal story from
-    then on: the next time its event gets fresh coverage, the regular pipeline
-    (Storyteller, which now matches by event_id) UPDATEs it with a real
-    LLM-written headline and narrative, same as any other developing story.
-
-    Only rows with event_id IS NULL (i.e. pre-split) and at least `min_articles`
-    members are considered. Defaults to dry_run — pass dry_run=false to apply."""
-    _require_admin(authorization, token)
-    con = db.connect()
-    now = db.now()
-    candidates = _blob_candidates(con, min_articles)
-    preview, applied = [], []
-    for row, by_event in candidates:
-        if len(by_event) <= 1:
-            if not dry_run:
-                key = next(iter(by_event), row["id"])
-                con.execute("UPDATE stories SET event_id=? WHERE id=?", (key, row["id"]))
-            continue  # one real event with lots of corroboration — not a blob
-        events = sorted(by_event.items(), key=lambda kv: -len(kv[1]))
-        (primary_key, primary_ids), rest = events[0], events[1:]
-        preview.append({"id": row["id"], "headline": row["headline"],
-                        "articles": len(db.uj(row["article_ids"], [])),
-                        "splits_into": len(by_event)})
-        if dry_run:
-            continue
-        con.execute(
-            "UPDATE stories SET article_ids=?, event_id=?, updated_at=? WHERE id=?",
-            (db.j(primary_ids), primary_key, now, row["id"]))
-        for key, ids in rest:
-            arts = [con.execute("SELECT * FROM articles WHERE id=?", (i,)).fetchone()
-                    for i in ids]
-            arts = [dict(a) for a in arts if a]
-            if not arts:
-                continue
-            lead = min(arts, key=lambda a: a.get("published") or a.get("fetched_at") or now)
-            narrative = "\n".join(
-                f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}" for a in arts)
-            con.execute(
-                "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
-                "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                "created_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (db.new_id(), lead["title"], narrative, "", row["credibility"],
-                 "split from a merged story; not yet independently verified", "{}",
-                 lead["topic"], db.j(ids), row["trend_ids"], "[]", now, key))
-        applied.append(row["id"])
-    if not dry_run:
+def _split_one_blob(con, row, subjects, now):
+    """Apply one story's split and COMMIT it. Committing per-story (instead of one
+    transaction for the whole batch) is what makes this safe to run against
+    production: a batch covering a dozen-plus mixed stories previously ran as
+    ONE uncommitted transaction holding the SQLite WAL writer lock the entire
+    time, which is what took the server down when this was first tried. Now a
+    kill/restart mid-batch loses at most the one story in flight, not everything
+    already split, and every other request can still get a read/write in between."""
+    if len(subjects) <= 1:
+        key = next(iter(subjects), row["id"])
+        con.execute("UPDATE stories SET event_id=? WHERE id=?", (key, row["id"]))
         con.commit()
-        db.log_run(con, "split_blob_stories", "ok",
-                   f"split {len(applied)} blob stories into their component events")
-    con.close()
-    return {"dry_run": dry_run, "matched": len(preview),
-            "events_created": sum(p["splits_into"] - 1 for p in preview),
-            "stories": preview[:50],
-            "next": ("nothing further needed — split stories upgrade their "
-                     "headline automatically as each event gets fresh coverage")}
+        return 0  # coherent already — one subject, however many sources
+    # Biggest subject keeps the original row: it is the one the existing headline
+    # and narrative were actually written about, so bookmarks stay meaningful.
+    events = sorted(subjects.items(), key=lambda kv: -len(kv[1]))
+    (primary_key, primary_ids), rest = events[0], events[1:]
+    con.execute(
+        "UPDATE stories SET article_ids=?, event_id=?, updated_at=? WHERE id=?",
+        (db.j(primary_ids), primary_key, now, row["id"]))
+    created = 0
+    for key, ids in rest:
+        arts = []
+        for chunk in _chunks(ids):
+            arts += [dict(a) for a in con.execute(
+                "SELECT * FROM articles WHERE id IN (%s)"
+                % ",".join("?" * len(chunk)), chunk).fetchall()]
+        if not arts:
+            continue
+        lead = min(arts, key=lambda a: a.get("published") or a.get("fetched_at") or now)
+        narrative = "\n".join(
+            f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}" for a in arts)
+        con.execute(
+            "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
+            "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
+            "created_at,updated_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (db.new_id(), lead["title"], narrative, "", row["credibility"],
+             "split from a merged story; not yet independently verified", "{}",
+             lead["topic"], db.j(ids), row["trend_ids"], "[]", now, now, key))
+        created += 1
+    con.commit()
+    return created
+
+
+@app.post("/admin/split-blob-stories")
+def admin_split_blob_stories(min_articles: int = config.STORY_SPLIT_MIN_ARTICLES,
+                             dry_run: bool = True,
+                             token: str = "", authorization: str = Header("")):
+    """Split stories that turned out to cover more than one subject.
+
+    Size is NEVER the trigger. Each story's articles are re-scored against each
+    other (textmerge.subject_clusters: shared anchors plus text similarity, with
+    ambiguity resolved toward keeping the story together). A story is split only
+    when that finds genuinely distinct subjects — so a single event with 200
+    corroborating sources stays one story, while a 2-article story welding an AI
+    story to an unrelated hardware story is correctly seen as two.
+
+    Splits IN PLACE — nothing is deleted, no bookmarks are touched. The largest
+    subject keeps the original story: same id, headline, narrative, bookmarks —
+    just trimmed to its own articles. Every other subject becomes a NEW story
+    row, mechanically titled off its own lead article (no LLM call here — that
+    would mean an LLM call per subject, and production's worst row alone held
+    ~225). A mechanically-titled story is a normal story from then on: the next
+    time its event gets fresh coverage, the regular pipeline (Storyteller, which
+    matches by event_id) UPDATEs it with a real LLM-written headline and
+    narrative, same as any other developing story.
+
+    dry_run=true (the default) is synchronous and read-only — safe to call
+    anytime. dry_run=false does real writes across (as production showed)
+    potentially thousands of rows, so it runs as a BACKGROUND job (same pattern
+    as /admin/rebuild-intel): this call returns immediately with started=true;
+    poll /admin/usage for a stage='split_blob_stories' row. An earlier version
+    did all of this synchronously in one uncommitted transaction, which is what
+    made the server stop responding the first time this was run against
+    production — see _split_one_blob for the fix."""
+    _require_admin(authorization, token)
+    if dry_run:
+        con = db.connect()
+        candidates = _blob_candidates(con, min_articles)
+        preview = [{"id": row["id"], "headline": row["headline"],
+                    "articles": len(db.uj(row["article_ids"], [])),
+                    "splits_into": len(subjects)}
+                   for row, subjects in candidates]
+        con.close()
+        return {"dry_run": True, "matched": len(preview),
+                "events_created": sum(p["splits_into"] - 1 for p in preview),
+                "stories": preview[:50]}
+    if _pipeline_lock.locked():
+        return {"started": False,
+                "status": "a pipeline run is already in progress; retry shortly"}
+
+    def job():
+        if not _pipeline_lock.acquire(blocking=False):
+            return
+        try:
+            con = db.connect()
+            now = db.now()
+            candidates = _blob_candidates(con, min_articles)
+            split_ct, created_ct = 0, 0
+            for row, subjects in candidates:
+                created = _split_one_blob(con, row, subjects, now)
+                if created:
+                    split_ct += 1
+                    created_ct += created
+            db.log_run(con, "split_blob_stories", "ok",
+                       f"split {split_ct} multi-subject stories into "
+                       f"{created_ct} new single-subject stories")
+            con.close()
+        except Exception as e:  # noqa: BLE001 — log, don't crash the thread silently
+            con2 = db.connect()
+            db.log_run(con2, "split_blob_stories", "error", str(e))
+            con2.close()
+        finally:
+            _pipeline_lock.release()
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"started": True,
+            "status": "splitting in background — check /admin/usage for "
+                     "stage='split_blob_stories'"}
 
 
 @app.get("/admin/usage")
