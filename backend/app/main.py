@@ -13,7 +13,8 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, llm, live, analytics, ranking, textmerge
-from .agents import prompt, _dedupe_trends, linkify, story_refs
+from .agents import prompt, _dedupe_trends, linkify, story_refs, Verifier
+from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 
 app = FastAPI(title="Descry API", version="0.1")
@@ -1024,6 +1025,99 @@ def _blob_candidates(con, min_articles):
     return out
 
 
+#: credibility_note stamped on a story whose text is a placeholder, not written
+#: copy. _retell_candidates uses it (plus the legacy bullet shape) to find work.
+PLACEHOLDER_NOTE = "split from a merged story; awaiting retelling"
+
+
+def _placeholder_narrative(arts):
+    """Readable stand-in text for a story that has not been written yet.
+
+    Deliberately carries no source names: the story page already lists every
+    source underneath, so repeating them inside the body is duplication, and
+    starting the body with an outlet name reads like a wire slug rather than a
+    story. clean_text also strips the raw HTML entities (&#039; and friends)
+    that come through in feed summaries.
+    """
+    seen, parts = set(), []
+    for a in sorted(arts, key=lambda x: x.get("published") or x.get("fetched_at") or 0):
+        for piece in (a.get("summary"), a.get("title")):
+            text = textmerge.clean_text(piece or "")
+            if len(text) > 40 and text.lower() not in seen:
+                seen.add(text.lower())
+                parts.append(text if text.endswith((".", "!", "?")) else text + ".")
+                break
+    return " ".join(parts)
+
+
+def _needs_retell(row):
+    """True when a story's body is placeholder text rather than written copy."""
+    if (row["credibility_note"] or "").startswith("split from a merged story"):
+        return True
+    return (row["narrative"] or "").lstrip().startswith("- [")
+
+
+def _retell_story(con, row, verifier):
+    """Rewrite one story's headline/narrative/why_matters properly.
+
+    Same path the pipeline uses for any story — merge the member articles into an
+    attributed brief, verify the claims, then have the model write it — so a
+    repaired story is indistinguishable from a normally-produced one.
+
+    created_at and updated_at are deliberately left alone: this repairs text, it
+    is not new reporting, and touching updated_at would shove every repaired
+    story back to the top of the feed.
+    """
+    ids = db.uj(row["article_ids"], [])
+    if not ids:
+        return False
+    arts = []
+    for chunk in _chunks(ids):
+        arts += [dict(a) for a in con.execute(
+            "SELECT * FROM articles WHERE id IN (%s)" % ",".join("?" * len(chunk)),
+            chunk).fetchall()]
+    if not arts:
+        return False
+    texts = fulltext.fetch_for_articles(arts) if len(arts) > 1 else {}
+    items, _ = textmerge.build_brief(arts, texts=texts, tier_of=verifier.source_tier)
+    if not items:
+        items = "\n".join(
+            f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}" for a in arts)
+    verified = verifier.run(con, ids, items)
+    if verified is None:
+        return False            # LLM unavailable — leave the row for a later run
+    claims, verdicts, score, note = verified
+    out = llm.complete_json("story", prompt("story", claims=db.j(claims), items=items))
+    if out is None:
+        return False
+    narrative = out.get("what_happened") or out.get("narrative")
+    if not narrative:
+        return False            # never re-stamp the placeholder as if it were copy
+    con.execute(
+        "UPDATE stories SET headline=?, narrative=?, why_matters=?, credibility=?, "
+        "credibility_note=?, claims=? WHERE id=?",
+        (out.get("headline") or row["headline"], narrative,
+         out.get("why_it_matters", ""), score, note,
+         db.j({"claims": claims, "verdicts": verdicts}), row["id"]))
+    con.commit()
+    return True
+
+
+def _retell_candidates(con, limit):
+    """Placeholder-bodied stories, most visible first.
+
+    Ordered by the same rank the feed uses, so a capped run repairs what readers
+    are actually looking at rather than an arbitrary slice."""
+    rows = [dict(r) for r in con.execute(
+        "SELECT id, headline, narrative, credibility_note, article_ids, created_at, "
+        "updated_at FROM stories WHERE updated_at > ?",
+        (db.now() - 14 * 86400,)).fetchall()]
+    rows = [r for r in rows if _needs_retell(r)]
+    rows = ranking.sort_by_rank(
+        rows, impact_of=lambda it: ranking.damped(len(db.uj(it["article_ids"], []))))
+    return rows[:limit] if limit else rows
+
+
 def _split_one_blob(con, row, subjects, now):
     """Apply one story's split and COMMIT it. Committing per-story (instead of one
     transaction for the whole batch) is what makes this safe to run against
@@ -1054,14 +1148,17 @@ def _split_one_blob(con, row, subjects, now):
         if not arts:
             continue
         lead = min(arts, key=lambda a: a.get("published") or a.get("fetched_at") or now)
-        narrative = "\n".join(
-            f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}" for a in arts)
+        # Prose, with no "- [source]" prefixes and HTML entities unescaped. The
+        # bullet form this used to write is the Storyteller's *fallback* string —
+        # an LLM input, never finished copy — and shipping it made every split
+        # story open with an outlet name that the sources list already shows.
+        narrative = _placeholder_narrative(arts)
         con.execute(
             "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
             "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
             "created_at,updated_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (db.new_id(), lead["title"], narrative, "", row["credibility"],
-             "split from a merged story; not yet independently verified", "{}",
+             PLACEHOLDER_NOTE, "{}",
              lead["topic"], db.j(ids), row["trend_ids"], "[]", now, now, key))
         created += 1
     con.commit()
@@ -1143,6 +1240,75 @@ def admin_split_blob_stories(min_articles: int = config.STORY_SPLIT_MIN_ARTICLES
     return {"started": True,
             "status": "splitting in background — check /admin/usage for "
                      "stage='split_blob_stories'"}
+
+
+@app.post("/admin/retell-stories")
+def admin_retell_stories(limit: int = 25, dry_run: bool = True,
+                         token: str = "", authorization: str = Header("")):
+    """Rewrite stories whose body is placeholder text instead of written copy.
+
+    The story splitter creates a row per subject but cannot write prose for it,
+    so those rows carry a stand-in body until something rewrites them. This is
+    that step: each story is re-told through the ordinary pipeline path (merge
+    the member articles into an attributed brief, verify the claims, then have
+    the model write headline / what happened / why it matters), leaving a result
+    indistinguishable from a normally-produced story.
+
+    Costs LLM budget — roughly two calls per story — so it is capped by `limit`
+    and processes the highest-ranked stories first: a capped run repairs what
+    readers actually see. It is resumable, so calling it repeatedly works through
+    the backlog; a story is only marked done once real copy was written, and any
+    story the model could not write is simply left for the next run.
+
+    dry_run=true (default) just reports how many stories need repair. Runs in the
+    background like the other bulk actions; poll /admin/usage for
+    stage='retell_stories'. Ranking timestamps are never touched, so repaired
+    stories keep their place in the feed instead of resurfacing as new."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    pending = _retell_candidates(con, 0)
+    if dry_run:
+        preview = [{"id": r["id"], "headline": r["headline"],
+                    "articles": len(db.uj(r["article_ids"], []))} for r in pending[:50]]
+        con.close()
+        return {"dry_run": True, "pending": len(pending),
+                "would_repair_now": min(len(pending), limit),
+                "stories": preview}
+    con.close()
+    if _pipeline_lock.locked():
+        return {"started": False,
+                "status": "a pipeline run is already in progress; retry shortly"}
+
+    def job():
+        if not _pipeline_lock.acquire(blocking=False):
+            return
+        try:
+            con2 = db.connect()
+            verifier = Verifier()
+            done = failed = 0
+            for row in _retell_candidates(con2, limit):
+                try:
+                    if _retell_story(con2, row, verifier):
+                        done += 1
+                    else:
+                        failed += 1
+                except Exception:  # noqa: BLE001 — one bad story must not stop the batch
+                    failed += 1
+            left = len(_retell_candidates(con2, 0))
+            db.log_run(con2, "retell_stories", "ok",
+                       f"rewrote {done} stories ({failed} skipped, {left} still pending)")
+            con2.close()
+        except Exception as e:  # noqa: BLE001
+            con3 = db.connect()
+            db.log_run(con3, "retell_stories", "error", str(e)[:300])
+            con3.close()
+        finally:
+            _pipeline_lock.release()
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"started": True,
+            "status": f"rewriting up to {limit} stories in background — check "
+                      f"/admin/usage for stage='retell_stories'"}
 
 
 @app.get("/admin/usage")

@@ -148,7 +148,8 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
       <button onclick="act('/admin/run', 'stage')">▶ Run pipeline</button>
       <button class="ghost" onclick="act('/admin/dedupe-trends')">Collapse duplicate trends</button>
       <button class="ghost" onclick="confirmRebuild()">Rebuild all trends &amp; forecasts</button>
-      <button class="ghost" onclick="findBlobStories()">Find oversized stories</button>
+      <button class="ghost" onclick="findBlobStories()">Find multi-subject stories</button>
+      <button class="ghost" onclick="findPlaceholderStories()">Rewrite placeholder stories</button>
     </div>
     <div id="result"></div>
   </div>
@@ -464,6 +465,43 @@ function confirmSplitBlobStories(n){
              `that event gets fresh coverage.`))
     applySplitBlobStories();
 }
+// Stories created by a split carry stand-in text until they are written properly.
+// This reports how many are waiting, then rewrites the highest-ranked batch —
+// LLM budget, so it is capped and resumable rather than one giant run.
+async function findPlaceholderStories(){
+  $('#result').textContent = 'Checking…';
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
+  try{
+    const r = await adminPost('/admin/retell-stories?dry_run=true');
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
+    else if(!j.pending){ $('#result').innerHTML = '<span class="muted">No placeholder stories — all have written copy.</span>'; }
+    else {
+      const list = j.stories.slice(0,20).map(s=>
+        `<div class="mono">${esc(String(s.articles))} article(s) — ${esc(s.headline)}</div>`).join('');
+      $('#result').innerHTML =
+        `<div>${j.pending} ${j.pending===1?'story':'stories'} still have placeholder text. `+
+        `Rewriting the top ${j.would_repair_now} now (uses LLM budget; run again for the rest):</div>`+
+        `<div style="margin:8px 0;max-height:200px;overflow:auto">${list}</div>`+
+        `<button class="ghost" onclick="applyRetell()">Rewrite ${j.would_repair_now} now</button>`;
+    }
+  }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
+}
+async function applyRetell(){
+  $('#result').textContent = 'Starting…';
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
+  try{
+    const r = await adminPost('/admin/retell-stories?dry_run=false');
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
+    else { $('#result').textContent = j.status || j.detail || JSON.stringify(j);
+      toast('Started — results appear in Recent runs'); }
+  }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
+  setTimeout(refresh, 1500);
+}
+
 async function applySplitBlobStories(){
   $('#result').textContent = 'Starting…';
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
