@@ -959,6 +959,28 @@ def admin_dedupe_trends(token: str = "", authorization: str = Header("")):
     return {"removed_macro": macro, "removed_micro": micro}
 
 
+def _blob_candidates(con, min_articles):
+    """Rows written under the old one-story-per-macro-trend scheme (event_id IS
+    NULL) that hold at least min_articles, split by the articles' group_id — the
+    same event key Storyteller now uses. A row that turns out to be ONE real
+    event with lots of corroboration (single group) is not a blob; it's stamped
+    with that event_id and left alone rather than reported as splittable."""
+    out = []
+    for r in con.execute(
+            "SELECT id, headline, narrative, credibility, article_ids, trend_ids "
+            "FROM stories WHERE event_id IS NULL"):
+        ids = db.uj(r["article_ids"], [])
+        if len(ids) < min_articles:
+            continue
+        by_event = {}
+        for a in con.execute(
+                "SELECT id, group_id FROM articles WHERE id IN (%s)"
+                % ",".join("?" * len(ids)), ids).fetchall():
+            by_event.setdefault(a["group_id"] or a["id"], []).append(a["id"])
+        out.append((dict(r), by_event))
+    return out
+
+
 @app.post("/admin/split-blob-stories")
 def admin_split_blob_stories(min_articles: int = 12, dry_run: bool = True,
                              token: str = "", authorization: str = Header("")):
@@ -966,36 +988,67 @@ def admin_split_blob_stories(min_articles: int = 12, dry_run: bool = True,
     scheme, which merged many unrelated events into a single row (production had
     one holding 234 articles across ~225 distinct events).
 
-    Those rows can't fix themselves: the Storyteller treats their articles as
-    already covered, so the articles stay locked inside the blob instead of being
-    re-told per event. Deleting the blob releases them, and the next pipeline run
-    rebuilds proper one-event stories from the same articles.
+    Splits IN PLACE — nothing is deleted, no bookmarks are touched. For each
+    oversized row, its articles are regrouped by event (the same group_id
+    Storyteller uses). The largest event keeps the original story: same id,
+    headline, narrative, bookmarks — just trimmed to its own articles. Every
+    other event becomes a NEW story row, mechanically titled off its own lead
+    article (no LLM call here — that would mean an LLM call per event, and one
+    blob had ~225 of them). A mechanically-titled story is a normal story from
+    then on: the next time its event gets fresh coverage, the regular pipeline
+    (Storyteller, which now matches by event_id) UPDATEs it with a real
+    LLM-written headline and narrative, same as any other developing story.
 
     Only rows with event_id IS NULL (i.e. pre-split) and at least `min_articles`
-    members are considered. Defaults to dry_run — pass dry_run=false to apply.
-    Bookmarks pointing at a deleted blob are removed with it, so review the
-    dry-run list first."""
+    members are considered. Defaults to dry_run — pass dry_run=false to apply."""
     _require_admin(authorization, token)
     con = db.connect()
-    victims = [
-        (r["id"], r["headline"], len(db.uj(r["article_ids"], [])))
-        for r in con.execute(
-            "SELECT id, headline, article_ids FROM stories WHERE event_id IS NULL")
-        if len(db.uj(r["article_ids"], [])) >= min_articles]
-    victims.sort(key=lambda v: -v[2])
+    now = db.now()
+    candidates = _blob_candidates(con, min_articles)
+    preview, applied = [], []
+    for row, by_event in candidates:
+        if len(by_event) <= 1:
+            if not dry_run:
+                key = next(iter(by_event), row["id"])
+                con.execute("UPDATE stories SET event_id=? WHERE id=?", (key, row["id"]))
+            continue  # one real event with lots of corroboration — not a blob
+        events = sorted(by_event.items(), key=lambda kv: -len(kv[1]))
+        (primary_key, primary_ids), rest = events[0], events[1:]
+        preview.append({"id": row["id"], "headline": row["headline"],
+                        "articles": len(db.uj(row["article_ids"], [])),
+                        "splits_into": len(by_event)})
+        if dry_run:
+            continue
+        con.execute(
+            "UPDATE stories SET article_ids=?, event_id=?, updated_at=? WHERE id=?",
+            (db.j(primary_ids), primary_key, now, row["id"]))
+        for key, ids in rest:
+            arts = [con.execute("SELECT * FROM articles WHERE id=?", (i,)).fetchone()
+                    for i in ids]
+            arts = [dict(a) for a in arts if a]
+            if not arts:
+                continue
+            lead = min(arts, key=lambda a: a.get("published") or a.get("fetched_at") or now)
+            narrative = "\n".join(
+                f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}" for a in arts)
+            con.execute(
+                "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
+                "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
+                "created_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), lead["title"], narrative, "", row["credibility"],
+                 "split from a merged story; not yet independently verified", "{}",
+                 lead["topic"], db.j(ids), row["trend_ids"], "[]", now, key))
+        applied.append(row["id"])
     if not dry_run:
-        for sid, _, _ in victims:
-            con.execute("DELETE FROM stories WHERE id=?", (sid,))
-            con.execute("DELETE FROM feed_items WHERE story_id=?", (sid,))
-            con.execute("DELETE FROM bookmarks WHERE story_id=?", (sid,))
         con.commit()
         db.log_run(con, "split_blob_stories", "ok",
-                   f"deleted {len(victims)} pre-split blob stories; next run re-tells them")
+                   f"split {len(applied)} blob stories into their component events")
     con.close()
-    return {"dry_run": dry_run, "matched": len(victims),
-            "articles_released": sum(v[2] for v in victims),
-            "stories": [{"id": i, "headline": h, "articles": n} for i, h, n in victims[:50]],
-            "next": "run the pipeline (or wait for the next scheduled run) to re-tell them"}
+    return {"dry_run": dry_run, "matched": len(preview),
+            "events_created": sum(p["splits_into"] - 1 for p in preview),
+            "stories": preview[:50],
+            "next": ("nothing further needed — split stories upgrade their "
+                     "headline automatically as each event gets fresh coverage")}
 
 
 @app.get("/admin/usage")

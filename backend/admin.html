@@ -430,8 +430,11 @@ function confirmRebuild(){
 }
 
 // Stories written before stories were split one-per-event can hold dozens of
-// unrelated articles merged under one trend. This previews them (dry run) before
-// anything is deleted — see /admin/split-blob-stories in main.py for why.
+// unrelated articles merged under one trend. This previews them (dry run) —
+// splitting happens IN PLACE (see /admin/split-blob-stories in main.py): the
+// largest event keeps the original id/headline/bookmarks, the rest become new
+// stories with a plain title that upgrades automatically once that event gets
+// fresh coverage. Nothing is ever deleted.
 async function findBlobStories(){
   $('#result').textContent = 'Scanning…';
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
@@ -442,20 +445,23 @@ async function findBlobStories(){
     else if(!j.matched){ $('#result').innerHTML = '<span class="muted">No oversized stories found.</span>'; }
     else {
       const list = j.stories.map(s=>
-        `<div class="mono">${esc(String(s.articles))} articles — ${esc(s.headline)}</div>`).join('');
+        `<div class="mono">${esc(String(s.articles))} articles, `+
+        `${esc(String(s.splits_into))} distinct events — ${esc(s.headline)}</div>`).join('');
       $('#result').innerHTML =
         `<div>${j.matched} oversized ${j.matched===1?'story':'stories'} found, `+
-        `holding ${j.articles_released} articles across unrelated events:</div>`+
+        `~${j.events_created} new stories would be split out:</div>`+
         `<div style="margin:8px 0;max-height:220px;overflow:auto">${list}</div>`+
         `<button class="ghost" onclick="confirmSplitBlobStories(${j.matched})">`+
-        `Split ${j.matched} into per-event stories</button>`;
+        `Split ${j.matched} in place</button>`;
     }
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
 }
 function confirmSplitBlobStories(n){
-  if(confirm(`Delete ${n} oversized story row(s)? Their articles are re-told one per event on the `+
-             `next pipeline run. Any bookmarks pointing at these stories are deleted too. This cannot be undone.`))
+  if(confirm(`Split ${n} oversized story row(s) into one story per event? Nothing is deleted: `+
+             `each keeps its largest event under the original id (bookmarks stay valid), and the `+
+             `rest become new stories with a plain title that upgrades to a proper headline once `+
+             `that event gets fresh coverage.`))
     applySplitBlobStories();
 }
 async function applySplitBlobStories(){
@@ -466,9 +472,8 @@ async function applySplitBlobStories(){
     const j = await r.json().catch(()=>({}));
     if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
     else { $('#result').textContent =
-        `Released ${j.articles_released} articles from ${j.matched} stories — `+
-        `run the pipeline (Stories stage) to re-tell them per event.`;
-      toast('Blob stories cleared'); }
+        `Split ${j.matched} stories into ${j.events_created} new one-event stories — nothing deleted.`;
+      toast('Blob stories split'); }
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
   setTimeout(refresh, 1500);
