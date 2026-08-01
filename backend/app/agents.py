@@ -219,10 +219,23 @@ class Scout:
                 try:
                     # Fetch with httpx (bundled certs + custom UA), parse the bytes.
                     # feedparser's own fetching hits SSL/UA issues on some systems.
+                    # Streamed with a hard byte ceiling — httpx.get() used to read the
+                    # whole body into memory before feedparser ever saw it, so one
+                    # misconfigured feed (redirect to a large page, a non-XML host)
+                    # was enough to OOM-kill the instance. See fulltext.fetch_text for
+                    # the same fix applied to per-article fetches.
                     import httpx
-                    resp = httpx.get(url, timeout=15, follow_redirects=True,
-                                     headers={"User-Agent": "DescryBot/0.1 (+beta)"})
-                    parsed = feedparser.parse(resp.content)
+                    with httpx.stream(
+                            "GET", url, timeout=15, follow_redirects=True,
+                            headers={"User-Agent": "DescryBot/0.1 (+beta)"}) as resp:
+                        buf, total = [], 0
+                        for chunk in resp.iter_bytes():
+                            buf.append(chunk)
+                            total += len(chunk)
+                            if total >= config.RSS_MAX_BYTES:
+                                break  # truncated feed still yields usable entries
+                        content = b"".join(buf)
+                    parsed = feedparser.parse(content)
                 except Exception:
                     continue
                 for e in parsed.entries[:15]:

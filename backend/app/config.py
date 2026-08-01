@@ -182,6 +182,12 @@ FULLTEXT_MAX_PER_STORY = int(os.environ.get("FULLTEXT_MAX_PER_STORY", "4"))
 # could OOM-kill the 512MB instance. 1.5MB comfortably covers a news page whose
 # article body sits behind a few hundred KB of inline scripts.
 FULLTEXT_MAX_BYTES = int(os.environ.get("FULLTEXT_MAX_BYTES", "1500000"))
+# Same unbounded-read hazard as above, but for the RSS fetch itself (Scout runs
+# this over every feeds.yaml URL on every pipeline run — far more exposure than
+# the per-story fulltext fetch). A misconfigured feed, a redirect to a large
+# page, or a feed host serving something other than XML is enough to OOM-kill
+# the 512MB instance before feedparser ever sees the bytes.
+RSS_MAX_BYTES = int(os.environ.get("RSS_MAX_BYTES", "5000000"))
 # Hard cap on the merged-fact brief handed to the LLM (token control).
 BRIEF_MAX_CHARS = int(os.environ.get("BRIEF_MAX_CHARS", "2600"))
 DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))
