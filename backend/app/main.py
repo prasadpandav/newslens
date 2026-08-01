@@ -1078,6 +1078,21 @@ def _retell_story(con, row, verifier):
             chunk).fetchall()]
     if not arts:
         return False
+    # Cap before build_brief — see RETELL_MAX_ARTICLES. Newest first, at most two
+    # per outlet, so the sample stays source-diverse instead of being one wire
+    # service repeated a dozen times.
+    if len(arts) > RETELL_MAX_ARTICLES:
+        arts.sort(key=lambda a: -(a.get("published") or a.get("fetched_at") or 0))
+        per_source, picked = {}, []
+        for a in arts:
+            src = a.get("source") or ""
+            if per_source.get(src, 0) >= 2:
+                continue
+            per_source[src] = per_source.get(src, 0) + 1
+            picked.append(a)
+            if len(picked) >= RETELL_MAX_ARTICLES:
+                break
+        arts = picked or arts[:RETELL_MAX_ARTICLES]
     texts = fulltext.fetch_for_articles(arts) if len(arts) > 1 else {}
     items, _ = textmerge.build_brief(arts, texts=texts, tier_of=verifier.source_tier)
     if not items:
@@ -1103,16 +1118,41 @@ def _retell_story(con, row, verifier):
     return True
 
 
+#: Articles actually fed to build_brief. It compares facts pairwise, so its cost
+#: is quadratic in article count — measured 0.04s at 20 articles but 4.7s at 234,
+#: and Render's free CPU is far slower than the machine that was measured on.
+#: Stories that kept a large subject would otherwise peg the instance for
+#: minutes. The brief is capped by BRIEF_MAX_CHARS and reads only each article's
+#: lead anyway, so a diverse dozen loses nothing a reader would notice.
+RETELL_MAX_ARTICLES = 12
+#: Hard wall-clock ceiling for one retell batch, whatever `limit` was asked for.
+RETELL_MAX_SECONDS = float(os.environ.get("RETELL_MAX_SECONDS", "240"))
+
+
+def _retell_where():
+    """SQL predicate matching a placeholder body. Kept in SQL (not Python) so a
+    scan never has to pull every story's narrative into memory just to discard
+    almost all of them."""
+    return ("(credibility_note LIKE 'split from a merged story%' "
+            "OR substr(ltrim(narrative), 1, 3) = '- [')")
+
+
+def _count_retell_pending(con):
+    return con.execute(
+        f"SELECT COUNT(*) c FROM stories WHERE updated_at > ? AND {_retell_where()}",
+        (db.now() - 14 * 86400,)).fetchone()["c"]
+
+
 def _retell_candidates(con, limit):
     """Placeholder-bodied stories, most visible first.
 
     Ordered by the same rank the feed uses, so a capped run repairs what readers
-    are actually looking at rather than an arbitrary slice."""
+    are actually looking at rather than an arbitrary slice. Narrative text is
+    deliberately not selected — only the handful of fields ranking needs."""
     rows = [dict(r) for r in con.execute(
-        "SELECT id, headline, narrative, credibility_note, article_ids, created_at, "
-        "updated_at FROM stories WHERE updated_at > ?",
+        "SELECT id, headline, credibility_note, article_ids, created_at, updated_at "
+        f"FROM stories WHERE updated_at > ? AND {_retell_where()}",
         (db.now() - 14 * 86400,)).fetchall()]
-    rows = [r for r in rows if _needs_retell(r)]
     rows = ranking.sort_by_rank(
         rows, impact_of=lambda it: ranking.damped(len(db.uj(it["article_ids"], []))))
     return rows[:limit] if limit else rows
@@ -1243,7 +1283,7 @@ def admin_split_blob_stories(min_articles: int = config.STORY_SPLIT_MIN_ARTICLES
 
 
 @app.post("/admin/retell-stories")
-def admin_retell_stories(limit: int = 25, dry_run: bool = True,
+def admin_retell_stories(limit: int = 8, dry_run: bool = True,
                          token: str = "", authorization: str = Header("")):
     """Rewrite stories whose body is placeholder text instead of written copy.
 
@@ -1265,16 +1305,16 @@ def admin_retell_stories(limit: int = 25, dry_run: bool = True,
     stage='retell_stories'. Ranking timestamps are never touched, so repaired
     stories keep their place in the feed instead of resurfacing as new."""
     _require_admin(authorization, token)
-    con = db.connect()
-    pending = _retell_candidates(con, 0)
     if dry_run:
+        con = db.connect()
+        total = _count_retell_pending(con)          # COUNT(*), not a full load
         preview = [{"id": r["id"], "headline": r["headline"],
-                    "articles": len(db.uj(r["article_ids"], []))} for r in pending[:50]]
+                    "articles": len(db.uj(r["article_ids"], []))}
+                   for r in _retell_candidates(con, 25)]
         con.close()
-        return {"dry_run": True, "pending": len(pending),
-                "would_repair_now": min(len(pending), limit),
+        return {"dry_run": True, "pending": total,
+                "would_repair_now": min(total, limit),
                 "stories": preview}
-    con.close()
     if _pipeline_lock.locked():
         return {"started": False,
                 "status": "a pipeline run is already in progress; retry shortly"}
@@ -1286,7 +1326,16 @@ def admin_retell_stories(limit: int = 25, dry_run: bool = True,
             con2 = db.connect()
             verifier = Verifier()
             done = failed = 0
+            # Wall-clock budget as well as a count cap. Each story costs an LLM
+            # round trip, up to 4 publisher fetches and a quadratic fact merge,
+            # and this thread holds the pipeline lock throughout — so a slow
+            # batch must stop on its own rather than tie the instance up.
+            deadline = time.time() + RETELL_MAX_SECONDS
+            stopped_early = False
             for row in _retell_candidates(con2, limit):
+                if time.time() > deadline:
+                    stopped_early = True
+                    break
                 try:
                     if _retell_story(con2, row, verifier):
                         done += 1
@@ -1294,9 +1343,10 @@ def admin_retell_stories(limit: int = 25, dry_run: bool = True,
                         failed += 1
                 except Exception:  # noqa: BLE001 — one bad story must not stop the batch
                     failed += 1
-            left = len(_retell_candidates(con2, 0))
+            left = _count_retell_pending(con2)
             db.log_run(con2, "retell_stories", "ok",
-                       f"rewrote {done} stories ({failed} skipped, {left} still pending)")
+                       f"rewrote {done} stories ({failed} skipped, {left} still pending"
+                       + (", stopped at time budget)" if stopped_early else ")"))
             con2.close()
         except Exception as e:  # noqa: BLE001
             con3 = db.connect()

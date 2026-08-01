@@ -102,7 +102,16 @@ def html_to_text(html_doc, max_chars=None):
 
 
 def fetch_text(url, timeout=None):
-    """Return extracted article text, or "" when unavailable/disallowed."""
+    """Return extracted article text, or "" when unavailable/disallowed.
+
+    Streamed with a hard byte ceiling. `httpx.get` reads the whole body into
+    memory before returning, so the status/content-type/length checks below used
+    to happen only AFTER an arbitrarily large response had already been
+    allocated — one publisher serving a video, a PDF or a misconfigured endpoint
+    was enough to exhaust the 512MB instance and get the process OOM-killed
+    (exit 137, no traceback). Reading in chunks and stopping at the cap makes the
+    worst case bounded no matter what the other end sends.
+    """
     if not config.FULLTEXT_ENABLED or not url:
         return ""
     if not url.startswith(("http://", "https://")):
@@ -112,16 +121,26 @@ def fetch_text(url, timeout=None):
     host = urlparse(url).netloc
     try:
         _pace(host)
-        r = httpx.get(url, timeout=timeout or config.FULLTEXT_TIMEOUT,
-                      follow_redirects=True,
-                      headers={"User-Agent": UA, "Accept": "text/html"})
-        if r.status_code != 200:
-            return ""
-        ctype = r.headers.get("content-type", "")
-        if "html" not in ctype.lower():
-            return ""
-        # Cap what we even parse, so a huge page can't stall the pipeline.
-        return html_to_text(r.text[:MAX_HTML_CHARS])
+        with httpx.stream("GET", url, timeout=timeout or config.FULLTEXT_TIMEOUT,
+                          follow_redirects=True,
+                          headers={"User-Agent": UA, "Accept": "text/html"}) as r:
+            if r.status_code != 200:
+                return ""
+            # Both checks now happen against headers only, before any body is read.
+            if "html" not in r.headers.get("content-type", "").lower():
+                return ""
+            declared = r.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > config.FULLTEXT_MAX_BYTES:
+                return ""
+            buf, total = [], 0
+            for chunk in r.iter_bytes():
+                buf.append(chunk)
+                total += len(chunk)
+                if total >= config.FULLTEXT_MAX_BYTES:
+                    break          # truncated page still yields usable prose
+            raw = b"".join(buf)
+        text = raw.decode(r.encoding or "utf-8", errors="replace")
+        return html_to_text(text[:MAX_HTML_CHARS])
     except Exception:  # noqa: BLE001 — never let a publisher's site break a run
         return ""
 

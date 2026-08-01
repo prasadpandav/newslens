@@ -176,6 +176,12 @@ FULLTEXT_ENABLED = os.environ.get("FULLTEXT_ENABLED", "1").lower() not in ("0", 
 FULLTEXT_TIMEOUT = float(os.environ.get("FULLTEXT_TIMEOUT", "8"))
 FULLTEXT_MAX_CHARS = int(os.environ.get("FULLTEXT_MAX_CHARS", "6000"))
 FULLTEXT_MAX_PER_STORY = int(os.environ.get("FULLTEXT_MAX_PER_STORY", "4"))
+# Hard ceiling on bytes read from a publisher, enforced while streaming. The
+# fetch used to be unbounded — the whole body landed in memory before the
+# content-type was even inspected — which is how a single oversized response
+# could OOM-kill the 512MB instance. 1.5MB comfortably covers a news page whose
+# article body sits behind a few hundred KB of inline scripts.
+FULLTEXT_MAX_BYTES = int(os.environ.get("FULLTEXT_MAX_BYTES", "1500000"))
 # Hard cap on the merged-fact brief handed to the LLM (token control).
 BRIEF_MAX_CHARS = int(os.environ.get("BRIEF_MAX_CHARS", "2600"))
 DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))

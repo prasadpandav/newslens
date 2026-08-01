@@ -120,7 +120,7 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
     <h1>Descry · Admin</h1>
     <span id="peakpill"></span>
     <span class="sp"></span>
-    <button class="ghost" onclick="refresh()">↻ Refresh</button>
+    <button class="ghost" onclick="refreshAll()">↻ Refresh</button>
     <button class="ghost" onclick="signout()">Sign out</button>
   </div>
 
@@ -214,15 +214,22 @@ async function login(){
 }
 function signout(){ TOKEN=''; sessionStorage.removeItem('descry_admin');
   $('#dash').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#pw').value=''; }
-function enter(){ $('#login').classList.add('hidden'); $('#dash').classList.remove('hidden'); refresh(); }
+function enter(){ $('#login').classList.add('hidden'); $('#dash').classList.remove('hidden'); refreshAll(); }
 
+// Live panel only (stats, providers, recent runs, errors). This is what the
+// auto-poll below calls: it is how a background job — a pipeline run, a story
+// split, a retell batch — is seen to finish.
 async function refresh(){
   const r = await adminGet('/admin/usage');
   if(r.status===401||r.status===403){ signout(); return; }
   if(!r.ok){ toast('Refresh failed ('+r.status+')'); return; }
   render(await r.json());
-  loadReport();
 }
+
+// Everything, reports included. Reports aggregate weeks of visit rows and move
+// on a scale of days, so they are pulled only on an actual user action —
+// sign-in, the ↻ button, a report tab, a date-range change — never on the timer.
+async function refreshAll(){ await refresh(); loadReport(); }
 
 /* ===================== Reports ===================== */
 let REPORT = 'visitors';
@@ -520,8 +527,14 @@ async function applySplitBlobStories(){
   setTimeout(refresh, 1500);
 }
 
-// Auto-refresh while viewing
-setInterval(()=>{ if(!$('#dash').classList.contains('hidden')) refresh(); }, 20000);
+// Auto-refresh the live panel every 30 minutes while actually watching it.
+// `refresh` (not refreshAll) so the timer never re-runs the reports' multi-week
+// aggregation, and document.hidden so a forgotten background tab stops polling
+// a 512MB instance indefinitely.
+setInterval(()=>{
+  if(document.hidden) return;
+  if(!$('#dash').classList.contains('hidden')) refresh();
+}, 30 * 60 * 1000);
 
 // Boot: if a token is already saved this session, go straight in.
 if(TOKEN){ adminGet('/admin/usage').then(r=>{ if(r.status===200) enter(); else signout(); }); }
