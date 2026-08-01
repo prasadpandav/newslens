@@ -8,8 +8,16 @@ struct StoryDetailView: View {
     let storyID: String
     @EnvironmentObject var api: APIClient
     @StateObject private var eng = Engagement.shared
+    @AppStorage("onboarded") private var onboarded = false
     @State private var story: StoryDetail?
     @State private var error: String?
+    /// "What this means for you" hasn't been fetched (nil), is in flight
+    /// (true), or came back — possibly empty, which is a real answer ("this
+    /// story doesn't touch your interests"), not "not asked yet". Kept
+    /// separate from `story.impactText` so an empty string from the server
+    /// can be told apart from never having asked.
+    @State private var forYouLoading = false
+    @State private var forYouChecked = false
     /// Which modules are expanded right now — pure UI state, goes up and down.
     @State private var opened: Set<String> = []
     /// Which modules the reader has ever opened. Progress reads from this, never
@@ -187,12 +195,30 @@ struct StoryDetailView: View {
     // MARK: - Modules
 
     private func toggle(_ id: String) {
+        let opening = !opened.contains(id)
         withAnimation(BL.spring) {
             if opened.contains(id) { opened.remove(id) } else {
                 opened.insert(id)
                 credit(id)
             }
         }
+        if opening && id == "foryou" { Task { await loadPersonalize() } }
+    }
+
+    /// Fires once per view, the first time the reader opens "What this means
+    /// for you" and nothing was already cached from a previous open — see
+    /// APIClient.personalizeStory. Guarded so re-toggling the module closed
+    /// and back open doesn't refetch.
+    private func loadPersonalize() async {
+        guard let s = story, (s.impactText ?? "").isEmpty,
+              !forYouLoading, !forYouChecked else { return }
+        forYouLoading = true
+        let result = await api.personalizeStory(storyID: s.id)
+        forYouLoading = false
+        guard let result else { return }   // network hiccup — leave it retryable
+        story?.impactText = result.text
+        story?.impactScore = result.score
+        forYouChecked = true
     }
 
     /// Count a module toward the meter. Separate from `toggle` so a module that
@@ -227,10 +253,19 @@ struct StoryDetailView: View {
         ]
         // Personalized take sits right after the story is told (what -> why),
         // as its own collapsible card, collapsed by default like the rest.
+        // Always shown (not just when text exists) — it's how a signed-in,
+        // configured reader triggers the on-demand fetch in the first place
+        // by opening it; see toggle(_:) and loadPersonalize().
+        let personalizeContent: StoryModule.Content
         if let impact = s.impactText, !impact.isEmpty {
-            mods.append(.init(id: "foryou", title: "What this means for you",
-                              icon: "scope", tint: pal.accent, content: .forYou(impact)))
+            personalizeContent = .forYou(impact)
+        } else if api.isGoogleUser && onboarded {
+            personalizeContent = forYouChecked ? .forYouEmpty : .forYouLoading
+        } else {
+            personalizeContent = .forYouLocked
         }
+        mods.append(.init(id: "foryou", title: "What this means for you",
+                          icon: "scope", tint: pal.accent, content: personalizeContent))
         if let trends = s.trends, !trends.isEmpty {
             mods.append(.init(id: "big", title: "The bigger picture", icon: "chart.line.uptrend.xyaxis",
                               tint: pal.prediction, content: .trends(trends)))
@@ -255,6 +290,9 @@ struct StoryModule: Identifiable {
     enum Content {
         case text(String)
         case forYou(String)
+        case forYouLoading
+        case forYouEmpty
+        case forYouLocked
         case trends([StoryDetail.StoryTrend])
         case connections([StoryDetail.Connection])
         case claims(StoryDetail.Claims?)
@@ -324,6 +362,23 @@ struct ModuleCard: View {
                     .fill(pal.aiGradient.opacity(0.13))
                     .overlay(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous)
                         .stroke(pal.accent.opacity(0.3), lineWidth: 1)))
+
+        case .forYouLoading:
+            HStack(spacing: 10) {
+                ProgressView().tint(pal.accent)
+                Text("Finding your angle on this story…")
+                    .font(.subheadline).foregroundStyle(pal.text2)
+            }
+
+        case .forYouEmpty:
+            VStack(alignment: .leading, spacing: 4) {
+                Text("No personal angle on this one — Descry adds this when a story touches your work, city or interests.")
+                    .font(.subheadline).foregroundStyle(pal.text2).lineSpacing(3)
+            }
+
+        case .forYouLocked:
+            Text("Tell Descry your world once — from Profile — and every story explains what it means for you.")
+                .font(.subheadline).foregroundStyle(pal.text2).lineSpacing(3)
 
         case .trends(let trends):
             VStack(spacing: 10) {

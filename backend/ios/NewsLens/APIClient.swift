@@ -27,6 +27,7 @@ final class APIClient: ObservableObject {
     /// that also have a userID, so userID alone can't distinguish them).
     var isGoogleUser: Bool { userEmail?.isEmpty == false }
     @Published var savedStoryIDs: Set<String> = []
+    @Published var readStoryIDs: Set<String> = []
     private var token: String? = UserDefaults.standard.string(forKey: "token")
     /// Read-only access for the SSE stream client (same module).
     var authToken: String? { token }
@@ -202,6 +203,7 @@ final class APIClient: ObservableObject {
         userEmail = nil
         userPhotoURL = nil
         savedStoryIDs = []
+        readStoryIDs = []
         let d = UserDefaults.standard
         for key in ["user_id", "token", "display_name", "user_email", "user_photo",
                     "saved_context"] {
@@ -242,6 +244,43 @@ final class APIClient: ObservableObject {
         }
     }
 
+    // MARK: - Read tracking
+    // Opening a story already marks it read server-side (fetchStory sends
+    // user_id + the bearer token, which is all GET /story/{id} needs — see the
+    // backend). These cover the OTHER path: dismissing a story from a list
+    // without opening it. Both write the same read_stories row, so a story
+    // dismissed from the feed and one actually read never disagree.
+
+    func loadReadStories() async {
+        guard userID != nil else { return }
+        if let items = try? await fetchReadStories() {
+            readStoryIDs = Set(items.map(\.id))
+        }
+    }
+
+    func fetchReadStories() async throws -> [FeedItem] {
+        try await ensureUser()
+        guard let userID else { return [] }
+        let data = try await request("read", query: ["user_id": userID])
+        return try JSONDecoder().decode(FeedResponse.self, from: data).items
+    }
+
+    func markRead(storyID: String) async {
+        try? await ensureUser()
+        guard let userID else { return }
+        readStoryIDs.insert(storyID)
+        _ = try? await request("read", method: "POST",
+                               query: ["user_id": userID, "story_id": storyID])
+    }
+
+    func unmarkRead(storyID: String) async {
+        try? await ensureUser()
+        guard let userID else { return }
+        readStoryIDs.remove(storyID)
+        _ = try? await request("read", method: "DELETE",
+                               query: ["user_id": userID, "story_id": storyID])
+    }
+
     func fetchSignals() async throws -> [Signal] {
         // user_id as well as the bearer header: the server needs to know WHICH
         // user's token to check before it will send the signed-in-only parts of
@@ -258,6 +297,29 @@ final class APIClient: ObservableObject {
     func fetchStory(id: String) async throws -> StoryDetail {
         let data = try await request("story/\(id)", query: ["user_id": userID ?? ""])
         return try JSONDecoder().decode(StoryDetail.self, from: data)
+    }
+
+    /// "What this means for you" — computed (and cached server-side) the first
+    /// time the reader actually opens that module on this story, not
+    /// proactively for every story. fetchStory already returns any previously
+    /// cached result at no cost; this is only called when that came back empty
+    /// and the module gets expanded. Returns nil on failure so the caller can
+    /// leave the module open to a retry rather than claiming "nothing here".
+    func personalizeStory(storyID: String) async -> (text: String, score: Int)? {
+        try? await ensureUser()
+        guard let userID else { return nil }
+        guard let data = try? await request("story/\(storyID)/personalize", method: "POST",
+                                            query: ["user_id": userID]) else { return nil }
+        struct Resp: Codable {
+            let impactText: String
+            let impactScore: Int
+            enum CodingKeys: String, CodingKey {
+                case impactText = "impact_text"
+                case impactScore = "impact_score"
+            }
+        }
+        guard let out = try? JSONDecoder().decode(Resp.self, from: data) else { return nil }
+        return (out.impactText, out.impactScore)
     }
 
     func fetchTrends() async throws -> [Trend] {

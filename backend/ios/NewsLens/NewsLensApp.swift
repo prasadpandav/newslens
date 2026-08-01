@@ -55,10 +55,15 @@ struct RootTabs: View {
                 .tabItem { Label("Trends", systemImage: "chart.line.uptrend.xyaxis") }
             SavedView()
                 .tabItem { Label("Saved", systemImage: "bookmark") }
+            ReadView()
+                .tabItem { Label("Read", systemImage: "checkmark.circle") }
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.crop.circle") }
         }
         .tint(pal.accent)
-        .task { await api.loadBookmarks() }
+        .task {
+            await api.loadBookmarks()
+            await api.loadReadStories()
+        }
     }
 }

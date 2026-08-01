@@ -28,9 +28,15 @@ from .textmerge import clean_text
 UA = "DescryBot/0.1 (+https://descry.onrender.com; news summarisation)"
 
 _robots: dict = {}          # host -> RobotFileParser | None
-_last_hit: dict = {}        # host -> timestamp
+_last_hit: dict = {}        # host -> timestamp of last touch (robots check OR fetch)
 _lock = threading.Lock()
 MIN_DOMAIN_INTERVAL = 1.5   # seconds between requests to the same host
+# Both caches are keyed by host and grow by one entry per distinct publisher
+# domain ever seen — with no expiry that's unbounded over the process's
+# lifetime (it runs for weeks between redeploys on the 512MB instance). Pruned
+# once per pipeline run by prune_stale_hosts(); a host not referenced by any
+# article in two weeks doesn't need its robots.txt or pacing state kept warm.
+STALE_HOST_AGE = 14 * 86400
 # Guard against a pathological page, but stay generous: news sites front-load
 # hundreds of KB of inline scripts/JSON before the article body, so a tight cap
 # here silently truncates away the very text we came for.
@@ -50,6 +56,10 @@ def _allowed(url):
         host = urlparse(url).netloc
         with _lock:
             rp = _robots.get(host, "missing")
+            # Stamped here too, not just in _pace(): a host robots.txt disallows
+            # is checked on every reference but never reaches _pace(), so this is
+            # the only signal that keeps it "recently seen" for pruning purposes.
+            _last_hit[host] = time.time()
         if rp == "missing":
             rp = urllib.robotparser.RobotFileParser()
             rp.set_url(f"{urlparse(url).scheme}://{host}/robots.txt")
@@ -70,6 +80,20 @@ def _pace(host):
         _last_hit[host] = time.time() + max(wait, 0)
     if wait > 0:
         time.sleep(wait)
+
+
+def prune_stale_hosts(max_age=STALE_HOST_AGE):
+    """Drop cached robots.txt/pacing state for hosts not referenced recently.
+    Called once per pipeline run (see orchestrator.run_pipeline) so these two
+    module-level dicts stay sized to "publishers in the current news cycle"
+    instead of every host ever seen since the process started."""
+    cutoff = time.time() - max_age
+    with _lock:
+        stale = [h for h, t in _last_hit.items() if t < cutoff]
+        for h in stale:
+            _last_hit.pop(h, None)
+            _robots.pop(h, None)
+    return len(stale)
 
 
 def html_to_text(html_doc, max_chars=None):

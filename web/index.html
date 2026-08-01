@@ -757,6 +757,8 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .scard .foot .meter{flex:1;max-width:150px}
 .scard .foot .tv{font-family:var(--font-mono);font-size:12px;color:var(--trust)}
 .scard .foot .impact{margin-left:auto}
+.scard .foot .readbtn{margin-left:auto;flex-shrink:0}
+.scard .foot .impact + .readbtn{margin-left:0}
 
 /* rail */
 .rail>div{padding:20px;margin-bottom:16px}
@@ -1003,6 +1005,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
     <a href="/" data-r="home">Feed</a>
     <a href="/trends" data-r="trends">Trends</a>
     <a href="/saved" data-r="saved">Saved</a>
+    <a href="/read" data-r="read">Read</a>
   </div>
   <button class="searchbtn" onclick="Search.open()" aria-label="Search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -1103,7 +1106,7 @@ const S = {
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
   eng: JSON.parse(localStorage.getItem('bl_eng') || '{"streak":1,"lastDay":"","understood":0,"topics":[]}'),
   live: JSON.parse(localStorage.getItem('bl_live') || '{"enabled":true,"categories":["breaking","events","sports","finance"]}'),
-  currentStory: null, opened: new Set(), saved: new Set()
+  currentStory: null, opened: new Set(), saved: new Set(), read: new Set()
 };
 
 /* Free story reads per day for guests before the sign-in wall (metered access). */
@@ -1371,6 +1374,7 @@ function route(){
   if (p.startsWith('/trend/'))  return TrendPage.render(p.slice(7));
   if (p.startsWith('/trends'))  return Trends.render();
   if (p.startsWith('/saved'))   return Saved.render();
+  if (p.startsWith('/read'))    return ReadPage.render();
   if (p.startsWith('/profile')) return Profile.render();
   Brief.render();            // the feed is the landing page
 }
@@ -1382,6 +1386,10 @@ addEventListener('hashchange', route);       // legacy #/... links still land ri
 addEventListener('click', e=>{
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey ||
       e.shiftKey || e.altKey) return;
+  // A [data-act] control (e.g. the "mark read" button on a feed card) can sit
+  // inside an <a> card — let the delegated data-act handler below own the
+  // click instead of also navigating to the card's story.
+  if (e.target.closest('[data-act]')) return;
   const a = e.target.closest('a[href]'); if(!a) return;
   if (a.target && a.target !== '_self') return;
   if (a.hasAttribute('download') || a.getAttribute('rel') === 'external') return;
@@ -1406,6 +1414,8 @@ document.addEventListener('click', e=>{
     case 'unlock-foryou': Gate.require('personalize'); break;
     case 'unlock': Gate.require(el.dataset.gate || 'read'); break;
     case 'save': Story.toggleSave(); break;
+    case 'read': markRead(el.dataset.id, el.closest('.scard')); break;
+    case 'unread': unmarkRead(el.dataset.id, el.closest('.scard')); break;
     case 'personalize': Gate.require('personalize'); break;
     case 'ask': if(Gate.require('ask')) Ask.open(); break;
     case 'hero-config': LiveHero.openConfig(); break;
@@ -1576,15 +1586,22 @@ const Brief = { async render(){
   Feed.startFreshness();
   $('#fab').classList.remove('hidden');
 },
-card(s,i){
+card(s,i,opts){
+  opts = opts || {};
   const cred = Math.round(s.credibility||0);
   const impact = s.impact_score>0 ? `<span class="chip ${s.impact_score>=3?'breaking':s.impact_score>=2?'warn':'accent'} impact">${['','For you','Affects you','High impact'][Math.min(s.impact_score,3)]}</span>`:'';
   const told = lastTold(s.created_at);
+  // Signed-in only: guests have no persistent read state to store this against.
+  // Sits inside the card <a> — the delegated click handler special-cases
+  // [data-act] so this button doesn't also navigate to the story.
+  const readBtn = !signedIn() ? '' : opts.unread
+    ? `<button class="btn ghost sm readbtn" data-act="unread" data-id="${esc(s.id)}" title="Move back to feed">↺ Unread</button>`
+    : `<button class="btn ghost sm readbtn" data-act="read" data-id="${esc(s.id)}" title="Mark as read">✓</button>`;
   return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="/story/${s.id}">
     <div class="top"><span class="chip">${esc(topicLabel(s.topic))}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
-      <span class="tv">${cred}%</span>${impact}</div></a>`;
+      <span class="tv">${cred}%</span>${impact}${readBtn}</div></a>`;
 }};
 
 /* Unlock prompt for the For You tab when the visitor isn't personalized yet. */
@@ -1965,20 +1982,15 @@ const Story = { async render(id){
     // persuade anyone to sign up.
     ['foryou','What this means for you',cssVar('--accent'),
       s.impact_text
-        ? `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
-             background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
-             border:1px solid rgb(from var(--accent) r g b / .25)">${esc(s.impact_text)}</div>`
-        // Three different reasons impact_text can be empty, and they need three
-        // different answers. The personalizer writes it per (user, story) only
-        // for stories that touch the reader's interests or location, so a
-        // configured reader legitimately gets nothing on plenty of stories —
-        // showing them a locked teaser implies the feature is withheld when it
-        // simply had nothing to say. Only an unconfigured account is "locked".
+        ? Story.personalizeHTML(s.impact_text)
+        // Computed on demand, not proactively for every reader on every story —
+        // see POST /story/{id}/personalize, fired from Story.toggle() the
+        // moment this module is actually opened. Three different reasons
+        // impact_text can be empty, and they need three different answers.
+        // Only an unconfigured account is "locked"; a configured one either
+        // hasn't opened this yet (loading) or genuinely has nothing here.
         : signedIn() && hasLens()
-          ? `<p style="font-size:14px;color:var(--text-2);line-height:1.55">
-               No personal angle on this one — Descry adds this when a story touches your
-               work, city or interests. It checks every new story as it comes in.</p>
-             <button class="btn ghost sm" data-act="personalize" style="margin-top:12px">Review your preferences</button>`
+          ? `<div id="foryou-body"><p style="font-size:14px;color:var(--text-2)">Finding your angle on this story…</p></div>`
           : lockedHTML('personalize',
               'Descry can explain what this story means for your job, city and interests.',
               `<p>${esc(String(what).slice(0,150))}…</p>`)],
@@ -2068,7 +2080,38 @@ toggle(id, total){
   const el = $('#mod-'+id); if(!el) return;
   const open = el.classList.toggle('open');
   el.querySelector('.mhead').setAttribute('aria-expanded', open);
-  if (open) this.markOpened(id, total);
+  if (open) {
+    this.markOpened(id, total);
+    if (id === 'foryou') this.loadPersonalize();
+  }
+},
+personalizeHTML(text){
+  return `<div style="padding:14px;border-radius:12px;font-size:14px;line-height:1.55;
+    background:linear-gradient(135deg,rgb(from var(--accent) r g b / .10),rgb(from var(--ai-2) r g b / .10));
+    border:1px solid rgb(from var(--accent) r g b / .25)">${esc(text)}</div>`;
+},
+/* Fires once, the first time a signed-in reader with a configured lens opens
+   "What this means for you" on THIS story — not proactively for every story,
+   which is the whole point (LLM spend now tracks real reads). Idempotent
+   server-side (feed_items caches the result), but guarded here too so
+   re-toggling the module open/closed doesn't refetch. */
+async loadPersonalize(){
+  const s = S.currentStory;
+  if (!s || s.impact_text || s._personalizing || !signedIn() || !hasLens()) return;
+  const body = $('#foryou-body'); if (!body) return;
+  s._personalizing = true;
+  try{
+    const r = await api('/story/'+s.id+'/personalize?user_id='+S.creds.user_id, {method:'POST'});
+    s.impact_text = r.impact_text || ''; s.impact_score = r.impact_score || 0;
+    body.outerHTML = s.impact_text ? this.personalizeHTML(s.impact_text)
+      : `<p style="font-size:14px;color:var(--text-2);line-height:1.55">
+           No personal angle on this one — Descry adds this when a story touches your
+           work, city or interests.</p>
+         <button class="btn ghost sm" data-act="personalize" style="margin-top:12px">Review your preferences</button>`;
+  }catch(e){
+    s._personalizing = false;   // allow a retry on the next open
+    body.innerHTML = `<p style="font-size:14px;color:var(--text-2)">Couldn't load your take on this one — try again.</p>`;
+  }
 },
 /* Credit a module toward the understanding meter. Split out from toggle() so a
    module that starts open can count without being flipped shut. */
@@ -2408,6 +2451,59 @@ async function loadBookmarks(){
   if(!(S.creds && S.creds.token)) return;
   try{ const r=await api('/bookmarks?user_id='+S.creds.user_id); S.saved=new Set((r.items||[]).map(x=>x.id)); }catch(e){}
 }
+
+/* ================= Read tracking =================
+   A story is marked read automatically server-side the moment GET /story/{id}
+   is called by a signed-in reader (see the backend) — opening a story is
+   enough, no client call needed for that path. This is the OTHER path: an
+   explicit dismiss from a card, without opening it. Both write the same
+   read_stories row, so a story dismissed from the feed and a story that was
+   actually read never disagree about being "done". */
+async function loadReadIds(){
+  if(!(S.creds && S.creds.token)) return;
+  try{ const r=await api('/read?user_id='+S.creds.user_id); S.read=new Set((r.items||[]).map(x=>x.id)); }catch(e){}
+}
+function fadeOutCard(cardEl){
+  if(!cardEl) return;
+  cardEl.style.transition='opacity .25s var(--ease)'; cardEl.style.opacity='0';
+  setTimeout(()=>cardEl.remove(),250);
+}
+async function markRead(id, cardEl){
+  if(!id || !signedIn()) return;
+  S.read.add(id);
+  S.stories = S.stories.filter(s=>s.id!==id);
+  fadeOutCard(cardEl);
+  try{ await api('/read?user_id='+S.creds.user_id+'&story_id='+encodeURIComponent(id), {method:'POST'}); }
+  catch(e){ toast('Couldn\'t mark as read — try again'); }
+}
+async function unmarkRead(id, cardEl){
+  if(!id || !signedIn()) return;
+  S.read.delete(id);
+  fadeOutCard(cardEl);
+  try{ await api('/read?user_id='+S.creds.user_id+'&story_id='+encodeURIComponent(id), {method:'DELETE'});
+    toast('Moved back to your feed'); }
+  catch(e){ toast('Couldn\'t undo — try again'); }
+}
+const ReadPage = { async render(){
+  SEO.set({title:'Read stories · Descry', path:'/read', robots:'noindex,follow'});
+  if(!(S.creds && S.creds.token)){
+    $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
+      <div style="font-size:30px;margin-bottom:8px">✓</div>
+      <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Keep your feed from going stale</h3>
+      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign in and stories you've read or dismissed drop out of your feed automatically — find them here any time.</p>
+      <span id="read-signin"></span></div></div>`;
+    Auth.renderInto($('#read-signin'));
+    return;
+  }
+  $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div></div>`;
+  let items=[];
+  try{ const r=await api('/read?user_id='+S.creds.user_id); items=r.items||[]; S.read=new Set(items.map(x=>x.id)); }catch(e){}
+  $('#view').innerHTML = `<div class="wrap">
+    <div class="brief-head rise"><h1>Read</h1><span class="date">${items.length} ${items.length===1?'story':'stories'}</span></div>
+    <div style="margin-top:16px">${items.length? items.map((s,i)=>Brief.card(s,i,{unread:true})).join('')
+      : `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">Nothing here yet — stories you open or mark as read will show up here.</div>`}</div>
+  </div>`;
+}};
 const Saved = { async render(){
   // Personal pages hold nothing a stranger could use and shouldn't compete with
   // the article pages in the index.
@@ -2772,6 +2868,7 @@ const Auth = {
       Gate.close();                       // dismiss any sign-in wall
       Auth.render();
       await loadBookmarks();
+      await loadReadIds();
       Feed.reconnect();                   // re-open SSE with the user's id
       await loadData(); route();
       // Adopt whatever theme this account saved elsewhere. Awaited because it
@@ -2794,7 +2891,7 @@ const Auth = {
     }catch(e){ toast('Sign-in failed — check the API URL and client ID'); }
   },
   signout(){
-    S.creds = null; S.saved = new Set(); localStorage.removeItem('bl_creds');
+    S.creds = null; S.saved = new Set(); S.read = new Set(); localStorage.removeItem('bl_creds');
     Theme.reset();     // theming is a signed-in feature — don't keep showing it signed out
     try{ google.accounts.id.disableAutoSelect(); }catch(e){}
     Auth.render(); Feed.reconnect(); loadData().then(route); toast('Signed out');
@@ -2815,7 +2912,7 @@ addEventListener('resize', setNavHeight);
   ENTRY.path = Nav.path();       // before anything can navigate away from it
   setNavHeight();
   await loadData();
-  if (S.creds && S.creds.token){ await loadBookmarks(); Theme.syncFromAccount(); }
+  if (S.creds && S.creds.token){ await loadBookmarks(); await loadReadIds(); Theme.syncFromAccount(); }
   route();
   Auth.render();                 // show avatar immediately if already signed in
   // GIS loads async; poll briefly so the "Sign in with Google" button can render.

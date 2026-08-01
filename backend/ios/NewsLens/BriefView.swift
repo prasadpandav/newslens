@@ -137,6 +137,20 @@ struct BriefView: View {
                                 .scaleEffect(phase.isIdentity ? 1 : 0.96)
                                 .offset(y: phase.isIdentity ? 0 : 14)
                         }
+                        // Explicit dismiss without opening — opening the story
+                        // already marks it read (see APIClient.fetchStory).
+                        .contextMenu {
+                            if api.userID != nil {
+                                Button {
+                                    Task {
+                                        await api.markRead(storyID: item.id)
+                                        items.removeAll { $0.id == item.id }
+                                    }
+                                } label: {
+                                    Label("Mark as Read", systemImage: "checkmark.circle")
+                                }
+                            }
+                        }
                     }
                 }
                 statsCard

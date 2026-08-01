@@ -1010,53 +1010,63 @@ def _phrase_in(phrase, words):
     return bool(toks) and all(t in words for t in toks)
 
 
+def personalization_relevant(ctx, story):
+    """Free (no LLM) relevance test: does this story touch the reader's
+    interests or location? `story` needs headline/narrative/topic keys — a
+    stories row or the dict /feed already builds both satisfy that.
+
+    Drives /feed's `sort=foryou` ordering directly now. The LLM itself is
+    only called by Personalizer.personalize(), on demand, when a signed-in
+    reader actually opens "What this means for you" on a specific story —
+    see that method and POST /story/{id}/personalize."""
+    interests = {s.lower() for s in ctx.get("interests", [])}
+    # Location VALUES only — matching on str(dict) leaked the keys
+    # ("city", "region", "country") and tagged nearly every story.
+    loc_words = {w for v in ctx.get("location", {}).values()
+                 for w in re.findall(r"[a-z]{3,}", str(v).lower())}
+    text = (story["headline"] + " " + story["narrative"] + " " + story["topic"]).lower()
+    words = set(re.findall(r"[a-z0-9]{2,}", text))
+    return bool(
+        story["topic"].lower() in interests
+        or any(_phrase_in(i, words) for i in interests)
+        or (loc_words & words))
+
+
 class Personalizer:
-    def run(self, con):
-        users = con.execute("SELECT * FROM users").fetchall()
-        stories = con.execute(
-            "SELECT * FROM stories WHERE updated_at > ?",
-            (db.now() - 7 * 86400,)).fetchall()
-        made = 0
-        for u in users:
-            ctx = db.uj(u["context"])
-            interests = {s.lower() for s in ctx.get("interests", [])}
-            # Location VALUES only — matching on str(dict) leaked the keys
-            # ("city", "region", "country") and tagged nearly every story.
-            loc_words = {w for v in ctx.get("location", {}).values()
-                         for w in re.findall(r"[a-z]{3,}", str(v).lower())}
-            for s in stories:
-                exists = con.execute(
-                    "SELECT 1 FROM feed_items WHERE user_id=? AND story_id=?",
-                    (u["id"], s["id"])).fetchone()
-                if exists:
-                    continue
-                text = (s["headline"] + " " + s["narrative"] + " " + s["topic"]).lower()
-                words = set(re.findall(r"[a-z0-9]{2,}", text))
-                relevant = (s["topic"].lower() in interests
-                            or any(_phrase_in(i, words) for i in interests)
-                            or bool(loc_words & words))
-                if relevant:
-                    trends = [t["name"] for t in con.execute(
-                        "SELECT name FROM trends WHERE id IN (%s)" %
-                        ",".join("?" * len(db.uj(s["trend_ids"], []))),
-                        db.uj(s["trend_ids"], [])).fetchall()] if db.uj(s["trend_ids"], []) else []
-                    out = llm.complete_json("personalize", prompt(
-                        "personalize", context=db.j(ctx), headline=s["headline"],
-                        narrative=s["narrative"][:600], trends=db.j(trends)))
-                    if out is None:
-                        continue  # skip; personalized next run
-                    impact_text = out.get("impact_text", "")
-                    impact = int(out.get("impact_score", 1))
-                else:
-                    impact_text, impact = "", 0
-                con.execute(
-                    "INSERT OR IGNORE INTO feed_items (id,user_id,story_id,impact_text,"
-                    "impact_score,created_at) VALUES (?,?,?,?,?,?)",
-                    (db.new_id(), u["id"], s["id"], impact_text, impact, db.now()))
-                made += 1
+    def personalize(self, con, user_row, story_row):
+        """Return (impact_text, impact_score) for this (user, story) pair,
+        computing and caching it on first request. Cached in `feed_items` —
+        a repeat call (re-opening the module, or /feed's LEFT JOIN) never
+        calls the LLM again for the same pair. Not relevant → cached as
+        ("", 0) without ever touching the LLM."""
+        cached = con.execute(
+            "SELECT impact_text, impact_score FROM feed_items "
+            "WHERE user_id=? AND story_id=?",
+            (user_row["id"], story_row["id"])).fetchone()
+        if cached:
+            return cached["impact_text"], cached["impact_score"]
+        ctx = db.uj(user_row["context"])
+        impact_text, impact = "", 0
+        if personalization_relevant(ctx, story_row):
+            trend_ids = db.uj(story_row["trend_ids"], [])
+            trends = [t["name"] for t in con.execute(
+                "SELECT name FROM trends WHERE id IN (%s)" % ",".join("?" * len(trend_ids)),
+                trend_ids).fetchall()] if trend_ids else []
+            out = llm.complete_json("personalize", prompt(
+                "personalize", context=db.j(ctx), headline=story_row["headline"],
+                narrative=story_row["narrative"][:600], trends=db.j(trends)))
+            if out is None:
+                # LLM unavailable — don't cache a failure as "not relevant";
+                # let the next open retry instead of permanently showing nothing.
+                return "", 0
+            impact_text = out.get("impact_text", "")
+            impact = int(out.get("impact_score", 1))
+        con.execute(
+            "INSERT OR IGNORE INTO feed_items (id,user_id,story_id,impact_text,"
+            "impact_score,created_at) VALUES (?,?,?,?,?,?)",
+            (db.new_id(), user_row["id"], story_row["id"], impact_text, impact, db.now()))
         con.commit()
-        db.log_run(con, "personalizer", "ok", f"{made} feed items")
-        return made
+        return impact_text, impact
 
 
 # ------------------------------------------------------- breaking detection

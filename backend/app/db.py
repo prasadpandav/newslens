@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS feedback (
 CREATE TABLE IF NOT EXISTS bookmarks (
   id TEXT PRIMARY KEY, user_id TEXT, story_id TEXT, created_at REAL,
   UNIQUE(user_id, story_id));
+-- A story a user has seen (opened) or explicitly dismissed. Kept out of /feed
+-- once present so the feed doesn't go stale with things already read; listed
+-- back on request so it isn't just gone.
+CREATE TABLE IF NOT EXISTS read_stories (
+  id TEXT PRIMARY KEY, user_id TEXT, story_id TEXT, created_at REAL,
+  UNIQUE(user_id, story_id));
 CREATE TABLE IF NOT EXISTS signals (
   id TEXT PRIMARY KEY, title TEXT, prediction TEXT, chain TEXT, watch TEXT,
   affected TEXT, horizon TEXT, confidence REAL, story_ids TEXT, created_at REAL);

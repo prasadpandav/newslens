@@ -1,16 +1,21 @@
 """Planner + Runner. Plans which topics/stages to run, executes the DAG,
 logs every stage. Re-runnable: each stage skips work already done."""
-from . import db, llm
+import gc
+from . import db, fulltext, llm
 from .agents import (Scout, Deduper, EntityTagger, TrendLinker, MicroTrendDetector,
-                     ConnectionFinder, Verifier, Storyteller, Foresight,
-                     Personalizer)
+                     ConnectionFinder, Verifier, Storyteller, Foresight)
 
 # micro_trends is retired as a separate stage — it's folded into the per-unit
 # "trends" call (each topic call returns both macro and emerging/micro trends).
 # "dedupe" groups near-duplicate articles right after scout so the LLM stages
 # process each event once (with sources annotated) instead of once per source.
+# No "personalize" stage: personalization is on-demand now (Personalizer.
+# personalize, called from POST /story/{id}/personalize when a reader actually
+# opens "What this means for you"), not a batch LLM call over every user x
+# every story on every run — that was the majority of this pipeline's LLM
+# spend for text most readers never opened.
 STAGES = ["scout", "dedupe", "entities", "trends", "connections",
-          "stories", "signals", "personalize"]
+          "stories", "signals"]
 
 
 def plan(con):
@@ -43,12 +48,21 @@ def run_pipeline(stage=None):
                 results[s] = Storyteller().run(con, verifier)
             elif s == "signals":
                 results[s] = Foresight().run(con)
-            elif s == "personalize":
-                results[s] = Personalizer().run(con)
         except Exception as e:  # noqa: BLE001
             db.log_run(con, s, "error", str(e)[:300])
             results[s] = f"error: {e}"
     db.log_run(con, "pipeline", "done", str(results),
                llm_calls=llm.usage["calls"], llm_tokens=llm.usage["tokens"])
     con.close()
+    # Every stage above is its own short-lived object whose locals (fetched
+    # rows, merged briefs, per-story text) are already released the moment
+    # each .run() returns — normal refcounting, nothing special needed. What
+    # DOESN'T self-clean is fulltext's module-level host cache, which this
+    # run may have just added entries to; prune it here rather than on a
+    # separate timer, and force a collection so any reference cycles built up
+    # over 8 stages don't linger in a worker thread the scheduler reuses for
+    # the next job. Cheap (single-digit ms) and safe — this is a background
+    # thread, so it costs nothing in request latency. See render-512mb-oom-limit.
+    fulltext.prune_stale_hosts()
+    gc.collect()
     return results

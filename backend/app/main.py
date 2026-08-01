@@ -1,4 +1,5 @@
 """FastAPI app: the API the iOS client talks to."""
+import gc
 import os
 import secrets
 import threading
@@ -13,7 +14,8 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, llm, live, analytics, ranking, textmerge
-from .agents import prompt, _dedupe_trends, linkify, story_refs, Verifier
+from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
+                     Personalizer, personalization_relevant)
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 
@@ -262,6 +264,44 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
     return {"items": [dict(r) for r in rows]}
 
 
+@app.post("/read")
+def mark_read(user_id: str, story_id: str, authorization: str = Header("")):
+    """Idempotent: called both when a user opens a story (auto) and when they
+    swipe/dismiss one from the feed without opening it (explicit) — same
+    underlying state either way, so a story never shows as read in one place
+    and unread in another."""
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    con.execute("INSERT OR IGNORE INTO read_stories VALUES (?,?,?,?)",
+                (db.new_id(), user_id, story_id, db.now()))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+@app.delete("/read")
+def unmark_read(user_id: str, story_id: str, authorization: str = Header("")):
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    con.execute("DELETE FROM read_stories WHERE user_id=? AND story_id=?",
+                (user_id, story_id))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+@app.get("/read")
+def list_read(user_id: str, authorization: str = Header("")):
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    rows = con.execute(
+        """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
+                  s.topic, '' AS impact_text, 0 AS impact_score
+           FROM read_stories r JOIN stories s ON s.id = r.story_id
+           WHERE r.user_id = ? ORDER BY r.created_at DESC""",
+        (user_id,)).fetchall()
+    con.close()
+    return {"items": [dict(r) for r in rows]}
+
+
 @app.post("/users")
 def create_user():
     con = db.connect()
@@ -297,8 +337,9 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     con = db.connect()
     _auth(con, user_id, authorization)
     # LEFT JOIN: every recent story appears in the feed; personalization
-    # (impact text/score) enriches stories where the Personalizer has run,
-    # but never gates visibility.
+    # (impact text/score) enriches stories the reader has actually opened
+    # "What this means for you" on — see POST /story/{id}/personalize — but
+    # never gates visibility.
     # `since` (epoch) returns only stories newer than the client's newest — the
     # cheap incremental fetch behind the "N new stories" banner. created_at is
     # exposed so the client can diff/merge without a second call.
@@ -311,6 +352,10 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # every real candidate and can blend recency with impact (see module
     # docstring), while a future bug can't turn this into an unbounded scan the
     # way the un-capped /trends and /signals queries just did in production.
+    # Stories the user has already read/dismissed are excluded here (not just
+    # deprioritized) — that's the point: a feed that never drops anything reads
+    # as stale even when the ranking underneath is fresh. They stay reachable
+    # via GET /read, and un-marking (DELETE /read) brings a story back.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
                   s.topic, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
@@ -318,18 +363,31 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
            LEFT JOIN feed_items f ON f.story_id = s.id AND f.user_id = ?
-           WHERE s.updated_at > ?
+           LEFT JOIN read_stories r ON r.story_id = s.id AND r.user_id = ?
+           WHERE s.updated_at > ? AND r.story_id IS NULL
            ORDER BY s.updated_at DESC LIMIT 1000""",
-        (user_id, floor)).fetchall()
+        (user_id, user_id, floor)).fetchall()
+    # Personalization is on-demand now (see POST /story/{id}/personalize) — a
+    # story only has a real impact_score once someone actually opened "What
+    # this means for you" on it, so most rows here won't have one yet. For
+    # foryou ranking, fall back to the same free (no LLM) relevance test that
+    # gates whether a story is worth personalizing at all: a real cached score
+    # still wins (it reflects an actual reader having opened it), unscored-but-
+    # relevant stories rank above unscored-irrelevant ones, exactly the
+    # ordering the LLM score used to approximate at proactive-batch cost.
+    ctx = None
+    if sort == "foryou":
+        u = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
+        ctx = db.uj(u["context"] if u else "{}")
     con.close()
     items = [dict(r) for r in rows]
-    # Impact metric: the personalized 0-3 relevance score for sort=foryou (that
-    # IS this user's impact signal, and already bounded); otherwise how many
-    # outlets corroborate the story — the same "how big is this" proxy trends
-    # use (velocity), damped because a developing storyline's count is unbounded.
     if sort == "foryou":
-        impact_of = lambda it: it["impact_score"]
+        impact_of = lambda it: it["impact_score"] or (
+            1 if personalization_relevant(ctx, it) else 0)
     else:
+        # How many outlets corroborate the story — the same "how big is this"
+        # proxy trends use (velocity), damped because a developing storyline's
+        # count is unbounded.
         impact_of = lambda it: ranking.damped(len(db.uj(it["article_ids"], [])))
     items = ranking.sort_by_rank(items, impact_of)[:100]
     for it in items:
@@ -363,6 +421,11 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
     # real, honest teaser) but the CHAIN — the actual inference, which is the
     # thing worth signing up for — is never put on the wire.
     authed = _is_authed(con, user_id, authorization)
+    if authed:  # opening a story counts as "read" — see POST /read for the
+                # explicit (no-open) dismiss path, same underlying table
+        con.execute("INSERT OR IGNORE INTO read_stories VALUES (?,?,?,?)",
+                    (db.new_id(), user_id, story_id, db.now()))
+        con.commit()
     conns = []
     for cid in db.uj(s["connection_ids"], []):
         c = con.execute("SELECT * FROM connections WHERE id=?", (cid,)).fetchone()
@@ -387,6 +450,28 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
             "trends": trends, "connections": conns, "created_at": s["created_at"],
             "impact_text": fi["impact_text"] if fi else "",
             "impact_score": fi["impact_score"] if fi else 0}
+
+
+@app.post("/story/{story_id}/personalize")
+def personalize_story(story_id: str, user_id: str, authorization: str = Header("")):
+    """"What this means for you" — computed the first time a signed-in reader
+    actually opens that module on this story, not proactively for every story
+    on every pipeline run. GET /story already returns any cached result from a
+    previous open at no cost; this is the endpoint the client calls only when
+    that section is empty and gets expanded, so LLM spend tracks real reads
+    instead of catalog size. Idempotent: a story already found irrelevant or
+    already personalized returns the cached ("", 0) or real result without
+    another LLM call — see Personalizer.personalize."""
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    u = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    s = con.execute("SELECT * FROM stories WHERE id=?", (story_id,)).fetchone()
+    if not s:
+        con.close()
+        raise HTTPException(404, "story not found")
+    impact_text, impact_score = Personalizer().personalize(con, u, s)
+    con.close()
+    return {"impact_text": impact_text, "impact_score": impact_score}
 
 
 @app.post("/feedback")
@@ -935,6 +1020,8 @@ def admin_rebuild_intel(allow_mock: bool = False, token: str = "",
         try:
             _rebuild_intel()
         finally:
+            gc.collect()   # reclaim any reference cycles from this batch before
+                           # the next request runs on a 512MB instance
             _pipeline_lock.release()
 
     threading.Thread(target=job, daemon=True).start()
@@ -1274,6 +1361,9 @@ def admin_split_blob_stories(min_articles: int = config.STORY_SPLIT_MIN_ARTICLES
             db.log_run(con2, "split_blob_stories", "error", str(e))
             con2.close()
         finally:
+            # `candidates` alone can be hundreds of (row, subjects) tuples on a
+            # blob-heavy DB — reclaim it before the next request runs.
+            gc.collect()
             _pipeline_lock.release()
 
     threading.Thread(target=job, daemon=True).start()
@@ -1353,6 +1443,9 @@ def admin_retell_stories(limit: int = 8, dry_run: bool = True,
             db.log_run(con3, "retell_stories", "error", str(e)[:300])
             con3.close()
         finally:
+            # Each story here pulled in up to 4 full publisher pages (fulltext)
+            # plus a merged brief — reclaim that before the next request runs.
+            gc.collect()
             _pipeline_lock.release()
 
     threading.Thread(target=job, daemon=True).start()
