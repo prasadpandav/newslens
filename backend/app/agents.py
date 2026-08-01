@@ -693,10 +693,17 @@ class Storyteller:
         A trend that already has a story gets that story UPDATED in place when new
         articles arrive (same id, refreshed narrative) — never a second, near-
         duplicate story for the same trend."""
+        # Bounded, not "every story ever": a story untouched in
+        # STORYTELLER_HISTORY_DAYS has no realistic new coverage to receive
+        # (the feed itself only shows 7 days, and a candidate article is never
+        # older than 7 days either) — see config.STORYTELLER_HISTORY_DAYS for
+        # why this must not go back to an unbounded SELECT.
         prior = [{"id": r["id"], "aids": set(db.uj(r["article_ids"], [])),
                   "tids": set(db.uj(r["trend_ids"], [])), "eid": r["event_id"]}
                  for r in con.execute(
-                     "SELECT id, article_ids, trend_ids, event_id FROM stories").fetchall()]
+                     "SELECT id, article_ids, trend_ids, event_id FROM stories "
+                     "WHERE updated_at > ?",
+                     (db.now() - config.STORYTELLER_HISTORY_DAYS * 86400,)).fetchall()]
         done_ids = set()
         for p in prior:
             done_ids.update(p["aids"])
