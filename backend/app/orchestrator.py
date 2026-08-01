@@ -1,7 +1,9 @@
 """Planner + Runner. Plans which topics/stages to run, executes the DAG,
 logs every stage. Re-runnable: each stage skips work already done."""
 import gc
-from . import db, fulltext, llm
+import time
+import uuid
+from . import db, diag, fulltext, llm
 from .agents import (Scout, Deduper, EntityTagger, TrendLinker, MicroTrendDetector,
                      ConnectionFinder, Verifier, Storyteller, Foresight)
 
@@ -30,7 +32,19 @@ def run_pipeline(stage=None):
     stages = [stage] if stage else p["stages"]
     verifier = Verifier()
     results = {}
+    # Short id tagging every log line from this run, so an LLM warning like
+    # "rate_limited | provider=groq task=entities" can be tied back to WHICH
+    # run and stage produced it — the thing the bare warnings can't say on
+    # their own. Paired with a mem= reading at every stage boundary: if the
+    # process gets SIGKILLed (no traceback, no exception, nothing) the last
+    # "run=... stage=X start" line with no matching "done" tells you exactly
+    # which stage was in progress and how big the process had gotten.
+    run_id = uuid.uuid4().hex[:8]
+    diag.checkpoint(f"run={run_id} pipeline start stages={stages}")
     for s in stages:
+        t0 = time.time()
+        diag.checkpoint(f"run={run_id} stage={s} start")
+        llm.set_context(f"run={run_id} stage={s}")
         try:
             if s == "scout":
                 results[s] = Scout().run(con, topics=p["topics"])
@@ -51,6 +65,8 @@ def run_pipeline(stage=None):
         except Exception as e:  # noqa: BLE001
             db.log_run(con, s, "error", str(e)[:300])
             results[s] = f"error: {e}"
+        diag.checkpoint(f"run={run_id} stage={s} done dur={time.time()-t0:.1f}s "
+                        f"result={results.get(s)}")
     db.log_run(con, "pipeline", "done", str(results),
                llm_calls=llm.usage["calls"], llm_tokens=llm.usage["tokens"])
     con.close()
@@ -65,4 +81,7 @@ def run_pipeline(stage=None):
     # thread, so it costs nothing in request latency. See render-512mb-oom-limit.
     fulltext.prune_stale_hosts()
     gc.collect()
+    diag.checkpoint(f"run={run_id} pipeline done")
+    llm.set_context("")   # this thread is reused by the scheduler — don't let
+                          # a stale run/stage label leak onto the next job
     return results

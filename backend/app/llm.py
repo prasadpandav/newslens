@@ -32,6 +32,30 @@ recent_errors: deque = deque(maxlen=50)   # exposed at /admin/usage
 # flood of gave_up entries can never push them out of view.
 provider_events: deque = deque(maxlen=20)
 
+# What's calling the LLM right now, on THIS thread. A bare "rate_limited |
+# provider=groq task=entities" doesn't say whether that came from the
+# scheduled pipeline, a manual admin trigger, or a signed-in reader's
+# on-demand personalize request — which was exactly the gap when diagnosing
+# the memory climb, since the crash itself leaves no traceback. thread-local
+# because the scheduled pipeline (one background thread) and concurrent
+# request handlers (FastAPI's threadpool, one thread per sync request) call
+# complete_json at the same time; a plain module global would let one
+# overwrite the other's context mid-call.
+_context = threading.local()
+
+
+def set_context(label):
+    """Tag every complete_json call on this thread until cleared. Call at the
+    start of a pipeline stage (orchestrator.py) or an on-demand request
+    (main.py's personalize endpoint) with something identifying enough to
+    grep for later, e.g. 'run=ab12cd stage=entities' or
+    'request personalize story=xyz user=abc'."""
+    _context.label = label
+
+
+def _current_context():
+    return getattr(_context, "label", "")
+
 
 def provider_status():
     """Live view: which providers are benched and for how much longer."""
@@ -42,12 +66,15 @@ def provider_status():
 
 
 def _note(kind, provider, task, msg):
-    """One short line per failure: what failed, where, and why."""
+    """One short line per failure: what failed, where, why, and what was
+    running — see _current_context()."""
     msg = str(msg)[:160]
-    log.warning("%s | provider=%s task=%s | %s", kind, provider, task, msg)
+    ctx = _current_context()
+    log.warning("%s | provider=%s task=%s%s | %s", kind, provider, task,
+               f" | {ctx}" if ctx else "", msg)
     recent_errors.appendleft({
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "kind": kind, "provider": provider, "task": task, "detail": msg})
+        "kind": kind, "provider": provider, "task": task, "context": ctx, "detail": msg})
 
 # Pace calls to stay under free-tier requests-per-minute limits.
 _last_call: dict[str, float] = {}

@@ -115,15 +115,20 @@ INGEST_MAX_AGE_HOURS = float(os.environ.get("INGEST_MAX_AGE_HOURS", "12"))
 # Max stories built per run — keeps a single run inside LLM budgets.
 MAX_STORIES_PER_RUN = int(os.environ.get("MAX_STORIES_PER_RUN", "20"))
 # How far back Storyteller looks for a story to continue (match by event_id,
-# or legacy article-overlap). The feed itself only shows 7 days of stories and
-# an article candidate is never older than 7 days either, so a story untouched
-# for 3x that has no realistic new coverage to receive — bounding here avoids
-# reloading every story ever created (and parsing its article_ids/trend_ids
-# JSON) on every single run — a cost with no ceiling that grows as the story
-# table grows, and the prime suspect for a multi-minute memory climb observed
-# during pipeline runs on the 512MB instance (the per-event split means far
-# more story rows accumulate now than before it shipped).
-STORYTELLER_HISTORY_DAYS = float(os.environ.get("STORYTELLER_HISTORY_DAYS", "21"))
+# or legacy article-overlap). 7 days, matching every other retention constant
+# here (the feed itself, Foresight.WINDOW_DAYS, and the orphan-article query
+# just below) rather than some wider "just in case" margin — a story can only
+# ever receive a new article via a still-live trend (retired within a single
+# run once TrendLinker stops re-proposing it, so it can't sit dormant for
+# long while staying "live") or an orphan article (already hard-bounded to
+# fetched_at > now-7d), so nothing that could legitimately continue a story
+# falls outside this window. Bounding here avoids reloading every story ever
+# created (and parsing its article_ids/trend_ids JSON) on every single run —
+# a cost with no ceiling that grows as the story table grows, and the prime
+# suspect for a multi-minute memory climb observed during pipeline runs on
+# the 512MB instance (the per-event split means far more story rows
+# accumulate now than before it shipped).
+STORYTELLER_HISTORY_DAYS = float(os.environ.get("STORYTELLER_HISTORY_DAYS", "7"))
 
 # Global cap on REAL LLM calls per rolling minute, across every task and provider.
 # Protects free-tier RPM limits (Groq is 30/min) and bounds token burn. 0 = off.

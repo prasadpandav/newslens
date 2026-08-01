@@ -13,7 +13,7 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
                                Response)
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import config, db, llm, live, analytics, ranking, textmerge
+from . import config, db, diag, llm, live, analytics, ranking, textmerge
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant)
 from . import fulltext
@@ -59,6 +59,28 @@ async def _count_traffic(request: Request, call_next):
     return response
 
 
+# Request-level memory checkpointing. uvicorn's own access log (what you
+# already see: "GET /feed ... 200 OK") says a path returned 200 but nothing
+# about how long it took or what the process's memory looked like at the
+# time — the exact gap that made a SIGKILL undiagnosable. Only logs the
+# outliers (slow, or already running while memory is elevated); logging every
+# request would just bury the ones that matter.
+_SLOW_REQUEST_SECONDS = 1.0
+_ELEVATED_MEM_MB = 350   # ~70% of the 512MB ceiling
+
+
+@app.middleware("http")
+async def _log_heavy_requests(request: Request, call_next):
+    t0 = time.time()
+    response = await call_next(request)
+    dur = time.time() - t0
+    mem = diag.rss_mb()
+    if dur >= _SLOW_REQUEST_SECONDS or mem >= _ELEVATED_MEM_MB:
+        diag.checkpoint(f"request {request.method} {request.url.path} "
+                        f"dur={dur:.2f}s status={response.status_code}")
+    return response
+
+
 def _require_admin(authorization: str = "", token: str = ""):
     """Gate for /admin/*: the API is public, so admin actions (pipeline runs,
     intel wipes, usage internals) need ADMIN_TOKEN — via Authorization: Bearer
@@ -85,6 +107,11 @@ def guarded_run(stage: str | None = None):
 
 @app.on_event("startup")
 def _start():
+    # Unconditional RSS log every 30s — catches growth that isn't tied to any
+    # single stage/request boundary (e.g. many small requests each leaving a
+    # sliver behind). See diag.py for why this matters on a 512MB instance
+    # where an OOM-SIGKILL leaves no traceback.
+    diag.start_heartbeat()
     # Interval jobs otherwise fire first at startup+interval; with frequent redeploys
     # that clock keeps resetting and a run may never happen. Kick the first run ~2 min
     # after boot, then every interval. coalesce + a wide misfire grace mean a busy or
@@ -469,7 +496,9 @@ def personalize_story(story_id: str, user_id: str, authorization: str = Header("
     if not s:
         con.close()
         raise HTTPException(404, "story not found")
+    llm.set_context(f"request personalize story={story_id} user={user_id}")
     impact_text, impact_score = Personalizer().personalize(con, u, s)
+    llm.set_context("")
     con.close()
     return {"impact_text": impact_text, "impact_score": impact_score}
 
@@ -1017,11 +1046,15 @@ def admin_rebuild_intel(allow_mock: bool = False, token: str = "",
     def job():
         if not _pipeline_lock.acquire(blocking=False):
             return
+        llm.set_context("admin rebuild-intel")
+        diag.checkpoint("admin rebuild-intel start")
         try:
             _rebuild_intel()
         finally:
             gc.collect()   # reclaim any reference cycles from this batch before
                            # the next request runs on a 512MB instance
+            diag.checkpoint("admin rebuild-intel done")
+            llm.set_context("")
             _pipeline_lock.release()
 
     threading.Thread(target=job, daemon=True).start()
@@ -1342,10 +1375,12 @@ def admin_split_blob_stories(min_articles: int = config.STORY_SPLIT_MIN_ARTICLES
     def job():
         if not _pipeline_lock.acquire(blocking=False):
             return
+        diag.checkpoint("admin split-blob-stories start")
         try:
             con = db.connect()
             now = db.now()
             candidates = _blob_candidates(con, min_articles)
+            diag.checkpoint(f"admin split-blob-stories candidates={len(candidates)}")
             split_ct, created_ct = 0, 0
             for row, subjects in candidates:
                 created = _split_one_blob(con, row, subjects, now)
@@ -1364,6 +1399,7 @@ def admin_split_blob_stories(min_articles: int = config.STORY_SPLIT_MIN_ARTICLES
             # `candidates` alone can be hundreds of (row, subjects) tuples on a
             # blob-heavy DB — reclaim it before the next request runs.
             gc.collect()
+            diag.checkpoint("admin split-blob-stories done")
             _pipeline_lock.release()
 
     threading.Thread(target=job, daemon=True).start()
@@ -1412,6 +1448,8 @@ def admin_retell_stories(limit: int = 8, dry_run: bool = True,
     def job():
         if not _pipeline_lock.acquire(blocking=False):
             return
+        llm.set_context(f"admin retell-stories limit={limit}")
+        diag.checkpoint("admin retell-stories start")
         try:
             con2 = db.connect()
             verifier = Verifier()
@@ -1446,6 +1484,8 @@ def admin_retell_stories(limit: int = 8, dry_run: bool = True,
             # Each story here pulled in up to 4 full publisher pages (fulltext)
             # plus a merged brief — reclaim that before the next request runs.
             gc.collect()
+            diag.checkpoint("admin retell-stories done")
+            llm.set_context("")
             _pipeline_lock.release()
 
     threading.Thread(target=job, daemon=True).start()
