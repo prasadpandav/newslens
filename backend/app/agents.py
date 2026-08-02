@@ -322,6 +322,12 @@ def _verify_same_story(pairs):
     return accepted
 
 
+# Slack on top of the pairing window when deciding how far back assign_groups
+# reads. Covers clock skew and feed timestamps that run slightly ahead/behind,
+# so an article can never miss a partner it was genuinely eligible to pair with.
+GROUPING_MARGIN_HOURS = 12
+
+
 def assign_groups(con):
     """Group articles reporting the SAME event so the LLM stages process each
     real-world story ONCE instead of once per outlet.
@@ -333,24 +339,52 @@ def assign_groups(con):
     Every member is stamped with a shared group_id (the earliest member).
     Cross-source rows are kept — corroboration still counts distinct sources; only
     the redundant LLM work is removed."""
-    cutoff = db.now() - config.DEDUPE_WINDOW_DAYS * 86400
+    # Load only what can still form a NEW pair, not the whole retention window.
+    # textmerge.pair_score hard-rejects any pair more than DEDUPE_WINDOW_HOURS
+    # apart, and the newest article is at most INGEST_MAX_AGE_HOURS old, so
+    # nothing older than those combined (plus a margin) can group with anything
+    # this run ingested — it would only re-derive the group_id a previous run
+    # already stamped on it. That matters because group_articles costs
+    # SUPER-LINEAR memory in the number of rows handed to it (measured on real
+    # feed text: 250 rows -> 2.6MB, 1000 -> 11.7MB, 1902 -> 27.8MB, and far
+    # worse on repetitive corpora), so re-grouping a week of accumulated
+    # articles on every run is what turns a 512MB instance into an OOM kill.
+    # min() so a deployment that deliberately sets a SHORTER DEDUPE_WINDOW_DAYS
+    # still gets the shorter window.
+    span_hours = (config.DEDUPE_WINDOW_HOURS + config.INGEST_MAX_AGE_HOURS
+                  + GROUPING_MARGIN_HOURS)
+    cutoff = db.now() - min(config.DEDUPE_WINDOW_DAYS * 86400, span_hours * 3600)
     rows = con.execute(
-        "SELECT id, title, summary, source, published, fetched_at FROM articles "
+        "SELECT id, title, summary, source, published, fetched_at, group_id FROM articles "
         "WHERE fetched_at > ? ORDER BY fetched_at ASC", (cutoff,)).fetchall()
     if not rows:
         db.log_run(con, "dedupe", "ok", "no recent articles to group")
         return 0
     clusters, stats = textmerge.group_articles(rows, verify=_verify_same_story)
+    # EXTEND the groups earlier runs established rather than recomputing them
+    # from scratch. Required because the load window above is narrower than the
+    # pairing gate's reach: an article inside the window can have a partner just
+    # outside it, so blindly restamping rep=cluster[0] detaches it from its
+    # existing group and the one event becomes two stories (verified: it does).
+    # Rules: a lone article that already belongs somewhere is left attached; a
+    # cluster inherits the earliest established group id among its members, so
+    # new articles JOIN the running group instead of forking it; and a cluster
+    # spanning two established groups merges them under the earlier id.
+    prior = {r["id"]: (r["group_id"] or "") for r in rows}
     merged = 0
     for cluster in clusters:
-        rep = cluster[0]        # earliest member is the stable representative
+        established = [prior[a] for a in cluster if prior.get(a)]
+        if len(cluster) == 1 and established:
+            continue                      # already grouped; nothing new to say
+        rep = established[0] if established else cluster[0]
         for aid in cluster:
-            con.execute("UPDATE articles SET group_id=? WHERE id=?", (rep, aid))
+            if prior.get(aid) != rep:
+                con.execute("UPDATE articles SET group_id=? WHERE id=?", (rep, aid))
         merged += len(cluster) - 1
     con.commit()
     db.log_run(con, "dedupe", "ok",
-               f"{len(clusters)} groups from {len(rows)} articles, "
-               f"{merged} cross-source duplicates merged "
+               f"{len(clusters)} groups from {len(rows)} articles "
+               f"(last {span_hours:g}h), {merged} cross-source duplicates merged "
                f"({stats['borderline']} borderline, {stats['verified']} LLM-confirmed)")
     return merged
 

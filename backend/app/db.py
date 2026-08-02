@@ -58,6 +58,12 @@ CREATE INDEX IF NOT EXISTS visits_device ON visits(device);
 -- since it covers a column that doesn't exist in this CREATE TABLE.)
 CREATE INDEX IF NOT EXISTS stories_created ON stories(created_at);
 CREATE INDEX IF NOT EXISTS signals_created ON signals(created_at);
+-- `articles` had NO index beyond its id/url keys, so both of Scout's hot reads
+-- full-scanned the whole table: assign_groups' window read (once per run) and
+-- Scout._is_same_source_dup (once per INGESTED ENTRY — ~557 scans per run).
+-- Confirmed SCAN -> SEARCH on both with EXPLAIN QUERY PLAN.
+CREATE INDEX IF NOT EXISTS articles_fetched ON articles(fetched_at);
+CREATE INDEX IF NOT EXISTS articles_source_fetched ON articles(source, fetched_at);
 -- Pre-aggregated request counts: one row per (day, route), incremented in place.
 -- Keeps overall-traffic reporting O(days) instead of one row per request.
 CREATE TABLE IF NOT EXISTS traffic (

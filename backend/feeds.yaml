@@ -53,6 +53,8 @@ health:
   - https://feeds.bbci.co.uk/news/health/rss.xml
 india:
   - https://feeds.feedburner.com/ndtvnews-top-stories
+  - https://www.thehindubusinessline.com/rssfeeds/
   - https://www.thehindu.com/news/national/feeder/default.rss
+  - https://theprint.in/feed/
 energy:
   - https://www.rechargenews.com/rss
