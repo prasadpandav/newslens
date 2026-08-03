@@ -1154,7 +1154,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
    the journal skin pins its own palette against prefers-color-scheme.
    Only the FEED is ported — Saved/Read/Trends still render the older .scard,
    so Brief.card() is deliberately left intact. */
-.fx{
+.fx,.rx{
   --ink:#17150F; --ink-2:#4A4640; --mute:#7A756C; --faint:#9A958B; --ghost:#C0BAB0;
   --paper:#F7F4EE; --card:#FFFDF9; --sand:#EFE9DC; --sand-2:#C8B98F; --sand-ink:#8A7A4E;
   --rule:rgba(23,21,15,.09); --rule-2:rgba(23,21,15,.14);
@@ -1172,7 +1172,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
    mechanical inversion: paper goes to #12110F, the rail lifts to #171512, and
    the verdict hues desaturate so they stay separable on black. */
 @media (prefers-color-scheme:dark){
-  :root:not([data-skin]) .fx{
+  :root:not([data-skin]) :is(.fx,.rx){
     --ink:#F2EEE6; --ink-2:rgba(242,238,230,.82); --mute:rgba(247,244,238,.5);
     --faint:rgba(247,244,238,.4); --ghost:rgba(247,244,238,.25);
     --paper:#12110F; --card:#171512; --sand:#1E1B16; --sand-2:#C8B98F; --sand-ink:#C8B98F;
@@ -1355,6 +1355,188 @@ body:has(.fx) footer{color:#9A958B}
 .fx-row .fx-dek{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .fx-hero h2 a:hover,.fx-row:hover h3{text-decoration:underline;text-decoration-thickness:1px;
   text-underline-offset:3px;text-decoration-color:var(--ghost)}
+
+/* ============ Story reader: "the trust margin" (screen 1c) ============
+   Ported from `Descry Redesign.dc.html`. Four columns on paper: the beat rail,
+   the pinned visual, the article, and the margin.
+
+   The design's own framing is that verification is MARGINALIA — evidence sits
+   beside the prose rather than in a fact-check ghetto at the bottom. That is why
+   the old accordion is gone: collapsing "Claim check" into a drawer is exactly
+   the pattern this redesign exists to replace.
+
+   What is deliberately NOT rendered, because nothing produces it yet: the
+   per-beat chart ("chart built from primary filings"), the coloured underlines
+   ruled to individual sentences (needs claim->offset anchoring, phase 4),
+   "Listen 7:20" (no TTS) and "Read in मराठी" (no translation). Each is omitted
+   rather than mocked — a dead control that looks live is worse than its absence. */
+.rx{background:var(--paper);color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:auto;-moz-osx-font-smoothing:auto;
+  min-height:calc(100vh - var(--navh))}
+.rx a{color:inherit;text-decoration:none}
+.rx button{font-family:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+
+/* ---- top bar ---- */
+.rx-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:0 24px;height:52px;background:var(--card);
+  border-bottom:1px solid rgba(23,21,15,.1);position:sticky;top:var(--navh);z-index:20}
+.rx-bar .l,.rx-bar .r{display:flex;align-items:center;gap:16px;min-width:0}
+.rx-bar .r{gap:8px;flex:none}
+.rx-back{font:400 13px var(--sans);color:var(--mute);white-space:nowrap}
+.rx-back:hover{color:var(--ink)}
+.rx-vr{width:1px;height:16px;background:rgba(23,21,15,.12);flex:none}
+.rx-dev{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--bad);white-space:nowrap;flex:none}
+.rx-thread{font:400 12.5px var(--sans);color:var(--ink-2);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.rx-pill{display:flex;align-items:center;gap:7px;padding:5px 11px;
+  border:1px solid var(--rule-2);border-radius:100px;font:400 12px var(--sans);
+  color:var(--ink-2);white-space:nowrap}
+.rx-pill:hover{border-color:var(--ink)}
+.rx-pill .fx-pips i{width:11px;height:5px}
+.rx-pill .fx-tier{font-weight:500;font-size:11.5px}
+
+/* ---- the grid ---- */
+.rx-grid{display:grid;grid-template-columns:150px 386px minmax(0,1fr) 258px;
+  background:var(--paper);align-items:start}
+.rx-grid.no-art{grid-template-columns:150px minmax(0,1fr) 258px}
+
+/* ---- 1: beat rail ---- */
+.rx-rail{border-right:1px solid var(--rule);padding:30px 16px 26px;
+  position:sticky;top:calc(var(--navh) + 52px);display:flex;flex-direction:column;
+  justify-content:space-between;gap:26px;min-height:calc(100vh - var(--navh) - 52px)}
+.rx-rail .hd{font:400 9px var(--mono);letter-spacing:.16em;color:var(--faint);
+  margin-bottom:18px}
+.rx-beat{display:flex;gap:11px;width:100%;text-align:left}
+.rx-beat .gut{display:flex;flex-direction:column;align-items:center;flex:none}
+.rx-beat .pip{width:9px;height:9px;border-radius:50%;margin-top:5px;
+  border:1px solid rgba(23,21,15,.3);background:var(--paper);flex:none}
+.rx-beat .ln{width:1px;flex:1;background:rgba(23,21,15,.18)}
+.rx-beat:last-child .ln{display:none}
+.rx-beat .tx{padding-bottom:20px;min-width:0}
+.rx-beat .nm{display:block;font:400 12.5px/1.3 var(--sans);color:var(--mute)}
+.rx-beat .st{display:block;font:400 10px var(--mono);color:var(--faint);margin-top:3px}
+.rx-beat.done .pip{background:var(--ink);border-color:var(--ink)}
+.rx-beat.done .ln{background:var(--ink)}
+.rx-beat.on .pip{width:13px;height:13px;margin-top:3px;border:2px solid var(--ink);
+  background:var(--paper);display:flex;align-items:center;justify-content:center}
+.rx-beat.on .pip::after{content:"";width:5px;height:5px;border-radius:50%;background:var(--ink)}
+.rx-beat.on .ln{background:linear-gradient(var(--ink) 40%,rgba(23,21,15,.18) 40%)}
+.rx-beat.on .nm{font-weight:500;color:var(--ink)}
+.rx-beat.open .pip{border:1px dashed var(--bad);background:none}
+.rx-beat:hover .nm{color:var(--ink)}
+.rx-prog .rule{height:1px;background:rgba(23,21,15,.1);margin-bottom:14px}
+.rx-prog .pct{font:400 12px var(--sans);color:var(--ink);margin-bottom:4px}
+.rx-prog .left{font:400 10.5px var(--mono);color:var(--faint);margin-bottom:9px}
+.rx-prog .track{height:3px;border-radius:2px;background:rgba(23,21,15,.14);overflow:hidden}
+.rx-prog .track i{display:block;height:3px;border-radius:2px;background:var(--ink);width:0;
+  transition:width .2s linear}
+.rx-prog p{margin:12px 0 0;font:400 10.5px/1.5 var(--sans);color:var(--faint)}
+
+/* ---- 2: pinned visual ---- */
+.rx-pin{border-right:1px solid var(--rule);padding:30px 26px;
+  position:sticky;top:calc(var(--navh) + 52px)}
+.rx-pin .fx-lbl{margin-bottom:14px}
+.rx-pin figure{margin:0 0 10px}
+.rx-pin img{width:100%;height:288px;object-fit:cover;border-radius:6px;display:block;
+  background:var(--sand)}
+.rx-pin figcaption{margin:10px 0 0;font:400 11.5px/1.6 var(--sans);color:var(--mute)}
+
+/* ---- 3: the article ---- */
+.rx-art{padding:36px 40px 60px 38px;min-width:0}
+.rx-beatlbl{font:500 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--bad);margin-bottom:14px;scroll-margin-top:calc(var(--navh) + 70px)}
+.rx-art h1{margin:0 0 20px;font:300 42px/1.1 var(--serif);color:var(--ink);
+  letter-spacing:-.02em;text-wrap:pretty}
+.rx-by{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:28px;
+  font:400 12px var(--sans);color:var(--mute)}
+.rx-by .d{width:3px;height:3px;border-radius:50%;background:var(--ghost);flex:none}
+.rx-art p{margin:0 0 22px;font:300 19px/1.68 var(--serif);color:#3A342A;text-wrap:pretty}
+.rx-sec:first-of-type > p:first-of-type{font-size:20px;line-height:1.62;color:var(--ink)}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) .rx-art p{color:var(--ink-2)}
+}
+/* A claim the Verifier checked AND which appears verbatim in the prose. Only
+   exact matches are marked — a fuzzy match would put a verdict on a sentence
+   that never carried the claim, which is worse than no marking at all. */
+.rx-art mark{background:var(--sand);box-shadow:0 1px 0 var(--sand-2);color:inherit;
+  padding:0 1px}
+.rx-art mark.disputed{background:#F2E3DE;box-shadow:0 1px 0 #C79E92}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) .rx-art mark{background:#2A2419;box-shadow:0 1px 0 var(--sand-2)}
+  :root:not([data-skin]) .rx-art mark.disputed{background:#33211C;box-shadow:0 1px 0 var(--bad)}
+}
+.rx-sec{margin-bottom:34px}
+.rx-next{margin-top:34px;padding-top:22px;border-top:1px solid rgba(23,21,15,.11);
+  display:flex;align-items:center;justify-content:space-between;gap:14px}
+.rx-next .n{font:400 12px var(--mono);color:var(--faint)}
+.rx-next .go{font:400 12px var(--sans);color:var(--indigo)}
+.rx-src{display:flex;gap:10px;align-items:baseline;padding:9px 0;
+  border-top:1px solid var(--rule);font:400 13.5px var(--sans)}
+.rx-src:first-child{border-top:0}
+.rx-src .h{margin-left:auto;font:400 11px var(--mono);color:var(--faint);flex:none}
+.rx-src a{color:var(--indigo)}
+.rx-claim{padding:12px 0;border-top:1px solid var(--rule)}
+.rx-claim .v{font:500 10.5px var(--mono);letter-spacing:.06em;margin-bottom:5px}
+.rx-claim p{font:400 14.5px/1.55 var(--sans);color:var(--ink);margin:0 0 5px}
+.rx-claim .n{font:400 11.5px/1.5 var(--sans);color:var(--mute)}
+
+/* ---- 4: the margin ---- */
+.rx-margin{border-left:1px solid var(--rule);padding:36px 20px 96px;background:#F3EFE7;
+  position:sticky;top:calc(var(--navh) + 52px);max-height:calc(100vh - var(--navh) - 52px);
+  overflow-y:auto}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) .rx-margin{background:#171512}
+}
+.rx-margin > p.sub{margin:0 0 24px;font:400 11px/1.55 var(--sans);color:var(--faint)}
+.rx-note{display:flex;gap:8px;margin-bottom:22px}
+.rx-note .tick{width:14px;height:1px;margin-top:9px;flex:none;background:var(--mute)}
+.rx-note.ok .tick{background:var(--good)} .rx-note.mid .tick{background:var(--mid)}
+.rx-note.bad .tick{background:var(--bad)}
+.rx-note .v{font:500 10.5px var(--mono);letter-spacing:.06em;margin-bottom:5px}
+.rx-note.ok .v{color:var(--good)} .rx-note.mid .v{color:var(--mid)}
+.rx-note.bad .v{color:var(--bad)}
+.rx-note p{margin:0 0 7px;font:400 12.5px/1.55 var(--sans);color:#3A342A}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-note p{color:var(--ink-2)}}
+.rx-note .m{font:400 10.5px/1.5 var(--mono);color:var(--faint)}
+.rx-hr{height:1px;background:rgba(23,21,15,.1);margin:26px 0 20px}
+.rx-from{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.rx-from div{display:flex;justify-content:space-between;gap:10px;
+  font:400 12px var(--sans);color:#3A342A}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-from div{color:var(--ink-2)}}
+.rx-from span:last-child{font-family:var(--mono);color:var(--mute)}
+.rx-from div.interested span:last-child{color:var(--mid)}
+.rx-link{font:400 12px var(--sans);color:var(--indigo);text-decoration:underline;
+  text-underline-offset:3px}
+.rx-you{padding:16px;background:var(--card);border:1px solid rgba(23,21,15,.11);
+  border-radius:8px;margin-top:26px}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-you{border-color:var(--rule)}}
+.rx-you .fx-lbl{color:var(--sand-ink);margin-bottom:8px}
+.rx-you p{margin:0 0 12px;font:400 13px/1.6 var(--sans);color:#3A342A;text-wrap:pretty}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-you p{color:var(--ink-2)}}
+
+/* ---- responsive: 1h folds the margin into a pull-up sheet; here it stacks ---- */
+@media (max-width:1220px){
+  .rx-grid,.rx-grid.no-art{grid-template-columns:150px minmax(0,1fr) 258px}
+  .rx-pin{grid-column:1/-1;grid-row:2;border-right:0;position:static;
+    border-top:1px solid var(--rule);display:grid;
+    grid-template-columns:minmax(0,386px) minmax(0,1fr);gap:26px;align-items:start}
+  .rx-pin img{height:220px}
+}
+@media (max-width:900px){
+  .rx-grid,.rx-grid.no-art{grid-template-columns:minmax(0,1fr)}
+  .rx-rail{position:static;border-right:0;border-bottom:1px solid var(--rule);
+    min-height:0;flex-direction:row;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .rx-rail .beats{display:flex;gap:18px;flex-wrap:wrap}
+  .rx-beat .ln{display:none}
+  .rx-beat .tx{padding-bottom:0}
+  .rx-prog{min-width:170px}
+  .rx-pin{grid-column:auto;grid-row:auto;grid-template-columns:minmax(0,1fr);padding:24px 20px}
+  .rx-art{padding:28px 20px 50px}
+  .rx-art h1{font-size:32px}
+  .rx-margin{position:static;max-height:none;border-left:0;
+    border-top:1px solid var(--rule);overflow:visible}
+}
 
 /* ---- responsive (screen 1h collapses to one column at 390) ---- */
 @media (max-width:1180px){
@@ -1858,6 +2040,8 @@ document.addEventListener('click', e=>{
     case 'fx-sort': S.fxsort = (S.fxsort === el.dataset.mode) ? '' : el.dataset.mode;
       Brief.render(); break;
     case 'fx-clear': S.fxsort = ''; S.topic = 'all'; Brief.render(); break;
+    case 'rx-beat': { const t = document.getElementById('beat-'+el.dataset.to);
+      if (t) t.scrollIntoView({behavior:'smooth', block:'start'}); } break;
     case 'fx-follow': Follow.toggle(el.dataset.id); Brief.render(); break;
     case 'fx-unfollow': Follow.toggle(el.dataset.id); Brief.render(); break;
     case 'fx-impact': fxImpact(el.dataset.id, el); break;
@@ -2775,87 +2959,243 @@ async _render(id){
   // Multi-paragraph storylines render as real paragraphs, not one wall of text.
   const paraHTML = t => String(t||'').split(/\n+/).filter(Boolean)
     .map(p=>`<p>${esc(p)}</p>`).join('') || `<p>${esc(t||'')}</p>`;
-  const modules = [
-    ['what','What happened',cssVar('--accent'), paraHTML(what)],
-    ['why','Why it matters',cssVar('--warn'), paraHTML(why)],
-    // Personalized take sits right after what → why, as its own collapsible card
-    // (collapsed by default), mirroring the iOS story reader. Guests see the card
-    // too — locked, not hidden — because a feature nobody knows exists can't
-    // persuade anyone to sign up.
-    ['foryou','What this means for you',cssVar('--accent'),
-      s.impact_text
-        ? Story.personalizeHTML(s.impact_text)
-        // Computed on demand, not proactively for every reader on every story —
-        // see POST /story/{id}/personalize, fired from Story.toggle() the
-        // moment this module is actually opened. Three different reasons
-        // impact_text can be empty, and they need three different answers.
-        // Only an unconfigured account is "locked"; a configured one either
-        // hasn't opened this yet (loading) or genuinely has nothing here.
-        : signedIn() && hasLens()
-          ? `<div id="foryou-body"><p style="font-size:14px;color:var(--text-2)">Finding your angle on this story…</p></div>`
-          : lockedHTML('personalize',
-              'Descry can explain what this story means for your job, city and interests.',
-              `<p>${esc(String(what).slice(0,150))}…</p>`)],
-    s.trends?.length ? ['big','The bigger picture',cssVar('--predict'),
-      s.trends.map(t=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">
-        <div style="flex:1"><b style="color:var(--text);font-size:14px">${esc(cleanName(t.name))} ${t.kind==='micro'?'<span class="chip ai" style="font-size:10px">EARLY SIGNAL</span>':''}</b>
-        <div style="font-size:13px">${esc(t.narrative)}</div></div></div>`).join('')] : null,
-    // Guests see that N connections were found and a blurred sample; the chains
-    // (the actual insight) need an account.
-    s.connections?.length ? ['conn','Hidden connections',cssVar('--ai-2'),
-      signedIn()
-        ? `<p style="font-size:12.5px;margin-bottom:12px">AI-inferred hypotheses — links that aren't obvious but may matter. Treat as leads, not facts.</p>`+
-          s.connections.map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
-            <div class="ch">${esc(c.chain)}</div><div class="cf">confidence ${Math.round(c.confidence*100)}%</div></div>`).join('')
-        // The chain isn't in `c` for guests (the server withholds it), so the
-        // teaser shows only WHICH stories are linked — the pull is finding out why.
-        : lockedHTML('connections',
-            `Descry found ${s.connections.length} link${s.connections.length===1?'':'s'} between this and other stories.`,
-            s.connections.slice(0,2).map(c=>`<div class="connection"><div class="oth">↔ ${esc(c.other_title)}</div>
-              <div class="ch">Descry traced how this connects — sign in to read the reasoning.</div></div>`).join(''))] : null,
-    ['verify','Claim check',cssVar('--trust'), this.claims(s)],
-    s.sources?.length ? ['src','Sources','#9AA5B8',
-      s.sources.map(x=>`<div class="srcrow"><span class="dot"></span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title||x.url)}</a><span class="host">${esc(x.source||'')}</span></div>`).join('')] : null
-  ].filter(Boolean);
+  // The Verifier's per-claim results drive both the margin and the "What's
+  // disputed" beat. Shape: [{claim, verdict: corroborated|unverified|disputed, note}].
+  const verdicts = ((s.claims && s.claims.verdicts) || []).filter(v=>v && v.claim);
+  // Same test the feed uses: Storyteller updates a story in place when new
+  // articles land on the same event, so updated_at pulling away from created_at
+  // means the storyline moved after it was first told.
+  const developing = ((s.updated_at||0) - (s.created_at||0)) > 3600;
+  // ---- Beats. Named sections of what we actually have, which is exactly what
+  // the design asks for now that "Act I/II/III of IV" was replaced by story
+  // beats. No invented structure: a beat appears only when its content does.
+  const disputed = verdicts.filter(v=>/disput|unverif/i.test(v.verdict||''));
+  const beats = [];
+  beats.push({id:'what', label:'What happened', body: paraHTML(what), claims:true});
+  if (why) beats.push({id:'why', label:'Why it matters', body: paraHTML(why)});
+  if (disputed.length) beats.push({id:'disputed', label:"What's disputed",
+    body: disputed.map(v=>`<div class="rx-claim">
+      <div class="v ${/disput/i.test(v.verdict)?'fx-mid':'fx-bad'}">${
+        /disput/i.test(v.verdict)?'DISPUTED':'UNPROVEN'}</div>
+      <p>${esc(v.claim||'')}</p>${v.note?`<div class="n">${esc(v.note)}</div>`:''}</div>`).join('')});
+  if (s.trends?.length) beats.push({id:'big', label:'The bigger picture',
+    body: s.trends.map(t=>`<div class="rx-claim"><p>${esc(cleanName(t.name))}</p>
+      <div class="n">${esc(t.narrative||'')}</div></div>`).join('')});
+  if (s.connections?.length) beats.push({id:'conn', label:'Hidden connections',
+    body: signedIn()
+      ? s.connections.map(c=>`<div class="rx-claim"><p>↔ ${esc(c.other_title)}</p>
+          <div class="n">${esc(c.chain)} · confidence ${Math.round((c.confidence||0)*100)}%</div></div>`).join('')
+      : lockedHTML('connections',
+          `Descry found ${s.connections.length} link${s.connections.length===1?'':'s'} between this and other stories.`,
+          s.connections.slice(0,2).map(c=>`<div class="rx-claim"><p>↔ ${esc(c.other_title)}</p>
+            <div class="n">Sign in to read the reasoning.</div></div>`).join(''))});
+  if (s.sources?.length) beats.push({id:'src', label:'Where this came from',
+    body: s.sources.map(x=>`<div class="rx-src">
+      <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title||x.url)}</a>
+      <span class="h">${esc(x.source||'')}</span></div>`).join('')});
+  if (developing) beats.push({id:'open', label:'Still unfolding', open:true,
+    body: `<p>This story is still being reported. Descry retells it as new outlets
+      publish, and the corroboration score moves with them — it was last updated
+      ${esc(FX.ago(s.updated_at || s.created_at))}.</p>`});
+
+  // ---- The margin: one note per checked claim. Real per-claim evidence, but
+  // NOT ruled to a specific line — nothing anchors a claim to a sentence yet,
+  // and drawing a rule to the wrong line would be a lie about our own evidence.
+  const TONE = {corroborated:['ok','VERIFIED'], disputed:['mid','CONTESTED'],
+                unverified:['bad','UNVERIFIED']};
+  const notes = verdicts.map(v=>{
+    const key = /corrob/i.test(v.verdict||'') ? 'corroborated'
+              : /disput/i.test(v.verdict||'') ? 'disputed' : 'unverified';
+    const [tone, lbl] = TONE[key];
+    return `<div class="rx-note ${tone}"><div class="tick"></div><div>
+      <div class="v">${lbl}</div>
+      <p>${esc(v.claim||'')}</p>
+      ${v.note?`<div class="m">${esc(v.note)}</div>`:''}</div></div>`;
+  }).join('');
+
+  // "Where it's coming from" — real, from the source-kind axis in sources.yaml.
+  const KINDS = [['primary','Primary documents'], ['newsroom','Independent newsrooms'],
+                 ['trade','Vendor / interested party'], ['aggregator','Aggregators'],
+                 ['unknown','Unclassified']];
+  const kinds = s.source_kinds || {};
+  const fromHTML = KINDS.filter(([k])=>kinds[k]).map(([k,label])=>
+    `<div class="${k==='trade'?'interested':''}"><span>${label}</span><span>${kinds[k]}</span></div>`).join('');
+
+  const city = (S.ctx && S.ctx.location &&
+    (S.ctx.location.city || S.ctx.location.region)) || '';
+  const youBody = s.impact_text
+    ? `<p>${esc(s.impact_text)}</p>`
+    : signedIn() && hasLens()
+      ? `<div id="foryou-body"><p>Finding your angle on this story…</p></div>`
+      : `<p>Descry can explain what this story means for your job, city and interests.</p>
+         <button class="rx-link" data-act="${signedIn()?'personalize':'unlock-foryou'}"
+           >Set up your lens →</button>`;
+
   $('#view').innerHTML = `
-  <div class="wrap reader">
-    <div class="crumb rise"><a href="/">← Feed</a> · <span class="chip">${esc(topicLabel(s.topic))}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
-    <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
-    ${s.image_url?`<div class="sherowrap rise" style="animation-delay:.05s">
-      <img class="shero" src="${esc(s.image_url)}" alt="" decoding="async" referrerpolicy="no-referrer">
-      <div class="cap">Photo via the outlets listed under Sources</div></div>`:''}
-    <div class="readerbar rise" style="animation-delay:.06s">
-      <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
-      <button class="btn ghost sm" data-act="copylink" data-kind="story" data-id="${esc(s.id)}">🔗 Copy link</button>
+  <div class="rx">
+    <div class="rx-bar">
+      <div class="l">
+        <a class="rx-back" href="/">← Feed</a>
+        <span class="rx-vr"></span>
+        ${developing ? '<span class="rx-dev">Developing story</span>' : ''}
+        <span class="rx-thread">${esc(cleanName(s.trends?.[0]?.name) || topicLabel(s.topic))}</span>
+      </div>
+      <div class="r">
+        <span class="rx-pill" title="${esc(s.credibility_note||'')}">${FX.scale(s, true)}</span>
+        <button class="rx-pill savebtn" data-act="save" id="savebtn">Save</button>
+        <button class="rx-pill" data-act="copylink" data-kind="story" data-id="${esc(s.id)}">Copy link</button>
+      </div>
     </div>
-    <div class="trustdial glass rise" style="animation-delay:.12s">${ring(s.credibility||0)}
-      <div class="info"><div class="lbl">Corroboration score</div><div class="note">${esc(s.credibility_note||'')}</div></div></div>
-    <div class="uprog" id="uprog" role="progressbar" aria-label="Story understanding"
-         aria-valuemin="0" aria-valuemax="100" aria-valuenow="10">
-      <span class="ulbl">Understanding</span>
-      <div class="utrack"><i></i></div>
-      <span class="upct" id="upct">10%</span>
+
+    <div class="rx-grid${s.image_url?'':' no-art'}">
+      <aside class="rx-rail">
+        <div>
+          <div class="hd">THE STORY</div>
+          <div class="beats">${beats.map((b,i)=>`
+            <button class="rx-beat${i===0?' on':''}${b.open?' open':''}" data-act="rx-beat" data-to="${b.id}">
+              <span class="gut"><span class="pip"></span><span class="ln"></span></span>
+              <span class="tx"><span class="nm">${esc(b.label)}</span>${
+                b.open?'<span class="st">open</span>':i===0?'<span class="st">you are here</span>':''}</span>
+            </button>`).join('')}</div>
+        </div>
+        <div class="rx-prog">
+          <div class="rule"></div>
+          <div class="pct" id="rx-pct">0% through</div>
+          <div class="left" id="rx-left">${FX.mins(s)} min left</div>
+          <div class="track"><i id="rx-bar"></i></div>
+          ${developing?'<p>This story is still open. The last beat will grow.</p>':''}
+        </div>
+      </aside>
+
+      ${s.image_url?`<aside class="rx-pin">
+        <span class="fx-lbl">Pinned to this beat</span>
+        <figure><img src="${esc(s.image_url)}" alt="" decoding="async" referrerpolicy="no-referrer">
+          <figcaption>Photo via the outlets listed under “Where this came from”.</figcaption></figure>
+      </aside>`:''}
+
+      <article class="rx-art" id="rx-art">
+        <h1>${esc(s.headline)}</h1>
+        <div class="rx-by"><span>By the Descry desk</span><span class="d"></span>
+          <span>${new Date((s.created_at||0)*1000).toLocaleDateString('en-GB',
+            {day:'numeric',month:'short',year:'numeric'})}</span>
+          ${told?`<span class="d"></span><span title="${esc(told.full)}">last told ${esc(told.rel)}</span>`:''}
+        </div>
+        ${beats.map((b,i)=>`<section class="rx-sec" id="beat-${b.id}">
+          <div class="rx-beatlbl">${esc(b.label)}</div>
+          ${b.claims ? Story.markClaims(b.body, verdicts) : b.body}
+          ${i < beats.length-1 ? `<div class="rx-next">
+            <span class="n">Next — ${esc(beats[i+1].label.toLowerCase())}</span>
+            <button class="go" data-act="rx-beat" data-to="${beats[i+1].id}">Continue ↓</button>
+          </div>` : ''}
+        </section>`).join('')}
+        <div id="endcta"></div>
+      </article>
+
+      <aside class="rx-margin">
+        <span class="fx-lbl">The margin</span>
+        <p class="sub">Evidence for what you're reading. ${notes
+          ? 'Every claim we checked, with the verdict.' : ''}</p>
+        ${notes || `<p class="sub">No claims were checked on this story.</p>`}
+        ${fromHTML ? `<div class="rx-hr"></div>
+          <span class="fx-lbl" style="margin-bottom:12px">Where it's coming from</span>
+          <div class="rx-from">${fromHTML}</div>` : ''}
+        ${disputed.length||s.sources?.length ? `<button class="rx-link" data-act="rx-beat"
+           data-to="${disputed.length?'disputed':'src'}">Open the full evidence panel →</button>` : ''}
+        <div class="rx-you">
+          <span class="fx-lbl">${city?`For you, in ${esc(city)}`:'What this means for you'}</span>
+          ${youBody}
+        </div>
+      </aside>
     </div>
-    <div id="mods">${modules.map((m,i)=>`
-      <div class="module glass${m[0]==='what'?' open':''}" id="mod-${m[0]}">
-        <button class="mhead" onclick="Story.toggle('${m[0]}',${modules.length})" aria-expanded="${m[0]==='what'}">
-          <span class="ic" style="background:${m[2]}1c;color:${m[2]}">${ICONS[m[0]]||ICONS.what}</span>
-          <h3>${m[1]}</h3>
-          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
-        </button>
-        <div class="mbody"><div class="minner">${m[3]}</div></div>
-      </div>`).join('')}
-    </div>
-    <div id="endcta"></div>
   </div>`;
   $('#fab').classList.remove('hidden');
   this.renderSaveBtn();
   if (wall) { Gate.require('read'); return; }   // metered: teaser + sign-in wall
-  // "What happened" is already open in the markup (it is the story itself, and
-  // the reader shouldn't have to click to read it) — so only credit it toward
-  // the understanding meter. Calling toggle() here would close it.
-  this.markOpened('what', modules.length);
+  // Progress is measured by mountReader from actual scrolling now — the old
+  // accordion "understanding meter" counted modules opened, which measured
+  // clicking rather than reading, and the beats are no longer collapsible.
+  this.mountReader(s, beats);
 },
+/* Mark up claims that the Verifier checked AND which appear VERBATIM in the
+   prose. The design underlines the exact sentence a margin note belongs to;
+   nothing anchors a claim to an offset yet (that is phase 4 — having the claims
+   prompt return the span it drew from), so the only honest anchoring available
+   is an exact string match. A claim the LLM paraphrased simply isn't marked,
+   which is the right failure: a fuzzy match would colour a sentence that never
+   carried the claim, putting our verdict on someone else's words.
+   `html` is already escaped by paraHTML, so the needle is escaped to match. */
+markClaims(html, verdicts){
+  let out = html;
+  (verdicts || []).slice()
+    .sort((a,b)=>String(b.claim||'').length - String(a.claim||'').length)
+    .forEach(v=>{
+      const needle = esc(String(v.claim||'').trim());
+      if (needle.length < 24 || out.indexOf(needle) === -1) return;
+      const cls = /disput|unverif/i.test(v.verdict||'') ? ' class="disputed"' : '';
+      out = out.split(needle).join(`<mark${cls}>${needle}</mark>`);
+    });
+  return out;
+},
+
+/* Reading progress and the beat rail.
+   Progress is REAL scroll position through the article, not a count of opened
+   accordions — the old "understanding %" measured clicking, which is not the
+   same as reading. It is throttled and persisted to POST /read/progress, which
+   is what lets Saved say "you stopped at 'Why it matters'" and lets the Read
+   screen distinguish finishing from abandoning. */
+mountReader(s, beats){
+  const art = $('#rx-art'); if (!art) return;
+  const pct = $('#rx-pct'), left = $('#rx-left'), bar = $('#rx-bar');
+  const rail = [...document.querySelectorAll('.rx-beat')];
+  const secs = beats.map(b=>document.getElementById('beat-'+b.id));
+  const words = ((s.narrative||'') + ' ' + (s.why_matters||'')).split(/\s+/).length;
+  let best = 0, saved = 0, raf = 0;
+
+  const onScroll = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      // 0 when the article's top is at the top of the viewport, 1 when its last
+      // line clears the fold. Denominator is height MINUS a viewport because the
+      // final screenful needs no scrolling to be read; a story shorter than the
+      // viewport is therefore already fully read.
+      const r = art.getBoundingClientRect();
+      const h = r.height - innerHeight;
+      const p = h > 0 ? Math.min(1, Math.max(0, -r.top / h)) : 1;
+      if (p > best) best = p;
+      const shown = Math.round(best * 100);
+      if (pct) pct.textContent = shown + '% through';
+      if (bar) bar.style.width = shown + '%';
+      if (left) { const m = Math.max(0, Math.round(words * (1 - best) / 200));
+        left.textContent = m ? m + ' min left' : 'done'; }
+      // Which beat is under the reading line (a third down the viewport).
+      let cur = 0;
+      secs.forEach((el, i) => { if (el && el.getBoundingClientRect().top < innerHeight * 0.34) cur = i; });
+      rail.forEach((el, i) => {
+        el.classList.toggle('on', i === cur);
+        el.classList.toggle('done', i < cur);
+        const st = el.querySelector('.st');
+        if (st && !beats[i].open) st.textContent = i === cur ? 'you are here' : i < cur ? 'read' : '';
+      });
+      // Persist sparingly: every 10 points of progress, not every frame.
+      if (signedIn() && best - saved >= 0.1) {
+        saved = best;
+        api(`/read/progress?user_id=${S.creds.user_id}&story_id=${encodeURIComponent(s.id)}`
+            + `&progress=${best.toFixed(2)}`, {method:'POST'}).catch(()=>{});
+      }
+      if (best >= 0.9 && !S.opened.has('_done')) {
+        S.opened.add('_done'); S.eng.understood++; saveEng(); this.endCTA();
+      }
+    });
+  };
+  // Replaced on every render, so the previous story's listener is never left
+  // attached to a page it no longer describes.
+  if (this._onScroll) removeEventListener('scroll', this._onScroll);
+  this._onScroll = onScroll;
+  addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+},
+
 renderSaveBtn(){
   const b=$('#savebtn'); if(!b) return;
   const on = S.currentStory && S.saved.has(S.currentStory.id);
