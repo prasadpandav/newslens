@@ -173,8 +173,7 @@
   --chip-blue:#2E4A7D; --chip-green:#3F6B4A; --chip-amber:#A9741C;
   --chip-red:#9B3F30; --chip-purple:#2E4A7D;
 }
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]){
+:root[data-mode="dark"]:not([data-skin]){
     --bg:#0E0D0B; --bg-2:#171512; --surface:#171512;
     --surface-2:#1E1B16; --border:rgba(247,244,238,.12); --border-2:rgba(247,244,238,.24);
     --text:#F2EEE6; --text-2:rgba(242,238,230,.82); --text-3:rgba(247,244,238,.5);
@@ -187,7 +186,6 @@
     --track:rgba(247,244,238,.14);
     --chip-blue:#9DB4DC; --chip-green:#7AA884; --chip-amber:#D2A54F;
     --chip-red:#C87F6A; --chip-purple:#9DB4DC;
-  }
 }
 /* --- the override layer: components that do NOT read tokens ---
    Same three offenders the Journal/Signal skins had to handle (hardcoded radii,
@@ -1135,6 +1133,27 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .toast.on{opacity:1;transform:translateX(-50%)}
 footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12.5px}
 
+/* ---- light / dark toggle (nav) ----
+   Drawn in the design's own vocabulary: a hairline pill, one ink-filled knob,
+   no gradient and no shadow. The knob slides under whichever icon is active and
+   both glyphs stay visible, so the control reads as a state rather than a
+   mystery button. Always present, signed in or out. */
+.modetoggle{padding:0;background:none;border:0;cursor:pointer;flex:none;line-height:0}
+.mt-track{position:relative;display:inline-flex;align-items:center;gap:4px;
+  padding:3px;border-radius:100px;border:1px solid var(--border-2);background:var(--bg)}
+.mt-ic{position:relative;z-index:1;width:15px;height:15px;display:block;margin:3px;
+  color:var(--text-3);transition:color .25s var(--ease)}
+.mt-knob{position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;
+  background:var(--text);transition:transform .28s var(--ease);z-index:0}
+.modetoggle.on .mt-knob{transform:translateX(23px)}
+.modetoggle:not(.on) .mt-ic.sun{color:var(--bg)}
+.modetoggle.on .mt-ic.moon{color:var(--bg)}
+.modetoggle:hover .mt-track{border-color:var(--text-3)}
+.modetoggle:focus-visible .mt-track{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:500px){ .mt-ic{width:13px;height:13px;margin:2px}
+  .mt-knob{width:17px;height:17px} .modetoggle.on .mt-knob{transform:translateX(19px)} }
+
+
 /* ============ Feed: "the annotated manuscript" ============
    Ported from the design project `Descry Redesign.dc.html`, screen 1b ("Home —
    your feed, with evidence on the surface"). Values below are the design's own,
@@ -1171,15 +1190,13 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 /* "Night desk" (screen 1i) — the design's own evening palette, not a
    mechanical inversion: paper goes to #12110F, the rail lifts to #171512, and
    the verdict hues desaturate so they stay separable on black. */
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) :is(.fx,.rx){
+:root[data-mode="dark"]:not([data-skin]) :is(.fx,.rx){
     --ink:#F2EEE6; --ink-2:rgba(242,238,230,.82); --mute:rgba(247,244,238,.5);
     --faint:rgba(247,244,238,.4); --ghost:rgba(247,244,238,.25);
     --paper:#12110F; --card:#171512; --sand:#1E1B16; --sand-2:#C8B98F; --sand-ink:#C8B98F;
     --rule:rgba(247,244,238,.12); --rule-2:rgba(247,244,238,.18);
     --indigo:#9DB4DC;
     --good:#7AA884; --mid:#D2A54F; --bad:#C87F6A;
-  }
 }
 .fx a{color:inherit;text-decoration:none}
 .fx button{font-family:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
@@ -1211,7 +1228,10 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 /* ---- left rail: the lens ---- */
 .fx-chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
 .fx-chip{padding:5px 10px;border-radius:100px;background:var(--sand);
-  font:400 11.5px var(--sans);color:var(--ink-2);white-space:nowrap}
+  font:400 11.5px var(--sans);color:var(--ink-2);white-space:nowrap;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.fx-chip.more{background:none;border:1px dashed var(--rule-2);color:var(--mute)}
+.fx-chip.more:hover{border-color:var(--ink);color:var(--ink)}
 button.fx-chip:hover{background:var(--sand-2);color:var(--ink)}
 button.fx-chip.on{background:var(--ink);color:var(--card)}
 .fx-link{font:400 12px var(--sans);color:var(--indigo);
@@ -1238,7 +1258,7 @@ button.fx-chip.on{background:var(--ink);color:var(--card)}
 .fx-head h1{margin:0;font:400 25px var(--serif);color:var(--ink)}
 .fx-hero{background:var(--card);border:1px solid rgba(23,21,15,.11);border-radius:8px;
   overflow:hidden;margin-bottom:26px}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .fx-hero{border-color:var(--rule)}}
+:root[data-mode="dark"]:not([data-skin]) .fx-hero{border-color:var(--rule)}
 .fx-hero-media{display:block;height:236px;background:var(--sand)}
 .fx-hero-media img{width:100%;height:100%;object-fit:cover;display:block}
 .fx-hero-in{padding:22px 26px 24px}
@@ -1258,7 +1278,7 @@ button.fx-chip.on{background:var(--ink);color:var(--card)}
 .fx-stat .v b{font-weight:600}
 .fx-stat .v .sub{color:var(--mute)}
 .fx-div{width:1px;height:34px;background:rgba(23,21,15,.1);flex:none}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .fx-div{background:var(--rule)}}
+:root[data-mode="dark"]:not([data-skin]) .fx-div{background:var(--rule)}
 .fx-why{display:flex;gap:14px;padding:15px 18px;background:var(--sand);border-radius:6px}
 .fx-why .bar{width:2px;border-radius:2px;background:var(--sand-2);flex:none}
 .fx-why .fx-lbl{color:var(--sand-ink);margin-bottom:6px}
@@ -1269,7 +1289,7 @@ button.fx-chip.on{background:var(--ink);color:var(--card)}
 
 .fx-listhead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 .fx-listhead .rule{flex:1;height:1px;background:rgba(23,21,15,.1)}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .fx-listhead .rule{background:var(--rule)}}
+:root[data-mode="dark"]:not([data-skin]) .fx-listhead .rule{background:var(--rule)}
 .fx-row{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:22px;padding:20px 0;
   border-bottom:1px solid var(--rule)}
 .fx-row.noimg{grid-template-columns:minmax(0,1fr)}
@@ -1303,9 +1323,7 @@ button.fx-chip.on{background:var(--ink);color:var(--card)}
   font:400 12px var(--sans);color:rgba(247,244,238,.55)}
 .fx-ask .go:hover{background:rgba(247,244,238,.16);color:#F7F4EE}
 .fx-ask .go .arrow{color:var(--sand-2)}
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) .fx-ask{background:#1E1B16;border:1px solid var(--rule)}
-}
+:root[data-mode="dark"]:not([data-skin]) .fx-ask{background:#1E1B16;border:1px solid var(--rule)}
 .fx-sigs{display:flex;flex-direction:column;gap:14px;margin-top:14px}
 .fx-sig{display:block;width:100%;text-align:left}
 .fx-sig .t{display:block;font:400 12.5px/1.5 var(--sans);color:var(--ink)}
@@ -1314,25 +1332,24 @@ button.fx-chip.on{background:var(--ink);color:var(--card)}
 .fx-foot{margin-top:24px;font:400 11px/1.6 var(--mono);color:var(--faint)}
 .fx-empty{font:400 13.5px/1.65 var(--sans);color:var(--mute)}
 
-/* ---- the design's own nav (screen 1b), scoped so other routes keep theirs ---- */
-body:has(.fx) nav{background:var(--card,#FFFDF9);backdrop-filter:none;
-  border-bottom:1px solid rgba(23,21,15,.1)}
-body:has(.fx) nav .links a{font:400 13.5px 'IBM Plex Sans',system-ui,sans-serif;
-  color:#7A756C;border-radius:0;padding:7px 0;background:none}
-body:has(.fx) nav .links{gap:22px;margin-left:32px}
-body:has(.fx) nav .links a.active{color:#17150F;font-weight:500;background:none;
-  border-bottom:1.5px solid #17150F}
-body:has(.fx) .searchbtn{border-radius:100px;background:#F7F4EE;
-  border:1px solid rgba(23,21,15,.14);font:400 13px 'IBM Plex Sans',sans-serif;color:#9A958B}
-body:has(.fx) .searchbtn kbd{font-family:'IBM Plex Mono',monospace;background:none;
-  border:0;color:#9A958B}
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) body:has(.fx) nav{background:#171512;border-bottom-color:rgba(247,244,238,.12)}
-  :root:not([data-skin]) body:has(.fx) nav .links a{color:rgba(247,244,238,.5)}
-  :root:not([data-skin]) body:has(.fx) nav .links a.active{color:#F2EEE6;border-bottom-color:#F2EEE6}
-  :root:not([data-skin]) body:has(.fx) .searchbtn{background:#12110F;
-    border-color:rgba(247,244,238,.14);color:rgba(247,244,238,.45)}
-}
+/* ---- the design's nav (screen 1b) ----
+   Applied to EVERY route, not just the feed. It was scoped to `body:has(.fx)`
+   while only the feed was ported, which left Trends/Saved/Read/Profile showing
+   the old rounded-pill active state — two different nav designs depending on
+   where you happened to be. The nav is one component; it gets one look. */
+:root:not([data-skin]) nav{background:var(--bg-2);backdrop-filter:none;
+  border-bottom:1px solid var(--border)}
+:root:not([data-skin]) nav .links{gap:22px;margin-left:32px}
+:root:not([data-skin]) nav .links a{font:400 13.5px var(--font-ui);
+  color:var(--text-3);border-radius:0;padding:7px 0;background:none;
+  border-bottom:1.5px solid transparent}
+:root:not([data-skin]) nav .links a:hover{color:var(--text);background:none}
+:root:not([data-skin]) nav .links a.active{color:var(--text);font-weight:500;
+  background:none;border-bottom-color:var(--text)}
+:root:not([data-skin]) .searchbtn{border-radius:100px;background:var(--bg);
+  border:1px solid var(--border-2);font:400 13px var(--font-ui);color:var(--text-3)}
+:root:not([data-skin]) .searchbtn kbd{font-family:var(--font-mono);background:none;
+  border:0;color:var(--text-3)}
 
 /* The feed owns the whole viewport while it is mounted: the design's outer
    stock is #E8E4DB with the columns floated on #F7F4EE, and the app's default
@@ -1342,9 +1359,7 @@ body:has(.fx){background:#E8E4DB}
 body:has(.fx)::before{display:none}
 body:has(.fx) footer{color:#9A958B}
 .fx{min-height:calc(100vh - var(--navh))}
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) body:has(.fx){background:#0E0D0B}
-}
+:root[data-mode="dark"]:not([data-skin]) body:has(.fx){background:#0E0D0B}
 
 /* Shared components (guest welcome bar, live-breaking strip) sit on paper here. */
 .fx .welcomebar,.fx .livehero{margin-bottom:22px}
@@ -1453,19 +1468,15 @@ body:has(.fx) footer{color:#9A958B}
 .rx-by .d{width:3px;height:3px;border-radius:50%;background:var(--ghost);flex:none}
 .rx-art p{margin:0 0 22px;font:300 19px/1.68 var(--serif);color:#3A342A;text-wrap:pretty}
 .rx-sec:first-of-type > p:first-of-type{font-size:20px;line-height:1.62;color:var(--ink)}
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) .rx-art p{color:var(--ink-2)}
-}
+:root[data-mode="dark"]:not([data-skin]) .rx-art p{color:var(--ink-2)}
 /* A claim the Verifier checked AND which appears verbatim in the prose. Only
    exact matches are marked — a fuzzy match would put a verdict on a sentence
    that never carried the claim, which is worse than no marking at all. */
 .rx-art mark{background:var(--sand);box-shadow:0 1px 0 var(--sand-2);color:inherit;
   padding:0 1px}
 .rx-art mark.disputed{background:#F2E3DE;box-shadow:0 1px 0 #C79E92}
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) .rx-art mark{background:#2A2419;box-shadow:0 1px 0 var(--sand-2)}
-  :root:not([data-skin]) .rx-art mark.disputed{background:#33211C;box-shadow:0 1px 0 var(--bad)}
-}
+ :root[data-mode=dark]:not([data-skin]) .rx-art mark{background:#2A2419;box-shadow:0 1px 0 var(--sand-2)}
+:root[data-mode=dark]:not([data-skin]) .rx-art mark.disputed{background:#33211C;box-shadow:0 1px 0 var(--bad)}
 .rx-sec{margin-bottom:34px}
 .rx-next{margin-top:34px;padding-top:22px;border-top:1px solid rgba(23,21,15,.11);
   display:flex;align-items:center;justify-content:space-between;gap:14px}
@@ -1485,9 +1496,7 @@ body:has(.fx) footer{color:#9A958B}
 .rx-margin{border-left:1px solid var(--rule);padding:36px 20px 96px;background:#F3EFE7;
   position:sticky;top:calc(var(--navh) + 52px);max-height:calc(100vh - var(--navh) - 52px);
   overflow-y:auto}
-@media (prefers-color-scheme:dark){
-  :root:not([data-skin]) .rx-margin{background:#171512}
-}
+:root[data-mode="dark"]:not([data-skin]) .rx-margin{background:#171512}
 .rx-margin > p.sub{margin:0 0 24px;font:400 11px/1.55 var(--sans);color:var(--faint)}
 .rx-note{display:flex;gap:8px;margin-bottom:22px}
 .rx-note .tick{width:14px;height:1px;margin-top:9px;flex:none;background:var(--mute)}
@@ -1497,23 +1506,23 @@ body:has(.fx) footer{color:#9A958B}
 .rx-note.ok .v{color:var(--good)} .rx-note.mid .v{color:var(--mid)}
 .rx-note.bad .v{color:var(--bad)}
 .rx-note p{margin:0 0 7px;font:400 12.5px/1.55 var(--sans);color:#3A342A}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-note p{color:var(--ink-2)}}
+:root[data-mode="dark"]:not([data-skin]) .rx-note p{color:var(--ink-2)}
 .rx-note .m{font:400 10.5px/1.5 var(--mono);color:var(--faint)}
 .rx-hr{height:1px;background:rgba(23,21,15,.1);margin:26px 0 20px}
 .rx-from{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
 .rx-from div{display:flex;justify-content:space-between;gap:10px;
   font:400 12px var(--sans);color:#3A342A}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-from div{color:var(--ink-2)}}
+:root[data-mode="dark"]:not([data-skin]) .rx-from div{color:var(--ink-2)}
 .rx-from span:last-child{font-family:var(--mono);color:var(--mute)}
 .rx-from div.interested span:last-child{color:var(--mid)}
 .rx-link{font:400 12px var(--sans);color:var(--indigo);text-decoration:underline;
   text-underline-offset:3px}
 .rx-you{padding:16px;background:var(--card);border:1px solid rgba(23,21,15,.11);
   border-radius:8px;margin-top:26px}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-you{border-color:var(--rule)}}
+:root[data-mode="dark"]:not([data-skin]) .rx-you{border-color:var(--rule)}
 .rx-you .fx-lbl{color:var(--sand-ink);margin-bottom:8px}
 .rx-you p{margin:0 0 12px;font:400 13px/1.6 var(--sans);color:#3A342A;text-wrap:pretty}
-@media (prefers-color-scheme:dark){:root:not([data-skin]) .rx-you p{color:var(--ink-2)}}
+:root[data-mode="dark"]:not([data-skin]) .rx-you p{color:var(--ink-2)}
 
 /* ---- responsive: 1h folds the margin into a pull-up sheet; here it stacks ---- */
 @media (max-width:1220px){
@@ -1531,11 +1540,113 @@ body:has(.fx) footer{color:#9A958B}
   .rx-beat .ln{display:none}
   .rx-beat .tx{padding-bottom:0}
   .rx-prog{min-width:170px}
-  .rx-pin{grid-column:auto;grid-row:auto;grid-template-columns:minmax(0,1fr);padding:24px 20px}
-  .rx-art{padding:28px 20px 50px}
+  /* Headline first on a phone. The pinned visual is a desktop affordance (it
+     sits beside the prose); stacked above it, the reader scrolls past a label,
+     a photo and a caption before reaching the first word. */
+  .rx-rail{order:0} .rx-art{order:1} .rx-pin{order:2} .rx-margin{order:3}
+  .rx-pin{grid-column:auto;grid-row:auto;grid-template-columns:minmax(0,1fr);
+    padding:24px 20px;border-top:1px solid var(--rule)}
+  .rx-art{padding:24px 20px 40px}
   .rx-art h1{font-size:32px}
   .rx-margin{position:static;max-height:none;border-left:0;
     border-top:1px solid var(--rule);overflow:visible}
+}
+
+
+
+/* ---- Trends (screen 2a) ---- */
+.tx-wrap{max-width:1280px;margin:0 auto;padding:32px 40px 48px}
+.tx-head{display:flex;align-items:flex-start;justify-content:space-between;gap:26px;margin-bottom:26px}
+.tx-head h1{margin:0 0 7px;font:300 34px/1.14 var(--serif);color:var(--ink);letter-spacing:-.015em}
+.tx-head p{margin:0;font:400 14px/1.6 var(--sans);color:var(--mute);max-width:660px}
+.tx-head .fx-meta{white-space:nowrap;flex:none;padding-top:8px}
+.tx-tabs{display:flex;gap:22px;margin-bottom:22px;border-bottom:1px solid var(--rule)}
+.tx-tabs button{font:400 13.5px var(--sans);color:var(--mute);padding:0 0 9px;
+  border-bottom:1.5px solid transparent;margin-bottom:-1px}
+.tx-tabs button.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.tx-tabs button:hover{color:var(--ink)}
+.tx-grid{display:grid;grid-template-columns:minmax(0,1fr) 306px;gap:34px;align-items:start}
+.tx-plot{position:relative;height:432px;background:var(--card);
+  border:1px solid rgba(23,21,15,.11);border-radius:8px;padding:22px 26px 40px 54px}
+:root[data-mode="dark"]:not([data-skin]) .tx-plot{border-color:var(--rule)}
+.tx-plot .cross{position:absolute;background:rgba(23,21,15,.12)}
+:root[data-mode="dark"]:not([data-skin]) .tx-plot .cross{background:var(--rule)}
+.tx-plot .cross.h{left:54px;right:26px;top:50%;height:1px}
+.tx-plot .cross.v{top:22px;bottom:40px;left:50%;width:1px}
+.tx-plot .ax{position:absolute;font:400 9.5px var(--mono);letter-spacing:.12em;color:var(--faint)}
+.tx-plot .ax.v{left:14px;writing-mode:vertical-rl;transform:rotate(180deg)}
+.tx-plot .ax.v.hi{top:22px} .tx-plot .ax.v.lo{bottom:44px}
+.tx-plot .ax.h{bottom:16px} .tx-plot .ax.h.lo{left:54px} .tx-plot .ax.h.hi{right:26px}
+.tx-plot .q{position:absolute;font:500 10px var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--mute)}
+.tx-plot .q.tl{left:60px;top:28px;color:var(--good)}
+.tx-plot .q.tr{right:32px;top:28px}
+.tx-plot .q.bl{left:60px;bottom:44px}
+.tx-plot .q.br{right:32px;bottom:44px;color:var(--bad)}
+/* Dots are positioned in % of the plot box, so the chart is fluid without JS. */
+.tx-dot{position:absolute;display:flex;align-items:center;gap:8px;transform:translate(-50%,-50%);
+  white-space:nowrap;z-index:1}
+.tx-dot:hover,.tx-dot:focus-visible{z-index:3}
+.tx-dot .d{display:block;border-radius:50%;background:var(--ghost);flex:none}
+.tx-dot.good .d{background:var(--good)} .tx-dot.mid .d{background:var(--mid)}
+.tx-dot.bad .d{background:var(--bad)}
+.tx-dot .l{font:400 12px var(--sans);color:var(--ink-2);max-width:190px;overflow:hidden;
+  text-overflow:ellipsis}
+.tx-dot.bad .l{color:var(--bad)}
+.tx-dot:hover .l{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.tx-dot .tip{position:absolute;left:0;top:calc(100% + 5px);padding:5px 9px;border-radius:5px;
+  background:var(--ink);color:var(--paper);font:400 10.5px var(--mono);opacity:0;
+  pointer-events:none;transition:opacity .15s}
+.tx-dot:hover .tip,.tx-dot:focus-visible .tip{opacity:1}
+.tx-empty{position:absolute;inset:22px 26px 40px 54px;display:grid;place-items:center;
+  text-align:center;font:400 13.5px/1.6 var(--sans);color:var(--mute);margin:0}
+.tx-side{display:flex;flex-direction:column;gap:16px}
+.tx-card{padding:20px;background:var(--card);border:1px solid rgba(23,21,15,.11);border-radius:8px}
+:root[data-mode="dark"]:not([data-skin]) .tx-card{border-color:var(--rule)}
+.tx-card.good{border-color:var(--good)} .tx-card.bad{border-color:var(--bad)}
+.tx-card .fx-lbl{margin-bottom:12px}
+.tx-card.good .fx-lbl{color:var(--good)} .tx-card.bad .fx-lbl{color:var(--bad)}
+.tx-item{display:block;margin-bottom:13px}
+.tx-item:last-of-type{margin-bottom:0}
+.tx-item .h{display:block;font:400 15px/1.35 var(--serif);color:var(--ink)}
+.tx-item:hover .h{text-decoration:underline;text-underline-offset:3px}
+.tx-item .m{display:block;font:400 11px var(--mono);color:var(--mute);margin-top:4px}
+.tx-card .n{margin:12px 0 0;font:400 11.5px/1.55 var(--sans);color:var(--mute)}
+.tx-foot{margin:26px 0 0;font:400 11px/1.6 var(--mono);color:var(--faint);max-width:720px}
+@media (max-width:1080px){
+  .tx-grid{grid-template-columns:minmax(0,1fr)}
+  .tx-side{flex-direction:row;flex-wrap:wrap}
+  .tx-side > *{flex:1 1 260px}
+}
+@media (max-width:860px){
+  .tx-wrap{padding:24px 18px 40px}
+  .tx-head{flex-direction:column;gap:10px}
+  .tx-head h1{font-size:26px}
+  .tx-plot{height:400px;padding:20px 16px 38px 44px}
+  .tx-dot .l{max-width:110px;font-size:11px}
+  .tx-plot .q{font-size:9px}
+}
+
+/* ---- column 1 on small screens ----
+   On a phone the grid stacks, which put the lens rail (feed) and the beat rail
+   (reader) ABOVE the story — a screenful of controls before a word of news.
+   Both collapse behind a summary bar there and stay untouched on desktop. */
+.col-toggle{display:none}
+.col-body{display:contents}
+@media (max-width:860px){
+  .col-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    width:100%;padding:11px 0;font:400 13px var(--sans);color:var(--ink);
+    border-bottom:1px solid var(--rule)}
+  .col-toggle b{font-weight:500}
+  .col-toggle .chev{font-size:11px;color:var(--mute);transition:transform .2s var(--ease)}
+  .fx-side.open .col-toggle .chev,.rx-rail.open .col-toggle .chev{transform:rotate(180deg)}
+  .col-body{display:none}
+  .fx-side.open .col-body,.rx-rail.open .col-body{display:block;padding-top:18px}
+  /* the rail itself must stop being a grid/flex container so the toggle stacks */
+  .fx-side,.rx-rail{display:block}
+  .fx-side.open .col-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:22px;align-items:start}
+  .rx-rail.open .col-body{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
 }
 
 /* ---- responsive (screen 1h collapses to one column at 390) ---- */
@@ -1580,6 +1691,22 @@ body:has(.fx) footer{color:#9A958B}
     <a href="/saved" data-r="saved">Saved</a>
     <a href="/read" data-r="read">Read</a>
   </div>
+  <button class="modetoggle" id="modebtn" data-act="mode" aria-pressed="false"
+          aria-label="Switch to dark mode" title="Dark mode">
+    <span class="mt-track">
+      <svg class="mt-ic sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.6v2.2M12 19.2v2.2M21.4 12h-2.2M4.8 12H2.6"/>
+        <path d="M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6L17 17M7 7L5.4 5.4"/>
+      </svg>
+      <svg class="mt-ic moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.5 14.6A8.6 8.6 0 1 1 9.4 3.5a6.9 6.9 0 0 0 11.1 11.1z"/>
+      </svg>
+      <span class="mt-knob" aria-hidden="true"></span>
+    </span>
+  </button>
   <button class="searchbtn" onclick="Search.open()" aria-label="Search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     Ask or search anything <kbd>⌘K</kbd>
@@ -1650,13 +1777,21 @@ body:has(.fx) footer{color:#9A958B}
 <div class="toast" id="toast"></div>
 
 <script>
-/* Applied before anything else in this file runs, so a signed-in user who
-   picked a theme never sees a flash of the default one first. The account's
-   own copy (fetched once signed in) is the source of truth; this local cache
-   just paints correctly before that round trip can finish. */
+/* Applied before anything else in this file runs, so the first paint is already
+   in the right mode — reading a stored preference later would flash light then
+   snap to dark. The skins this used to restore are gone from the UI (see Mode),
+   so any leftover bl_skin is cleared rather than honoured: it would otherwise
+   pin an account to a look with no control left to change it. */
 (function(){
-  var t = localStorage.getItem('bl_skin');
-  if (t && t !== 'default') document.documentElement.setAttribute('data-skin', t);
+  try{ localStorage.removeItem('bl_skin'); }catch(e){}
+  document.documentElement.removeAttribute('data-skin');
+  var m = '';
+  try{ m = localStorage.getItem('bl_mode') || ''; }catch(e){}
+  if (!m){
+    try{ m = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'; }
+    catch(e){ m = 'light'; }   // no matchMedia (old webview, some crawlers)
+  }
+  document.documentElement.setAttribute('data-mode', m);
 })();
 
 /* ================= Config & state ================= */
@@ -1678,6 +1813,7 @@ const S = {
   feedmode: 'recent',
   // Redesigned feed's "Show me first" — '' means the server's ranked order.
   fxsort: '',
+  sideOpen: false,   // mobile: is column 1 expanded
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
   eng: JSON.parse(localStorage.getItem('bl_eng') || '{"streak":1,"lastDay":"","understood":0,"topics":[]}'),
   live: JSON.parse(localStorage.getItem('bl_live') || '{"enabled":true,"categories":["breaking","events","sports","finance"]}'),
@@ -2064,7 +2200,15 @@ document.addEventListener('click', e=>{
         (navigator.clipboard?.writeText(link)||Promise.reject()).then(()=>toast('Link copied'))
           .catch(()=>toast(link)); } break;
     case 'wall-close': Gate.close(); Theme.close(); break;
-    case 'pick-theme': Theme.choose(el.dataset.theme); break;
+    case 'mode': Mode.toggle(); break;
+    case 'tx-tab': Trends.tab = el.dataset.tab; Trends.render(); break;
+    // Column 1 on a phone: the lens rail / beat rail would otherwise sit as a
+    // wall of controls above the thing you came to read.
+    case 'fx-side': { const a = el.closest('.fx-side');
+      S.sideOpen = a.classList.toggle('open');
+      el.setAttribute('aria-expanded', String(S.sideOpen)); } break;
+    case 'rx-rail': { const a = el.closest('.rx-rail');
+      el.setAttribute('aria-expanded', String(a.classList.toggle('open'))); } break;
   }
 });
 
@@ -2153,6 +2297,11 @@ function welcomeBannerHTML(){
    verdict tallies, source counts, framing spread) the markup renders that stat
    only `if (field != null)` — so those panels stay absent rather than faked,
    and light up on their own the day the backend starts sending them. */
+/* How many lens chips the 206px rail can hold before it fights the feed. */
+const LENS_CHIPS = 4;
+/* Profile has its own local `cap`; this is the module-level one the feed uses. */
+const capWord = t => String(t||'').replace(/^./, c=>c.toUpperCase());
+
 const FX = {
   /* The five-step scale the mockup labels THIN / CONTESTED / MIXED / CORROB. /
      STRONG, mapped onto stories.credibility (0-100, written by Verifier). The
@@ -2322,8 +2471,11 @@ const Brief = { async render(){
   const city = (ctx.location && (ctx.location.city || ctx.location.region || ctx.location.country)) || '';
   const greet = `${now.toLocaleDateString('en-US',{weekday:'long'})} ${part}${city?', '+esc(city):''}`;
 
-  const lensBits = [...(Array.isArray(ctx.interests)?ctx.interests:[]).slice(0,6),
-                    city, ctx.profession].filter(Boolean);
+  // Everything the lens is made of, but only LENS_CHIPS of them are drawn — the
+  // rest collapse into a "+N more" chip that opens the profile. The rail is a
+  // fixed 206px column and an unbounded list overflowed it into the feed.
+  const lensBits = [...(Array.isArray(ctx.interests)?ctx.interests:[]),
+                    city, ctx.profession, capWord(ctx.role_seniority)].filter(Boolean);
   const macro = S.trends.filter(t=>t.kind==='macro');
   const followed = Follow.ids().map(id=>macro.find(t=>t.id===id)).filter(Boolean);
   const suggest = macro.filter(t=>!Follow.has(t.id)).slice(0, Math.max(0, 3-followed.length));
@@ -2331,10 +2483,16 @@ const Brief = { async render(){
   $('#view').innerHTML = `
   <div class="fx"><div class="fx-shell">
 
-    <aside class="fx-side">
+    <aside class="fx-side${S.sideOpen?' open':''}">
+      <button class="col-toggle" data-act="fx-side" aria-expanded="${!!S.sideOpen}">
+        <span>Your lens &amp; filters</span><span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div class="col-body">
       <span class="fx-lbl">Your lens</span>
-      ${lensBits.length ? `<div class="fx-chips">${lensBits.map(b=>
-          `<span class="fx-chip">${esc(b)}</span>`).join('')}</div>
+      ${lensBits.length ? `<div class="fx-chips">${lensBits.slice(0, LENS_CHIPS).map(b=>
+          `<span class="fx-chip">${esc(b)}</span>`).join('')}${
+          lensBits.length > LENS_CHIPS
+            ? `<a class="fx-chip more" href="/profile">+${lensBits.length - LENS_CHIPS} more</a>` : ''}</div>
         <a class="fx-link" href="/profile">Adjust the lens</a>`
         : `<p class="fx-empty" style="margin:10px 0">${isIn
             ? 'Tell Descry your work, city and interests and every story gets read against them.'
@@ -2368,6 +2526,7 @@ const Brief = { async render(){
           `<button class="fx-chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}"
             >${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
       </div>` : ''}
+      </div>
     </aside>
 
     <main class="fx-main">
@@ -2789,7 +2948,6 @@ const Gate = {
   require(action){
     if(S.creds && S.creds.token){
       if(action==='personalize') Calib.show(S.ctx||{});
-      if(action==='theme') Theme.show();
       return true;
     }
     const c=this.COPY[action]||this.COPY.read; this.wall(c[0],c[1]); return false;
@@ -2800,70 +2958,82 @@ const Gate = {
    Design A "The Journal" and Design B "The Signal" from the redesign study,
    adopted as switchable skins. See the :root[data-skin] blocks for the actual
    palette/type — this object only ever toggles which one is active. */
+/* ============ Light / dark mode ============
+   Replaces the three-skin picker. Those skins (Journal, Signal) were an
+   exploration from before the product had a design of its own; now that
+   "the annotated manuscript" IS the product, offering two rival looks in a
+   settings page was three designs competing rather than one being right.
+
+   `data-mode` is ALWAYS stamped on <html> — never absent — so the stylesheet
+   needs no prefers-color-scheme branch and an explicit choice can beat the OS.
+   With no stored choice we follow the system and keep following it live. */
+const Mode = {
+  KEY: 'bl_mode',
+  system(){
+    try{ return matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'; }
+    catch(e){ return 'light'; }
+  },
+  stored(){ try{ return localStorage.getItem(this.KEY) || ''; }catch(e){ return ''; } },
+  current(){ return document.documentElement.dataset.mode || this.stored() || this.system(); },
+  apply(m){ document.documentElement.dataset.mode = m; },
+  set(m){
+    try{ localStorage.setItem(this.KEY, m); }catch(e){}
+    this.apply(m); this.render();
+    // Signed in: follow the reader to their other devices. Fire-and-forget —
+    // a failed sync must never block the toggle from feeling instant.
+    if (signedIn()) saveContextPatch({mode:m}).catch(()=>{});
+    // A handful of colours are read at render time via cssVar() (the
+    // corroboration ring, verdict swatches), so repaint what's on screen.
+    try{ route(); }catch(e){}
+  },
+  toggle(){ this.set(this.current() === 'dark' ? 'light' : 'dark'); },
+  init(){
+    this.apply(this.stored() || this.system());
+    // Only track the OS while the reader hasn't expressed a preference.
+    try{
+      matchMedia('(prefers-color-scheme:dark)').addEventListener('change', e=>{
+        if (!this.stored()){ this.apply(e.matches ? 'dark' : 'light'); this.render(); }
+      });
+    }catch(e){}
+    this.render();
+  },
+  render(){
+    const b = $('#modebtn'); if (!b) return;
+    const dark = this.current() === 'dark';
+    b.classList.toggle('on', dark);
+    b.setAttribute('aria-pressed', String(dark));
+    b.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    b.title = dark ? 'Light mode' : 'Dark mode';
+  }
+};
+
+/* The skins are gone from the UI. This keeps the door shut for anyone whose
+   account still carries `theme:"journal"` from before — without it they would
+   be stuck in a look with no control left to change it. */
 const Theme = {
-  KEY: 'bl_skin',
-  OPTIONS: [
-    {id:'default', name:'Descry', desc:'The standard look.', sw:['#4D9FFF','#7C5CFF','#F5F7FB']},
-    {id:'journal', name:'The Journal', desc:'Warm editorial broadsheet — serif headlines, cream paper, one carmine accent.', sw:['#8E2B1E','#191511','#F5F1E8']},
-    {id:'signal', name:'The Signal', desc:'Swiss precision instrument — mono numerals, flat white, one vermilion accent.', sw:['#D8371C','#121210','#FBFBF9']}
-  ],
-  current(){ return localStorage.getItem(this.KEY) || 'default'; },
-  apply(id){
-    if (id === 'default') document.documentElement.removeAttribute('data-skin');
-    else document.documentElement.setAttribute('data-skin', id);
-  },
-  /* Local-only switch — no round trip, no account write. Used for the instant
-     preview when picking, and to fall back to default on sign-out. */
-  set(id){ localStorage.setItem(this.KEY, id); this.apply(id); },
-  reset(){ localStorage.removeItem(this.KEY); this.apply('default'); },
-  /* Persists the choice (signed-in only — callers gate this via Gate.require
-     first) and redraws whatever's on screen so the handful of colors computed
-     at render time (module icons, the corroboration ring, claim verdicts —
-     see cssVar()) pick up the new palette immediately instead of on next nav. */
-  async choose(id){
-    this.set(id);
-    this.close();
-    // Persist (updates S.ctx synchronously, then PUTs) BEFORE redrawing — the
-    // Profile page's Appearance label reads S.ctx.theme, and reversing this
-    // order let route() repaint from the value this call is about to replace.
-    await saveContextPatch({theme:id});
-    route();
-  },
-  /* Cross-device sync: adopt whatever this signed-in account saved elsewhere.
-     Never fights a choice made on THIS device in the same session — only runs
-     right after sign-in and at boot, before the visitor could have touched it. */
+  current(){ return 'default'; },
+  apply(){ document.documentElement.removeAttribute('data-skin'); },
+  set(){ this.apply(); },
+  reset(){ this.apply(); },
   async syncFromAccount(){
     if(!(S.creds && S.creds.token)) return;
     try{
       const ctx = await api('/users/'+S.creds.user_id+'/context');
       S.ctx = ctx;
-      const id = ctx.theme || 'default';
-      if (id !== this.current()){ this.set(id); route(); return; }
-      /* No theme change, but the feed's "Your lens" panel and its city greeting
-         read S.ctx — which did not exist when the first render ran. Repaint it,
-         otherwise a configured reader sees the "set up your lens" empty state
-         until they navigate somewhere and back. */
+      this.apply();
+      // Adopt the account's mode unless this device has already chosen one.
+      if (ctx.mode && !Mode.stored() && ctx.mode !== Mode.current()){
+        Mode.apply(ctx.mode); Mode.render();
+      }
+      /* The feed's "Your lens" panel and its city greeting read S.ctx, which
+         did not exist when the first render ran. Repaint it, otherwise a
+         configured reader sees the "set up your lens" empty state until they
+         navigate away and back. */
       const p = Nav.path();
       if (p === '/' || p.startsWith('/brief')) Brief.render();
     }catch(e){}
   },
-  show(){
-    let el = $('#themepicker');
-    if (!el){ el=document.createElement('div'); el.id='themepicker'; el.className='wall'; document.body.appendChild(el); }
-    const cur = this.current();
-    el.innerHTML = `<div class="wcard themecard">
-      <h2>Choose your look</h2>
-      <p>Same stories, your Descry. Switch anytime — this follows your account, not the device.</p>
-      <div class="themegrid">${this.OPTIONS.map(o=>`
-        <button class="themeopt${o.id===cur?' on':''}" data-act="pick-theme" data-theme="${o.id}">
-          <span class="tswatch">${o.sw.map(c=>`<i style="background:${c}"></i>`).join('')}</span>
-          <b>${esc(o.name)}</b>
-          <span class="desc">${esc(o.desc)}</span>
-        </button>`).join('')}
-      </div>
-      <div class="wskip" data-act="wall-close">Done</div></div>`;
-  },
-  close(){ const el=$('#themepicker'); if (el) el.remove(); }
+  close(){ const el = $('#themepicker'); if (el) el.classList.remove('on'); },
 };
 
 /* ================= Story Reader ================= */
@@ -3049,6 +3219,11 @@ async _render(id){
 
     <div class="rx-grid${s.image_url?'':' no-art'}">
       <aside class="rx-rail">
+        <button class="col-toggle" data-act="rx-rail" aria-expanded="false">
+          <span>The story · <b id="rx-cur">${esc(beats[0].label)}</b></span>
+          <span class="chev" aria-hidden="true">▾</span>
+        </button>
+        <div class="col-body">
         <div>
           <div class="hd">THE STORY</div>
           <div class="beats">${beats.map((b,i)=>`
@@ -3064,6 +3239,7 @@ async _render(id){
           <div class="left" id="rx-left">${FX.mins(s)} min left</div>
           <div class="track"><i id="rx-bar"></i></div>
           ${developing?'<p>This story is still open. The last beat will grow.</p>':''}
+        </div>
         </div>
       </aside>
 
@@ -3177,6 +3353,9 @@ mountReader(s, beats){
         const st = el.querySelector('.st');
         if (st && !beats[i].open) st.textContent = i === cur ? 'you are here' : i < cur ? 'read' : '';
       });
+      // The collapsed mobile summary names the beat you're actually in.
+      const curLbl = $('#rx-cur');
+      if (curLbl && beats[cur]) curLbl.textContent = beats[cur].label;
       // Persist sparingly: every 10 points of progress, not every frame.
       if (signedIn() && best - saved >= 0.1) {
         saved = best;
@@ -3287,172 +3466,117 @@ endCTA(){
 }};
 
 /* ================= Trend Radar ================= */
-const Trends = { tab:'macro', async render(){
-  SEO.set({
-    title: 'Trend Radar — the forces behind the news · Descry',
-    desc: 'The macro forces shaping the news right now and the 72-hour early '
-        + 'signals building underneath them, with the stories feeding each one.',
-    path: '/trends'});
-  if (!S.trends.length) await loadData();
-  const list = S.trends.filter(t=>t.kind===this.tab);
-  $('#view').innerHTML = `
-  <div class="wrap">
-    <div class="brief-head rise"><h1>Trend Radar</h1><span class="date">macro forces &amp; 72-hour early signals</span></div>
-    <div class="tabs rise" style="animation-delay:.05s">
-      <button class="${this.tab==='macro'?'on':''}" onclick="Trends.tab='macro';Trends.render()">Macro trends</button>
-      <button class="${this.tab==='micro'?'on':''}" onclick="Trends.tab='micro';Trends.render()">Early signals</button>
-    </div>
-    <div class="tgrid">${list.map((t,i)=>{ const told = lastTold(t.created_at); return `
-      <div class="tcard glass rise" style="animation-delay:${.08+Math.min(i,9)*.05}s;cursor:pointer" onclick="Nav.go('/trend/${t.id}')">
-        <div class="th"><h3>${esc(cleanName(t.name))}</h3></div>
-        <p>${esc(t.narrative)}</p>
-        <div class="tf">${(t.sectors||[]).slice(0,3).map(x=>`<span class="chip">${esc(x)}</span>`).join('')}
-          ${t.kind==='micro'?'<span class="chip ai">accelerating</span>':''}
-          <span class="cnt">${t.article_count||0} stories${told?` · ${esc(told.rel)}`:''}</span></div>
-      </div>`;}).join('') || `<div class="glass" style="padding:40px;grid-column:1/-1;text-align:center;color:var(--text-2)">No ${this.tab==='macro'?'macro trends':'early signals'} yet — run the pipeline.</div>`}
-    </div>
-    <div class="netwrap glass rise" style="animation-delay:.3s">
-      <h3>Story network</h3><div class="cap">Which stories are feeding which forces. Hover a force to trace it; open any story to read it.</div>
-      <div class="net" id="net"></div>
-    </div>
-  </div>`;
-  requestAnimationFrame(()=>this.net());
-},
-/* Which stories feed which force. Authoritative source is `trend_ids`, stamped
-   on the story by TrendLinker. Older feed payloads don't carry it, so fall back
-   to topic ∈ the trend's sectors — a weaker claim, but a real one, and it keeps
-   the map populated instead of blank against a not-yet-deployed backend. */
-netLinks(){
-  const macro = S.trends.filter(t=>t.kind==='macro');
-  const links = new Map();                       // trend id -> [story, ...]
-  const direct = S.stories.some(s=>(s.trend_ids||[]).length);
-  macro.forEach(t=>{
-    const mine = direct
-      ? S.stories.filter(s=>(s.trend_ids||[]).includes(t.id))
-      : S.stories.filter(s=>(t.sectors||[]).map(x=>String(x).toLowerCase())
-                              .includes(String(s.topic||'').toLowerCase()));
-    if (mine.length) links.set(t.id, mine.slice(0,4));
-  });
-  return {links, hubs: macro.filter(t=>links.has(t.id)).slice(0,6)};
-},
-net(){
-  const wrap = $('#net'); if(!wrap) return;
-  const {links, hubs} = this.netLinks();
-  if (!hubs.length){
-    wrap.innerHTML = `<div class="netempty">Not enough linked coverage yet to draw the network — it fills in as stories accumulate against each force.</div>`;
-    return;
-  }
-  // Story column ordered by hub, so a trend's stories sit near it and the curves
-  // stay short and mostly untangled without any layout solver.
-  const seen = new Set(), col = [];
-  hubs.forEach(t=>links.get(t.id).forEach(s=>{
-    if(!seen.has(s.id)){ seen.add(s.id); col.push(s); }
-  }));
-  const edges = [];
-  hubs.forEach(t=>links.get(t.id).forEach(s=>edges.push([t.id, s.id])));
+/* ============ Trends (screen 2a) ============
+   "Attention plotted against how well it holds up." The two axes are the whole
+   idea: coverage volume left-to-right, corroboration bottom-to-top, and the
+   stories worth your time are the ones stranded in the corners — solid but
+   unread, or everywhere and thin.
 
-  wrap.innerHTML = `
-    <svg class="netlines" id="netlines" aria-hidden="true"></svg>
-    <div class="netcol forces" id="netforces">
-      <div class="nethead">Forces</div>
-      ${hubs.map(t=>`<a class="netnode trend" href="/trend/${esc(t.id)}" data-k="t-${esc(t.id)}">
-        <span class="lbl">${esc(cleanName(t.name))}</span>
-        <i class="lead" aria-hidden="true"></i>
-        <span class="ct">${links.get(t.id).length}</span>
-        <span class="dot"></span></a>`).join('')}
-    </div>
-    <div class="netcol">
-      <div class="nethead">Stories</div>
-      ${col.map(s=>`<a class="netnode story" href="/story/${esc(s.id)}" data-k="s-${esc(s.id)}">
-        <span class="dot"></span><span class="lbl">${esc(s.headline)}</span></a>`).join('')}
+   Attention is `article_count` — how many outlets carried it. That is public
+   coverage, which is exactly what the design says this measures ("not from your
+   reading"), and it is deliberately NOT our own pageview data: ranking the news
+   by what our readers click is the feedback loop this product exists to avoid.
+   Corroboration comes from /trends, which now averages the credibility of the
+   stories carrying each trend. A trend with no story in the window is left OFF
+   the plot rather than drawn at zero — absence of a score is not a bad score. */
+const Trends = { tab:'macro', async render(){
+  SEO.set({title:'Trends · Descry', path:'/trends',
+    desc:'What the country is paying attention to — and whether it holds up.'});
+  const v = $('#view');
+  v.innerHTML = `<div class="fx"><div class="tx-wrap"><div class="skel" style="height:420px"></div></div></div>`;
+  if (!S.trends.length) await loadRail();
+
+  const all = S.trends.filter(t=>t.kind===this.tab);
+  const plot = all.filter(t=>t.credibility != null);
+  const maxA = Math.max(1, ...plot.map(t=>t.article_count||0));
+  const band = c => c>=70 ? 'good' : c>=40 ? 'mid' : 'bad';
+  // Read low-attention/high-corroboration and the reverse straight off the axes.
+  const byUnderread = [...plot].filter(t=>(t.credibility||0)>=70)
+    .sort((a,b)=>(a.article_count||0)-(b.article_count||0)).slice(0,2);
+  const byLoudThin = [...plot].filter(t=>(t.credibility||0)<40)
+    .sort((a,b)=>(b.article_count||0)-(a.article_count||0)).slice(0,2);
+  // "Moved most" — real deltas, but per-device (see fxDiff). Labelled as such.
+  const moved = fxDiff(S.stories).changes.filter(c=>c.from!=null).slice(0,3);
+
+  const dot = t => {
+    const x = 6 + 88 * ((t.article_count||0) / maxA);
+    const y = 90 - 80 * Math.min(1, (t.credibility||0)/100);
+    const r = 9 + 17 * ((t.article_count||0) / maxA);
+    return `<a class="tx-dot ${band(t.credibility)}" href="/trend/${esc(t.id)}"
+      style="left:${x.toFixed(1)}%;top:${y.toFixed(1)}%">
+      <span class="d" style="width:${r.toFixed(0)}px;height:${r.toFixed(0)}px"></span>
+      <span class="l">${esc(cleanName(t.name))}</span>
+      <span class="tip">${Math.round(t.credibility)} corroboration · ${
+        t.article_count} source${t.article_count===1?'':'s'}</span></a>`;
+  };
+  const card = (tone, title, items, note) => !items.length ? '' : `
+    <div class="tx-card ${tone}">
+      <div class="fx-lbl">${title}</div>
+      ${items.map(t=>`<a class="tx-item" href="/trend/${esc(t.id)}">
+        <span class="h">${esc(cleanName(t.name))}</span>
+        <span class="m">${Math.round(t.credibility)} corroboration · ${t.article_count} source${
+          t.article_count===1?'':'s'}${t.story_count?` · ${t.story_count} stor${
+          t.story_count===1?'y':'ies'}`:''}</span></a>`).join('')}
+      ${note?`<p class="n">${note}</p>`:''}
     </div>`;
 
-  const svg = $('#netlines'), forces = $('#netforces');
-  const key = (a,b)=>a+'|'+b;
-  const dotOf = k=>wrap.querySelector(`[data-k="${CSS.escape(k)}"] .dot`);
+  v.innerHTML = `
+  <div class="fx"><div class="tx-wrap">
+    <div class="tx-head">
+      <div>
+        <h1>What the country is paying attention to — and whether it holds up.</h1>
+        <p>Left to right: how much independent coverage a story is getting.
+           Bottom to top: how well those sources agree. The interesting stories
+           are in the corners.</p>
+      </div>
+      <span class="fx-meta">last 7 days · ${plot.length} of ${all.length} plotted</span>
+    </div>
 
-  /* Compose the two columns instead of just stacking them. Six forces against
-     twenty stories, both starting at row one, sends every curve into the same
-     few pixels — a knot, not a map. Each force is instead parked opposite the
-     middle of the stories it owns, then a single downward sweep enforces a
-     minimum gap so two forces sharing a cluster don't stack on each other. */
-  const placeHubs = ()=>{
-    const wide = getComputedStyle(svg).display !== 'none';
-    const nodes = hubs.map(t=>wrap.querySelector(`[data-k="t-${CSS.escape(t.id)}"]`));
-    if (!wide){                                     // narrow: plain stacked list
-      forces.classList.remove('placed');
-      nodes.forEach(n=>{ if(n) n.style.top = ''; });
-      forces.style.minHeight = '';
-      return;
-    }
-    const top = forces.getBoundingClientRect().top;
-    const want = hubs.map((t,i)=>{
-      const ys = links.get(t.id).map(s=>{
-        const d = dotOf('s-'+s.id); if(!d) return null;
-        const r = d.getBoundingClientRect();
-        return r.top - top + r.height/2;
-      }).filter(y=>y!==null);
-      return {node: nodes[i], y: ys.length ? ys.reduce((a,b)=>a+b,0)/ys.length : 0};
-    }).filter(h=>h.node).sort((a,b)=>a.y - b.y);
-    const rowH = want[0] ? want[0].node.offsetHeight : 34;
-    const head = forces.querySelector('.nethead');
-    let floor = head ? head.offsetHeight + 4 : 0;   // never ride up over the header
-    forces.classList.add('placed');
-    want.forEach(h=>{
-      const y = Math.max(floor, h.y - rowH / 2);
-      h.node.style.top = y + 'px';
-      floor = y + rowH + 4;
-    });
-    forces.style.minHeight = (floor + 4) + 'px';
-  };
+    <div class="tx-tabs">
+      <button class="${this.tab==='macro'?'on':''}" data-act="tx-tab" data-tab="macro">Macro forces</button>
+      <button class="${this.tab==='micro'?'on':''}" data-act="tx-tab" data-tab="micro">Early signals</button>
+    </div>
 
-  const drawLines = ()=>{
-    // Curves measured from the laid-out rows rather than guessed, so they stay
-    // attached through reflow, font loading and text wrapping.
-    if (getComputedStyle(svg).display === 'none') return;   // narrow: list only
-    const base = wrap.getBoundingClientRect();
-    const at = (k, side)=>{
-      const el = dotOf(k);
-      if(!el) return null;
-      const r = el.getBoundingClientRect();
-      return {x:(side==='right'? r.right : r.left) - base.left,
-              y:r.top - base.top + r.height/2};
-    };
-    svg.setAttribute('viewBox', `0 0 ${base.width} ${base.height}`);
-    svg.innerHTML = edges.map(([tid,sid])=>{
-      const a = at('t-'+tid,'right'), b = at('s-'+sid,'left');
-      if(!a||!b) return '';
-      const mid = (a.x + b.x)/2;                            // symmetric S-curve
-      return `<path d="M${a.x} ${a.y} C${mid} ${a.y} ${mid} ${b.y} ${b.x} ${b.y}"
-                    data-e="${esc(key(tid,sid))}"></path>`;
-    }).join('');
-  };
-  const relayout = ()=>{ placeHubs(); drawLines(); };
-  relayout();
-  // One listener, not one per render — Trends.render() runs on every tab switch.
-  if (this._onResize) removeEventListener('resize', this._onResize);
-  this._onResize = relayout;
-  addEventListener('resize', relayout, {passive:true});
-  // Re-measure once webfonts land; row heights move when Newsreader/Inter swap in.
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
+    <div class="tx-grid">
+      <div class="tx-plot">
+        <span class="ax v hi">CORROBORATED</span><span class="ax v lo">THIN</span>
+        <span class="ax h lo">LITTLE ATTENTION</span><span class="ax h hi">EVERYWHERE</span>
+        <span class="q tl">Solid · underread</span>
+        <span class="q tr">Solid · everyone's reading</span>
+        <span class="q bl">Thin · fading</span>
+        <span class="q br">Thin · spreading fast</span>
+        <span class="cross v"></span><span class="cross h"></span>
+        ${plot.length ? plot.map(dot).join('')
+          : `<p class="tx-empty">No trend in the last 7 days has a story with a
+             corroboration score yet — run the pipeline, then come back.</p>`}
+      </div>
 
-  // Trace a force: light its own edges and stories, recede the rest.
-  wrap.querySelectorAll('.netnode.trend').forEach(node=>{
-    const tid = node.dataset.k.slice(2);
-    const focus = on=>{
-      wrap.classList.toggle('focusing', on);
-      if(!on){ wrap.querySelectorAll('.on').forEach(e=>e.classList.remove('on')); return; }
-      node.classList.add('on');
-      (links.get(tid)||[]).forEach(s=>{
-        wrap.querySelector(`[data-k="s-${CSS.escape(s.id)}"]`)?.classList.add('on');
-        svg.querySelector(`[data-e="${CSS.escape(key(tid,s.id))}"]`)?.classList.add('on');
-      });
-    };
-    node.addEventListener('mouseenter', ()=>focus(true));
-    node.addEventListener('mouseleave', ()=>focus(false));
-    node.addEventListener('focus', ()=>focus(true));
-    node.addEventListener('blur', ()=>focus(false));
-  });
+      <div class="tx-side">
+        ${card('good','Solid, and hardly anyone is reading it', byUnderread)}
+        ${card('bad','Spreading fastest, standing up worst', byLoudThin,
+          "We show this so you recognise it, not so you share it.")}
+        ${moved.length?`<div class="tx-card">
+          <div class="fx-lbl">Moved since your last visit</div>
+          ${moved.map(c=>`<a class="tx-item" href="/story/${esc(c.s.id)}">
+            <span class="h">${esc(c.s.headline)}</span>
+            <span class="m ${c.to>c.from?'fx-good':'fx-bad'}">${c.from} → ${c.to}</span></a>`).join('')}
+          <p class="n">Measured against what this browser last saw, so it is
+             per-device until corroboration history is served for everyone.</p>
+        </div>`:''}
+        ${all.length && !plot.length ? `<div class="tx-card">
+          <div class="fx-lbl">Not enough signal</div>
+          <p class="n">${all.length} trend${all.length===1?'':'s'} ${all.length===1?'is':'are'}
+             live but ${all.length===1?'has':'have'} no scored story in the window,
+             so ${all.length===1?'it is':'they are'} left off the plot rather than
+             drawn as if we had checked ${all.length===1?'it':'them'}.</p>
+        </div>`:''}
+      </div>
+    </div>
+
+    <p class="tx-foot">Attention is measured across public coverage — how many
+      independent outlets carried a story — not from what you or anyone else
+      reads here. Nothing on this page is personalised.</p>
+  </div></div>`;
 }};
 
 /* ============ Shared-link pages: prediction & trend ============ */
@@ -3908,16 +4032,6 @@ const Profile = {
         </div>
       </section>
 
-      <section class="glass prof-card rise" style="animation-delay:.08s">
-        <div class="prof-head">
-          <span class="prof-label">APPEARANCE</span>
-          <button class="btn ghost sm" onclick="Theme.show()">Change</button>
-        </div>
-        <div class="prof-interests">
-          <span class="chip accent">${esc((Theme.OPTIONS.find(o=>o.id===(ctx.theme||'default'))||Theme.OPTIONS[0]).name)}</span>
-        </div>
-      </section>
-
       <section class="glass prof-card rise" style="animation-delay:.1s">
         <span class="prof-label">YOUR INTELLIGENCE</span>
         <div class="stat-grid">
@@ -4056,6 +4170,7 @@ addEventListener('resize', setNavHeight);
 (async function(){
   ENTRY.path = Nav.path();       // before anything can navigate away from it
   setNavHeight();
+  Mode.init();
   await loadData();
   if (S.creds && S.creds.token){ await loadBookmarks(); await loadReadIds(); Theme.syncFromAccount(); }
   route();

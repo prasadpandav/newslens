@@ -762,6 +762,19 @@ def trends():
     micro = ranking.sort_by_rank(
         [dict(r) for r in con.execute(q, ("micro",)).fetchall()],
         impact_of=lambda t: ranking.damped(t["velocity"] or 0.0))[:20]
+    # Corroboration per trend, for the Trends scatter: attention on one axis
+    # against how well the reporting holds up on the other. A trend has no score
+    # of its own, so it inherits the mean of the stories that belong to it —
+    # stories carry trend_ids, so one pass over the recent catalogue builds the
+    # whole map. Only stories still inside the feed window are counted, which is
+    # the same horizon the page's "last 48 hours" framing implies.
+    agg = {}
+    for r in con.execute(
+            "SELECT credibility, trend_ids FROM stories WHERE updated_at > ?",
+            (db.now() - 7 * 86400,)).fetchall():
+        for tid in db.uj(r["trend_ids"], []):
+            a = agg.setdefault(tid, [0.0, 0])
+            a[0] += float(r["credibility"] or 0); a[1] += 1
     con.close()
     out = []
     for d in macro + micro:
@@ -769,6 +782,12 @@ def trends():
         d["regions"] = db.uj(d["regions"], [])
         d["article_count"] = len(db.uj(d["article_ids"], []))
         del d["article_ids"]
+        tot, n = agg.get(d["id"], (0.0, 0))
+        # Omitted, not zeroed, when no story in the window carries this trend:
+        # the scatter must be able to leave a point out rather than plot it at
+        # the bottom of the corroboration axis as if we had checked and failed it.
+        d["credibility"] = round(tot / n, 1) if n else None
+        d["story_count"] = n
         out.append(d)
     return {"items": out}
 
