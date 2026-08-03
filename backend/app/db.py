@@ -220,6 +220,25 @@ def connect():
             con.execute("ALTER TABLE bookmarks ADD COLUMN credibility_at_save REAL")
         except sqlite3.OperationalError:
             pass
+        # ---- phase 4: the reader ----
+        # `beats`  [{label, text}] — the storyline cut into navigable sections.
+        # `anchors` [{claim, quote}] — the exact sentence written for each
+        #           verified claim, so the margin can rule to the line it
+        #           belongs to instead of floating beside the whole article.
+        # Both are NULL on every story written before this shipped, and both
+        # clients fall back to the single-narrative rendering when they are —
+        # a mixed feed of old and new stories has to read correctly, so absence
+        # is a supported state rather than something to backfill away.
+        for col in ("beats TEXT", "anchors TEXT"):
+            try:
+                con.execute(f"ALTER TABLE stories ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        # Which beat the reader stopped in, for Saved's "you stopped at ...".
+        try:
+            con.execute("ALTER TABLE read_stories ADD COLUMN beat TEXT")
+        except sqlite3.OperationalError:
+            pass
         # COMMIT THE MIGRATION before flipping the flag. Without this the DDL
         # above sits in this connection's open transaction: it is visible here,
         # so a PRAGMA check passes, but no OTHER connection can see the new

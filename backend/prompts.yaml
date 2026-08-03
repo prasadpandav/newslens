@@ -117,7 +117,32 @@ story: |
      changes, who is affected and how, what it signals about the wider picture, and what
      to watch next. If this field would read as a summary of the story, rewrite it.
 
-  Both fields: plain language, no hype beyond the facts.
+  3. "beats" — the SAME storyline as what_happened, but cut into its natural
+     sections so the reader can navigate it. A JSON array of
+     {{"label": "...", "text": "..."}}, in reading order.
+     - "label" is a short, specific description of what that section covers,
+       written for THIS story — "Why the gap closed", "Who is affected",
+       "What the filings show". Sentence case, under 5 words. Never generic
+       scaffolding like "Introduction", "Background", "Part 1" or "Conclusion".
+     - "text" is the prose of that section, in the same voice as what_happened.
+     - Together the beats must read as one continuous piece and cover exactly
+       what what_happened covers. A reader who reads only the beats must come
+       away with the same understanding.
+     {depth}
+     Write FEWER and SHORTER beats when the brief is thin. Never pad a section
+     to reach a length, never repeat a fact to fill space, and never introduce
+     detail that is not in the merged brief below. A short, well-sourced story
+     is correct; an inflated one is a failure.
+
+  4. "anchors" — which sentence you wrote for each verified claim you used.
+     A JSON array of {{"claim": <index into the claims list>, "quote": "..."}}.
+     "quote" MUST be copied EXACTLY, character for character, from the text you
+     wrote in "beats" — it is used to locate that sentence in the published
+     page and attach the claim's verdict to it. Quote one full sentence, or a
+     complete clause of at least six words. Omit any claim you did not state.
+     If you cannot quote it exactly, leave it out rather than approximating.
+
+  All fields: plain language, no hype beyond the facts.
 
   3. "headline" — genuinely catchy and attention-grabbing: use tension, a concrete
      stake, or a sharp question — while staying strictly true to the verified claims

@@ -3141,8 +3141,20 @@ async _render(id){
   // beats. No invented structure: a beat appears only when its content does.
   const disputed = verdicts.filter(v=>/disput|unverif/i.test(v.verdict||''));
   const beats = [];
-  beats.push({id:'what', label:'What happened', body: paraHTML(what), claims:true});
-  if (why) beats.push({id:'why', label:'Why it matters', body: paraHTML(why)});
+  // A story written since phase 4 carries its own beats: real, LLM-authored
+  // sections with descriptive labels. Everything written before that has
+  // `beats: null`, and gets the derived structure below instead. BOTH must read
+  // correctly in the same feed — there is no backfill and stories rotate slowly,
+  // so a mixed catalogue is the normal state, not a migration window.
+  const authored = Array.isArray(s.beats) && s.beats.length >= 2 ? s.beats : null;
+  if (authored){
+    authored.forEach((b, i) => beats.push({
+      id: 'b'+i, label: b.label, body: paraHTML(b.text), claims: true}));
+    if (why) beats.push({id:'why', label:'Why it matters', body: paraHTML(why)});
+  } else {
+    beats.push({id:'what', label:'What happened', body: paraHTML(what), claims:true});
+    if (why) beats.push({id:'why', label:'Why it matters', body: paraHTML(why)});
+  }
   if (disputed.length) beats.push({id:'disputed', label:"What's disputed",
     body: disputed.map(v=>`<div class="rx-claim">
       <div class="v ${/disput/i.test(v.verdict)?'fx-mid':'fx-bad'}">${
@@ -3258,7 +3270,7 @@ async _render(id){
         </div>
         ${beats.map((b,i)=>`<section class="rx-sec" id="beat-${b.id}">
           <div class="rx-beatlbl">${esc(b.label)}</div>
-          ${b.claims ? Story.markClaims(b.body, verdicts) : b.body}
+          ${b.claims ? Story.markClaims(b.body, verdicts, s.anchors) : b.body}
           ${i < beats.length-1 ? `<div class="rx-next">
             <span class="n">Next — ${esc(beats[i+1].label.toLowerCase())}</span>
             <button class="go" data-act="rx-beat" data-to="${beats[i+1].id}">Continue ↓</button>
@@ -3300,16 +3312,32 @@ async _render(id){
    which is the right failure: a fuzzy match would colour a sentence that never
    carried the claim, putting our verdict on someone else's words.
    `html` is already escaped by paraHTML, so the needle is escaped to match. */
-markClaims(html, verdicts){
+markClaims(html, verdicts, anchors){
+  // Two sources of truth, in order of trust:
+  //   1. `anchors` — the sentence the writer actually wrote for a claim,
+  //      verified server-side to occur verbatim in this prose. This is the real
+  //      mechanism, and it is what makes the margin "ruled to the line".
+  //   2. the claim text itself, only when it happens to appear word for word.
+  //      Claims are extracted from the merged brief BEFORE the prose is
+  //      written, so they are usually paraphrased and this matches nothing —
+  //      which is the honest outcome for a story written before anchors existed.
+  // Never a fuzzy match: colouring a sentence that did not carry the claim puts
+  // our verdict on someone else's words.
   let out = html;
+  const mark = (needle, verdict) => {
+    const n = esc(String(needle||'').trim());
+    if (n.length < 24 || out.indexOf(n) === -1) return;
+    const cls = /disput|unverif/i.test(verdict||'') ? ' class="disputed"' : '';
+    out = out.split(n).join(`<mark${cls}>${n}</mark>`);
+  };
+  if (Array.isArray(anchors) && anchors.length){
+    [...anchors].sort((a,b)=>String(b.quote||'').length-String(a.quote||'').length)
+      .forEach(a=>mark(a.quote, (verdicts[a.claim]||{}).verdict));
+    return out;
+  }
   (verdicts || []).slice()
     .sort((a,b)=>String(b.claim||'').length - String(a.claim||'').length)
-    .forEach(v=>{
-      const needle = esc(String(v.claim||'').trim());
-      if (needle.length < 24 || out.indexOf(needle) === -1) return;
-      const cls = /disput|unverif/i.test(v.verdict||'') ? ' class="disputed"' : '';
-      out = out.split(needle).join(`<mark${cls}>${needle}</mark>`);
-    });
+    .forEach(v=>mark(v.claim, v.verdict));
   return out;
 },
 
@@ -3359,8 +3387,10 @@ mountReader(s, beats){
       // Persist sparingly: every 10 points of progress, not every frame.
       if (signedIn() && best - saved >= 0.1) {
         saved = best;
+        const lbl = (beats[cur] && beats[cur].label) || '';
         api(`/read/progress?user_id=${S.creds.user_id}&story_id=${encodeURIComponent(s.id)}`
-            + `&progress=${best.toFixed(2)}`, {method:'POST'}).catch(()=>{});
+            + `&progress=${best.toFixed(2)}&beat=${encodeURIComponent(lbl)}`,
+            {method:'POST'}).catch(()=>{});
       }
       if (best >= 0.9 && !S.opened.has('_done')) {
         S.opened.add('_done'); S.eng.understood++; saveEng(); this.endCTA();

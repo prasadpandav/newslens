@@ -763,6 +763,71 @@ def verdict_counts(verdicts):
     return out
 
 
+def depth_hint(bstats, source_count):
+    """How much story the material can actually support.
+
+    Median corroboration in production is ~25 — most stories are carried by a
+    single outlet. Asking for 400-600 words from one wire summary is asking the
+    model to pad, and padding in a news product means invention. So the target
+    scales with the evidence actually present (corroborated facts and how many
+    outlets carried them) instead of being a fixed number the prompt must hit."""
+    core = int((bstats or {}).get("core") or 0)
+    srcs = max(int((bstats or {}).get("sources") or 0), int(source_count or 0))
+    if srcs >= 4 or core >= 5:
+        return ("Aim for 4-5 beats totalling 420-600 words: this event is well "
+                "covered and there is enough corroborated material to justify it.")
+    if srcs >= 2 or core >= 2:
+        return ("Aim for 3-4 beats totalling 280-420 words: several outlets "
+                "carried this, but do not stretch beyond what they report.")
+    return ("Aim for 2-3 beats totalling 180-260 words: this is thinly sourced, "
+            "so keep it tight and do not elaborate beyond the brief.")
+
+
+def clean_beats(raw, fallback_text):
+    """[{label, text}] or None. None means "render the old way" — never a
+    fabricated single beat, so the client can tell a real structure from a
+    story written before beats existed."""
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for b in raw:
+        if not isinstance(b, dict):
+            continue
+        label = str(b.get("label") or "").strip()[:60]
+        text = str(b.get("text") or "").strip()
+        if label and len(text) >= 40:
+            out.append({"label": label, "text": text})
+    # One beat is not a structure, it is the whole story with a heading on it.
+    return out if len(out) >= 2 else None
+
+
+def clean_anchors(raw, claims, beats):
+    """[{claim, quote, verdict_index}] keeping only quotes that REALLY occur in
+    the prose we are about to publish. The model is asked to copy verbatim, but
+    an approximation would put a verdict on a sentence that never carried the
+    claim — worse than showing no marking at all, so it is dropped here rather
+    than left for the client to match loosely."""
+    if not isinstance(raw, list) or not beats:
+        return None
+    body = "\n".join(b["text"] for b in beats)
+    out, seen = [], set()
+    for a in raw:
+        if not isinstance(a, dict):
+            continue
+        try:
+            idx = int(a.get("claim"))
+        except (TypeError, ValueError):
+            continue
+        quote = str(a.get("quote") or "").strip()
+        if not (0 <= idx < len(claims)) or len(quote) < 24 or quote in seen:
+            continue
+        if quote not in body:
+            continue                      # not verbatim — drop, never fuzzy-match
+        seen.add(quote)
+        out.append({"claim": idx, "quote": quote})
+    return out or None
+
+
 class Storyteller:
     # Configurable via MAX_STORIES_PER_RUN env var; the rest roll to next run.
     MAX_PER_RUN = config.MAX_STORIES_PER_RUN
@@ -915,7 +980,9 @@ class Storyteller:
             if verified is None:
                 continue  # LLM unavailable — article kept for next run
             claims, verdicts, score, note = verified
-            out = llm.complete_json("story", prompt("story", claims=db.j(claims), items=items))
+            out = llm.complete_json("story", prompt(
+                "story", claims=db.j(claims), items=items,
+                depth=depth_hint(bstats, len({a["source"] for a in arts}))))
             if out is None:
                 continue
             headline = out.get("headline", arts[0]["title"])
@@ -929,6 +996,14 @@ class Storyteller:
             # answers in the old single-field shape degrades instead of failing.
             narrative = out.get("what_happened") or out.get("narrative") or items
             why_matters = out.get("why_it_matters", "")
+            beats = clean_beats(out.get("beats"), narrative)
+            anchors = clean_anchors(out.get("anchors"), claims, beats)
+            # When beats came back well-formed they ARE the story, so `narrative`
+            # becomes their joined text: everything that reads `narrative` today
+            # (OG cards, SEO descriptions, the feed dek, iOS) keeps working and
+            # simply sees the fuller piece, with no client change required.
+            if beats:
+                narrative = "\n\n".join(b["text"] for b in beats)
             conn_ids = [r["id"] for r in con.execute(
                 "SELECT id FROM connections WHERE confidence >= 0.6 AND "
                 "(article_a IN (%s) OR article_b IN (%s))"
@@ -948,11 +1023,13 @@ class Storyteller:
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
                     "connection_ids=?,updated_at=?,event_id=?,image_url=?,"
-                    "merge_stats=? WHERE id=?",
+                    "merge_stats=?,beats=?,anchors=? WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
                      db.j(sorted(tids)), db.j(conn_ids),
                      db.now(), event_id, images.best_of(arts), db.j(bstats),
+                     db.j(beats) if beats else None,
+                     db.j(anchors) if anchors else None,
                      mine["id"]))
                 self._record_history(con, mine["id"], event_id, score, len(ids),
                                      verdicts, bstats)
@@ -964,12 +1041,14 @@ class Storyteller:
                 con.execute(
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                    "created_at,updated_at,event_id,image_url,merge_stats) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "created_at,updated_at,event_id,image_url,merge_stats,beats,anchors) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
                      db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids),
-                     db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats)))
+                     db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats),
+                     db.j(beats) if beats else None,
+                     db.j(anchors) if anchors else None))
                 self._record_history(con, sid, event_id, score, len(ids),
                                      verdicts, bstats)
                 new_ct += 1

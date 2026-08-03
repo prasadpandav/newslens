@@ -15,7 +15,8 @@ from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, diag, images, llm, live, analytics, ranking, textmerge
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
-                     Personalizer, personalization_relevant, verdict_counts)
+                     Personalizer, personalization_relevant, verdict_counts,
+                     depth_hint, clean_beats, clean_anchors)
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 
@@ -363,6 +364,7 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
                   s.article_ids, s.claims, s.merge_stats,
                   b.created_at AS saved_at, b.credibility_at_save,
                   r.progress AS progress, r.completed_at AS completed_at,
+                  r.beat AS stopped_at,
                   '' AS impact_text, 0 AS impact_score
            FROM bookmarks b JOIN stories s ON s.id = b.story_id
            LEFT JOIN read_stories r
@@ -417,7 +419,7 @@ _READ_COMPLETE_AT = 0.9
 
 @app.post("/read/progress")
 def set_read_progress(user_id: str, story_id: str, progress: float,
-                      authorization: str = Header("")):
+                      beat: str = "", authorization: str = Header("")):
     """How far into a story the reader actually got, 0.0-1.0.
 
     `read_stories` only ever recorded that a story was OPENED, which is why the
@@ -436,9 +438,12 @@ def set_read_progress(user_id: str, story_id: str, progress: float,
                 (db.new_id(), user_id, story_id, db.now()))
     con.execute(
         "UPDATE read_stories SET progress=MAX(COALESCE(progress,0), ?), "
-        "completed_at=COALESCE(completed_at, CASE WHEN ?>=? THEN ? END) "
+        "completed_at=COALESCE(completed_at, CASE WHEN ?>=? THEN ? END), "
+        # Only moves forward with progress, so re-opening at the top doesn't
+        # rewrite where you actually got to.
+        "beat=CASE WHEN ?>COALESCE(progress,0) AND ?<>'' THEN ? ELSE beat END "
         "WHERE user_id=? AND story_id=?",
-        (p, p, _READ_COMPLETE_AT, db.now(), user_id, story_id))
+        (p, p, _READ_COMPLETE_AT, db.now(), p, beat, beat, user_id, story_id))
     con.commit(); con.close()
     return {"ok": True, "progress": p}
 
@@ -452,6 +457,7 @@ def list_read(user_id: str, authorization: str = Header("")):
                   s.topic, s.image_url, s.created_at, s.updated_at,
                   s.article_ids, s.claims, s.merge_stats,
                   r.created_at AS read_at, r.progress, r.completed_at,
+                  r.beat AS stopped_at,
                   '' AS impact_text, 0 AS impact_score
            FROM read_stories r JOIN stories s ON s.id = r.story_id
            WHERE r.user_id = ? ORDER BY r.created_at DESC""",
@@ -642,6 +648,11 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
             "why_matters": s["why_matters"] or "",
             "credibility": s["credibility"], "credibility_note": s["credibility_note"],
             "claims": db.uj(s["claims"]), "topic": s["topic"],
+            # null, not [] — the clients distinguish "written before beats
+            # existed" (fall back to the single narrative) from "structured but
+            # empty", which should never happen.
+            "beats": db.uj(s["beats"]) if "beats" in s.keys() and s["beats"] else None,
+            "anchors": db.uj(s["anchors"]) if "anchors" in s.keys() and s["anchors"] else None,
             "image_url": s["image_url"] or "", "sources": articles,
             "trends": trends, "connections": conns, "created_at": s["created_at"],
             "impact_text": fi["impact_text"] if fi else "",
@@ -1620,7 +1631,7 @@ def _retell_story(con, row, verifier):
                 break
         arts = picked or arts[:RETELL_MAX_ARTICLES]
     texts = fulltext.fetch_for_articles(arts) if len(arts) > 1 else {}
-    items, _ = textmerge.build_brief(arts, texts=texts, tier_of=verifier.source_tier)
+    items, bstats = textmerge.build_brief(arts, texts=texts, tier_of=verifier.source_tier)
     if not items:
         items = "\n".join(
             f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}" for a in arts)
@@ -1628,18 +1639,33 @@ def _retell_story(con, row, verifier):
     if verified is None:
         return False            # LLM unavailable — leave the row for a later run
     claims, verdicts, score, note = verified
-    out = llm.complete_json("story", prompt("story", claims=db.j(claims), items=items))
+    # `depth` is required by the story prompt since phase 4 — omitting it raises
+    # KeyError from str.format, which would take this whole admin job down.
+    out = llm.complete_json("story", prompt(
+        "story", claims=db.j(claims), items=items,
+        depth=depth_hint(bstats, len({a["source"] for a in arts}))))
     if out is None:
         return False
     narrative = out.get("what_happened") or out.get("narrative")
     if not narrative:
         return False            # never re-stamp the placeholder as if it were copy
+    # Retelling is how a story written before phase 4 gains beats, so persist
+    # them here too — otherwise the one job whose purpose is upgrading old
+    # stories would leave them structureless forever.
+    beats = clean_beats(out.get("beats"), narrative)
+    anchors = clean_anchors(out.get("anchors"), claims, beats)
+    if beats:
+        narrative = "\n\n".join(b["text"] for b in beats)
     con.execute(
         "UPDATE stories SET headline=?, narrative=?, why_matters=?, credibility=?, "
-        "credibility_note=?, claims=? WHERE id=?",
+        "credibility_note=?, claims=?, merge_stats=?, beats=?, anchors=? WHERE id=?",
         (out.get("headline") or row["headline"], narrative,
          out.get("why_it_matters", ""), score, note,
-         db.j({"claims": claims, "verdicts": verdicts}), row["id"]))
+         db.j({"claims": claims, "verdicts": verdicts}),
+         db.j(dict(bstats or {}, kinds=verifier.source_breakdown(
+             a["source"] for a in arts))),
+         db.j(beats) if beats else None,
+         db.j(anchors) if anchors else None, row["id"]))
     con.commit()
     return True
 
