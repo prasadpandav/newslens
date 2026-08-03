@@ -2683,7 +2683,31 @@ const Theme = {
 };
 
 /* ================= Story Reader ================= */
-const Story = { async render(id){
+const Story = {
+/* Wrapper, so a throw anywhere below cannot leave the reader staring at the
+   loading skeleton forever with nothing to act on and nothing in the console
+   worth reading. render() writes that skeleton and only replaces it at the very
+   end, so ANY exception in between — a field the server stopped sending, a
+   malformed cached value, a browser API an extension has monkey-patched — is
+   invisible: the page just never finishes. Turning that into a visible error
+   with a retry costs nothing and is the difference between "it hangs" and a
+   bug report we can act on. */
+async render(id){
+  try{
+    return await this._render(id);
+  }catch(e){
+    console.error('[Descry] story render failed', id, e);
+    const el = $('#view');
+    if (el) el.innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+      <div class="glass" style="display:inline-block;padding:32px 40px;max-width:520px;color:var(--text-2)">
+        Something went wrong displaying this story.<br><br>
+        <code style="font-family:var(--font-mono);font-size:12px;color:var(--text-3);
+          word-break:break-word">${esc(String((e && e.message) || e))}</code><br><br>
+        <button class="btn ghost" data-act="reload-story" data-id="${esc(id)}">Try again</button>
+        <a class="btn primary" href="/brief">Back to the brief</a></div></div>`;
+  }
+},
+async _render(id){
   $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
   let s, err;
   try{ s = await api('/story/'+id+(S.creds?`?user_id=${S.creds.user_id}`:'')); }
