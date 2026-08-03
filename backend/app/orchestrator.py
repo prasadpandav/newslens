@@ -67,6 +67,15 @@ def run_pipeline(stage=None):
             results[s] = f"error: {e}"
         diag.checkpoint(f"run={run_id} stage={s} done dur={time.time()-t0:.1f}s "
                         f"result={results.get(s)}")
+    # story_history only ever grows (Storyteller appends a row whenever a
+    # story's corroboration actually moves), so it needs a ceiling. Done here,
+    # once per run, while we still hold the connection.
+    try:
+        dropped = db.prune_history(con)
+        if dropped:
+            db.log_run(con, "history", "ok", f"pruned {dropped} stale history rows")
+    except Exception as e:                       # never fail a run over cleanup
+        db.log_run(con, "history", "warn", f"prune failed: {e}")
     db.log_run(con, "pipeline", "done", str(results),
                llm_calls=llm.usage["calls"], llm_tokens=llm.usage["tokens"])
     con.close()

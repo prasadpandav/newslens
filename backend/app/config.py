@@ -214,6 +214,11 @@ FULLTEXT_MAX_BYTES = int(os.environ.get("FULLTEXT_MAX_BYTES", "1500000"))
 RSS_MAX_BYTES = int(os.environ.get("RSS_MAX_BYTES", "5000000"))
 # Hard cap on the merged-fact brief handed to the LLM (token control).
 BRIEF_MAX_CHARS = int(os.environ.get("BRIEF_MAX_CHARS", "2600"))
+# How long story_history is kept. It is the only append-only table in the
+# schema, so it needs an explicit ceiling on a 512MB box. 90 days is well past
+# the 7-day feed window while still covering "moved most this week" and the
+# "since you saved it" comparisons on stories bookmarked months ago.
+HISTORY_KEEP_DAYS = int(os.environ.get("HISTORY_KEEP_DAYS", "90"))
 DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))
 FEEDS_FILE = ROOT / "feeds.yaml"
 SOURCES_FILE = ROOT / "sources.yaml"

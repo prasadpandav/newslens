@@ -26,7 +26,11 @@
      (see the :root[data-skin] blocks): Archivo carries every uppercase label and
      Signal's 900-weight headlines, and Journal sets dek/meta/edition lines in
      real italic. Loading them as variable ranges keeps this a single request. -->
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:ital,wght@0,400..900;1,400..600&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<!-- IBM Plex Sans/Mono and the Newsreader 300 axis belong to the "annotated
+     manuscript" feed (Descry Redesign.dc.html): Plex Sans carries UI and deks,
+     Plex Mono is reserved strictly for evidence (labels, scores, deltas), and
+     Newsreader 300 sets the large headlines and the hero dek. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:ital,wght@0,400..900;1,400..600&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=JetBrains+Mono:wght@400..700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- Google Identity Services (Sign in with Google) -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -133,6 +137,104 @@
   }
   .gbtn-fallback{border-color:transparent}
 }
+
+/* ============ "Annotated manuscript" — the product's default look ============
+   From the design project `Descry Redesign.dc.html`. The feed (screen 1b) is
+   ported markup-for-markup further down under `.fx`; THIS block is what carries
+   the same language onto every other screen — story reader, trends, forecasts,
+   saved, read, account, the live strip — by remapping the tokens they already
+   render from. That is the whole reason the skin architecture exists, and it is
+   why porting nine screens by hand is not the way to do this.
+
+   Selector is `:root:not([data-skin])`, which ties with a skin block on
+   specificity and loses on source order — so this is the default for everyone,
+   and a reader who has explicitly picked Journal or Signal still gets theirs.
+   Dark is the design's own "Night desk" (screen 1i), not an inversion. */
+:root:not([data-skin]){
+  --bg:#E8E4DB; --bg-2:#F7F4EE; --surface:#FFFDF9;
+  --surface-2:#EFE9DC; --border:rgba(23,21,15,.11); --border-2:rgba(23,21,15,.22);
+  --text:#17150F; --text-2:#4A4640; --text-3:#7A756C;
+  /* One indigo IS the product. Everything the default theme spread across
+     accent/ai-2/predict collapses onto it, so green/amber/rust are free to mean
+     only one thing: a verdict. */
+  --accent:#2E4A7D; --ai-2:#2E4A7D; --predict:#2E4A7D;
+  --trust:#3F6B4A; --warn:#A9741C; --breaking:#9B3F30;
+  --grad-ai:#2E4A7D;
+  --font-ui:'IBM Plex Sans',system-ui,sans-serif;
+  --font-ed:'Newsreader',Georgia,serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+  /* The design draws 8/6/5px corners and one soft shadow — not the 18px pills
+     and 30px glows the default theme uses. */
+  --r-lg:8px; --r-md:6px; --r-sm:5px;
+  --shadow:0 2px 10px rgba(23,21,15,.07);
+  --modal-bg:#FFFDF9;
+  --nav-bg:rgba(255,253,249,.92); --pill-bg:rgba(247,244,238,.92);
+  --track:rgba(23,21,15,.12);
+  --chip-blue:#2E4A7D; --chip-green:#3F6B4A; --chip-amber:#A9741C;
+  --chip-red:#9B3F30; --chip-purple:#2E4A7D;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]){
+    --bg:#0E0D0B; --bg-2:#171512; --surface:#171512;
+    --surface-2:#1E1B16; --border:rgba(247,244,238,.12); --border-2:rgba(247,244,238,.24);
+    --text:#F2EEE6; --text-2:rgba(242,238,230,.82); --text-3:rgba(247,244,238,.5);
+    --accent:#9DB4DC; --ai-2:#9DB4DC; --predict:#9DB4DC;
+    --trust:#7AA884; --warn:#D2A54F; --breaking:#C87F6A;
+    --grad-ai:#9DB4DC;
+    --shadow:0 2px 14px rgba(0,0,0,.5);
+    --modal-bg:#171512;
+    --nav-bg:rgba(23,21,18,.92); --pill-bg:rgba(23,21,18,.92);
+    --track:rgba(247,244,238,.14);
+    --chip-blue:#9DB4DC; --chip-green:#7AA884; --chip-amber:#D2A54F;
+    --chip-red:#C87F6A; --chip-purple:#9DB4DC;
+  }
+}
+/* --- the override layer: components that do NOT read tokens ---
+   Same three offenders the Journal/Signal skins had to handle (hardcoded radii,
+   the button's gradient-and-glow, the tinted chip pill), plus two this design
+   is specific about. */
+:root:not([data-skin]) body::before{display:none}          /* no accent haze over paper */
+/* Antialiased smoothing thins every stroke on macOS, which is why the type read
+   lighter here than in the design — the mockup renders with the platform
+   default. Plex Sans in particular loses a lot of weight to it. */
+:root:not([data-skin]) body{-webkit-font-smoothing:auto;-moz-osx-font-smoothing:auto}
+:root:not([data-skin]) .glass{background:var(--surface);border-color:var(--border);
+  box-shadow:none}
+:root:not([data-skin]) .btn{border-radius:6px;font-weight:500;font-family:var(--font-ui)}
+:root:not([data-skin]) .btn.primary{background:var(--accent);box-shadow:none;border-radius:100px}
+:root:not([data-skin]) .btn.primary:hover{transform:none;box-shadow:none;filter:brightness(1.12)}
+:root:not([data-skin]) .chip{font-weight:400;font-size:11.5px;padding:5px 10px;
+  background:var(--surface-2);border-color:transparent;color:var(--text-2)}
+:root:not([data-skin]) .chip.on{background:var(--text);color:var(--bg-2);border-color:transparent}
+:root:not([data-skin]) .fab{border-radius:100px;box-shadow:var(--shadow);
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.06em}
+/* Evidence is mono, prose is Newsreader — the design's rule 3. */
+:root:not([data-skin]) .tv,:root:not([data-skin]) .stat b,
+:root:not([data-skin]) .cnt{font-family:var(--font-mono)}
+:root:not([data-skin]) :is(h1,h2,h3,.brief-head h1,.mcard h2){font-family:var(--font-ed);
+  font-weight:400;letter-spacing:-.01em}
+:root:not([data-skin]) .rail h4,:root:not([data-skin]) .tabs button{font-family:var(--font-ui)}
+:root:not([data-skin]) .rail h4{font-family:var(--font-mono);font-size:10px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--text-3)}
+
+/* The live strip (LiveHero) is the one shared component with its own look —
+   a glowing translucent card. On paper it reads as a sticker, so it becomes a
+   ruled bulletin: hairline box, rust "LIVE" in mono, square corners. */
+:root:not([data-skin]) .livehero{background:var(--surface);border:1px solid var(--border);
+  border-left:2px solid var(--breaking);border-radius:var(--r-md);box-shadow:none;
+  padding:12px 16px 11px}
+:root:not([data-skin]) .livehero.brk{border-left-color:var(--breaking);background:var(--surface)}
+:root:not([data-skin]) .lh-dot{font-family:var(--font-mono);font-size:10px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--breaking)}
+:root:not([data-skin]) .lh-card{border-radius:var(--r-sm)}
+:root:not([data-skin]) .lh-card .lh-ic{border-radius:var(--r-sm);background:var(--surface-2);
+  border:1px solid var(--border)}
+:root:not([data-skin]) .lh-tag{font-family:var(--font-mono);font-size:10px;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)}
+:root:not([data-skin]) .lh-title{font-family:var(--font-ed);font-size:16px;font-weight:400;
+  line-height:1.25}
+:root:not([data-skin]) .lh-sub{font-family:var(--font-ui);font-size:11.5px;color:var(--text-3)}
+:root:not([data-skin]) .lh-gear{border-radius:var(--r-sm)}
 
 /* ============ Themes (signed-in personalization — see Theme.apply) ============
    Both adapted from design/redesign-a-journal.html and redesign-b-signal.html,
@@ -1032,6 +1134,258 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
   font-size:13.5px;opacity:0;transition:all .35s var(--ease);pointer-events:none;box-shadow:var(--shadow)}
 .toast.on{opacity:1;transform:translateX(-50%)}
 footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12.5px}
+
+/* ============ Feed: "the annotated manuscript" ============
+   Ported from the design project `Descry Redesign.dc.html`, screen 1b ("Home —
+   your feed, with evidence on the surface"). Values below are the design's own,
+   not approximations: every colour, size and weight is lifted from its inline
+   styles so this stays diffable against the source.
+
+   The three rules the design states for itself, worth keeping when extending:
+     1. Corroboration is a TIER WORD FIRST, number second. The number never
+        appears alone.
+     2. Colour is rationed. One indigo (#2E4A7D) is the product; green/amber/
+        rust are verdicts ONLY, so a colour on the page always means something.
+     3. IBM Plex Mono is reserved for evidence — labels, scores, deltas. Prose
+        is Newsreader, UI is IBM Plex Sans. Mixing them dilutes rule 2.
+
+   Scoped to .fx so it owns its palette rather than inheriting the app's: the
+   verdict hues have to stay fixed to read as a scale, which is the same reason
+   the journal skin pins its own palette against prefers-color-scheme.
+   Only the FEED is ported — Saved/Read/Trends still render the older .scard,
+   so Brief.card() is deliberately left intact. */
+.fx{
+  --ink:#17150F; --ink-2:#4A4640; --mute:#7A756C; --faint:#9A958B; --ghost:#C0BAB0;
+  --paper:#F7F4EE; --card:#FFFDF9; --sand:#EFE9DC; --sand-2:#C8B98F; --sand-ink:#8A7A4E;
+  --rule:rgba(23,21,15,.09); --rule-2:rgba(23,21,15,.14);
+  --indigo:#2E4A7D;
+  --good:#3F6B4A; --mid:#A9741C; --bad:#9B3F30;
+  --serif:'Newsreader',Georgia,serif;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  background:var(--paper); color:var(--ink); font-family:var(--sans);
+  /* Not `antialiased`: it thins Plex Sans noticeably and is why the type read
+     lighter here than in the design, which renders at the platform default. */
+  -webkit-font-smoothing:auto; -moz-osx-font-smoothing:auto;
+}
+/* "Night desk" (screen 1i) — the design's own evening palette, not a
+   mechanical inversion: paper goes to #12110F, the rail lifts to #171512, and
+   the verdict hues desaturate so they stay separable on black. */
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) .fx{
+    --ink:#F2EEE6; --ink-2:rgba(242,238,230,.82); --mute:rgba(247,244,238,.5);
+    --faint:rgba(247,244,238,.4); --ghost:rgba(247,244,238,.25);
+    --paper:#12110F; --card:#171512; --sand:#1E1B16; --sand-2:#C8B98F; --sand-ink:#C8B98F;
+    --rule:rgba(247,244,238,.12); --rule-2:rgba(247,244,238,.18);
+    --indigo:#9DB4DC;
+    --good:#7AA884; --mid:#D2A54F; --bad:#C87F6A;
+  }
+}
+.fx a{color:inherit;text-decoration:none}
+.fx button{font-family:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+/* gap:0 with column rules, exactly as the design draws it — the sidebars are
+   separated by hairlines, not whitespace. */
+.fx-shell{max-width:1280px;margin:0 auto;display:grid;
+  grid-template-columns:206px minmax(0,1fr) 246px;gap:0;align-items:start}
+.fx-side{padding:26px 20px;border-right:1px solid var(--rule)}
+.fx-main{padding:26px 30px 34px;min-width:0}
+.fx-rail{padding:26px 22px;border-left:1px solid var(--rule)}
+.fx-side,.fx-rail{position:sticky;top:calc(var(--navh) + 1px)}
+
+/* ---- evidence type ---- */
+.fx-lbl{display:block;font:500 10px var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--mute)}
+.fx-meta{font:400 11px var(--mono);color:var(--mute)}
+
+/* ---- corroboration: tier word first, number second (rule 1) ---- */
+.fx-pips{display:inline-flex;gap:2px;vertical-align:middle}
+.fx-pips i{display:block;width:13px;height:5px;border-radius:2px;background:var(--rule-2)}
+.fx-pips i.on{background:currentColor}
+.fx-hero .fx-pips{gap:3px}
+.fx-hero .fx-pips i{width:22px;height:6px}
+.fx-good{color:var(--good)} .fx-mid{color:var(--mid)} .fx-bad{color:var(--bad)}
+.fx-tier{font:500 11.5px var(--sans)}
+.fx-hero .fx-tier{font-size:13px}
+.fx-score{font:400 12px var(--mono);color:var(--mute)}
+
+/* ---- left rail: the lens ---- */
+.fx-chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fx-chip{padding:5px 10px;border-radius:100px;background:var(--sand);
+  font:400 11.5px var(--sans);color:var(--ink-2);white-space:nowrap}
+button.fx-chip:hover{background:var(--sand-2);color:var(--ink)}
+button.fx-chip.on{background:var(--ink);color:var(--card)}
+.fx-link{font:400 12px var(--sans);color:var(--indigo);
+  text-decoration:underline;text-underline-offset:3px}
+.fx-sorts{display:flex;flex-direction:column;gap:11px;margin-bottom:28px}
+.fx-sort{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;
+  text-align:left;font:400 13px var(--sans);color:var(--ink-2)}
+.fx-sort .dot{color:var(--ghost);font-size:11px;line-height:1}
+.fx-sort.has .dot{color:var(--good)}
+.fx-sort.on span:first-child{color:var(--ink);font-weight:500}
+.fx-sort:hover span:first-child{color:var(--ink)}
+.fx-sect{padding-top:22px;border-top:1px solid var(--rule);margin-top:28px}
+.fx-follows{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+.fx-follow{display:flex;align-items:baseline;gap:6px;width:100%;text-align:left;
+  font:400 13px var(--sans);color:var(--ink-2)}
+.fx-follow:hover{color:var(--ink)}
+.fx-follow .n{font:400 10px var(--mono);color:var(--bad);white-space:nowrap}
+.fx-follow .x{margin-left:auto;font:400 12px var(--mono);color:var(--faint);opacity:0}
+.fx-follow:hover .x{opacity:1}
+
+/* ---- centre ---- */
+.fx-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  margin-bottom:18px}
+.fx-head h1{margin:0;font:400 25px var(--serif);color:var(--ink)}
+.fx-hero{background:var(--card);border:1px solid rgba(23,21,15,.11);border-radius:8px;
+  overflow:hidden;margin-bottom:26px}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .fx-hero{border-color:var(--rule)}}
+.fx-hero-media{display:block;height:236px;background:var(--sand)}
+.fx-hero-media img{width:100%;height:100%;object-fit:cover;display:block}
+.fx-hero-in{padding:22px 26px 24px}
+.fx-kicker{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.fx-kicker .dev{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--bad)}
+.fx-kicker .sep{width:3px;height:3px;border-radius:50%;background:var(--ghost);flex:none}
+.fx-kicker .rest{font:400 11.5px var(--sans);color:var(--mute)}
+.fx-hero h2{margin:0 0 12px;font:400 36px/1.15 var(--serif);color:var(--ink);
+  letter-spacing:-.015em;max-width:640px;text-wrap:pretty}
+.fx-hero .fx-dek{margin:0 0 20px;font:300 17px/1.6 var(--serif);color:var(--ink-2);
+  max-width:660px;text-wrap:pretty}
+.fx-stats{display:flex;align-items:center;gap:26px;flex-wrap:wrap;padding:16px 0;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-bottom:18px}
+.fx-stat .fx-lbl{letter-spacing:.12em;margin-bottom:6px}
+.fx-stat .v{font:400 13px var(--sans);color:var(--ink);display:flex;align-items:center;gap:9px}
+.fx-stat .v b{font-weight:600}
+.fx-stat .v .sub{color:var(--mute)}
+.fx-div{width:1px;height:34px;background:rgba(23,21,15,.1);flex:none}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .fx-div{background:var(--rule)}}
+.fx-why{display:flex;gap:14px;padding:15px 18px;background:var(--sand);border-radius:6px}
+.fx-why .bar{width:2px;border-radius:2px;background:var(--sand-2);flex:none}
+.fx-why .fx-lbl{color:var(--sand-ink);margin-bottom:6px}
+.fx-why p{margin:0;font:400 14.5px/1.6 var(--sans);color:var(--ink);max-width:620px;
+  text-wrap:pretty}
+.fx-why button{font:400 14.5px var(--sans);color:var(--indigo);
+  text-decoration:underline;text-underline-offset:3px}
+
+.fx-listhead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.fx-listhead .rule{flex:1;height:1px;background:rgba(23,21,15,.1)}
+@media (prefers-color-scheme:dark){:root:not([data-skin]) .fx-listhead .rule{background:var(--rule)}}
+.fx-row{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:22px;padding:20px 0;
+  border-bottom:1px solid var(--rule)}
+.fx-row.noimg{grid-template-columns:minmax(0,1fr)}
+.fx-row:last-child{border-bottom:0}
+.fx-top{display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap}
+.fx-row h3{margin:0 0 6px;font:400 21px/1.25 var(--serif);color:var(--ink);text-wrap:pretty}
+.fx-row .fx-dek{margin:0;font:400 13.5px/1.6 var(--sans);color:var(--mute);max-width:530px}
+.fx-row-thumb{height:92px;border-radius:5px;overflow:hidden;background:var(--sand)}
+.fx-row-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.fx-flag{font:400 11px var(--mono);color:var(--bad)}
+.fx-flag.calm{color:var(--mute)}
+.fx-readbtn{margin-left:auto;font:400 11px var(--mono);color:var(--faint);opacity:0;
+  pointer-events:none;transition:opacity .15s}
+.fx-row:hover .fx-readbtn,.fx-readbtn:focus-visible{opacity:1;pointer-events:auto}
+.fx-readbtn:hover{color:var(--ink)}
+
+/* ---- right rail ---- */
+.fx-chgs{display:flex;flex-direction:column;gap:16px;margin:14px 0 28px}
+.fx-chg{display:block;width:100%;text-align:left;padding-left:11px;
+  border-left:2px solid var(--ghost)}
+.fx-chg.up{border-left-color:var(--good)} .fx-chg.down{border-left-color:var(--bad)}
+.fx-chg .t{display:block;font:400 12.5px/1.5 var(--sans);color:var(--ink)}
+.fx-chg .d{display:block;font:400 11px var(--mono);color:var(--mute);margin-top:3px}
+.fx-chg.up .d{color:var(--good)} .fx-chg.down .d{color:var(--bad)}
+.fx-ask{padding:16px;background:var(--ink);border-radius:8px}
+.fx-ask .fx-lbl{color:rgba(247,244,238,.5);margin-bottom:9px}
+.fx-ask q{display:block;margin:0 0 13px;font:400 13.5px/1.55 var(--serif);
+  color:rgba(247,244,238,.9);quotes:'\201C' '\201D'}
+.fx-ask .go{display:flex;align-items:center;justify-content:space-between;width:100%;
+  padding:9px 12px;background:rgba(247,244,238,.08);border-radius:100px;
+  font:400 12px var(--sans);color:rgba(247,244,238,.55)}
+.fx-ask .go:hover{background:rgba(247,244,238,.16);color:#F7F4EE}
+.fx-ask .go .arrow{color:var(--sand-2)}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) .fx-ask{background:#1E1B16;border:1px solid var(--rule)}
+}
+.fx-sigs{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+.fx-sig{display:block;width:100%;text-align:left}
+.fx-sig .t{display:block;font:400 12.5px/1.5 var(--sans);color:var(--ink)}
+.fx-sig .p{display:block;font:400 12px/1.5 var(--sans);color:var(--mute);margin-top:3px}
+.fx-sig .c{display:block;font:400 11px var(--mono);color:var(--mute);margin-top:3px}
+.fx-foot{margin-top:24px;font:400 11px/1.6 var(--mono);color:var(--faint)}
+.fx-empty{font:400 13.5px/1.65 var(--sans);color:var(--mute)}
+
+/* ---- the design's own nav (screen 1b), scoped so other routes keep theirs ---- */
+body:has(.fx) nav{background:var(--card,#FFFDF9);backdrop-filter:none;
+  border-bottom:1px solid rgba(23,21,15,.1)}
+body:has(.fx) nav .links a{font:400 13.5px 'IBM Plex Sans',system-ui,sans-serif;
+  color:#7A756C;border-radius:0;padding:7px 0;background:none}
+body:has(.fx) nav .links{gap:22px;margin-left:32px}
+body:has(.fx) nav .links a.active{color:#17150F;font-weight:500;background:none;
+  border-bottom:1.5px solid #17150F}
+body:has(.fx) .searchbtn{border-radius:100px;background:#F7F4EE;
+  border:1px solid rgba(23,21,15,.14);font:400 13px 'IBM Plex Sans',sans-serif;color:#9A958B}
+body:has(.fx) .searchbtn kbd{font-family:'IBM Plex Mono',monospace;background:none;
+  border:0;color:#9A958B}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) body:has(.fx) nav{background:#171512;border-bottom-color:rgba(247,244,238,.12)}
+  :root:not([data-skin]) body:has(.fx) nav .links a{color:rgba(247,244,238,.5)}
+  :root:not([data-skin]) body:has(.fx) nav .links a.active{color:#F2EEE6;border-bottom-color:#F2EEE6}
+  :root:not([data-skin]) body:has(.fx) .searchbtn{background:#12110F;
+    border-color:rgba(247,244,238,.14);color:rgba(247,244,238,.45)}
+}
+
+/* The feed owns the whole viewport while it is mounted: the design's outer
+   stock is #E8E4DB with the columns floated on #F7F4EE, and the app's default
+   blue-grey body plus its two accent radial-gradients would otherwise show
+   through around the 1280px shell and under a short page. */
+body:has(.fx){background:#E8E4DB}
+body:has(.fx)::before{display:none}
+body:has(.fx) footer{color:#9A958B}
+.fx{min-height:calc(100vh - var(--navh))}
+@media (prefers-color-scheme:dark){
+  :root:not([data-skin]) body:has(.fx){background:#0E0D0B}
+}
+
+/* Shared components (guest welcome bar, live-breaking strip) sit on paper here. */
+.fx .welcomebar,.fx .livehero{margin-bottom:22px}
+.fx .newbanner{margin-bottom:18px}
+/* Deks are clamped so a long narrative can't push the evidence strip below the
+   fold — the strip is the point of the screen. */
+.fx-hero .fx-dek{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.fx-row .fx-dek{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fx-hero h2 a:hover,.fx-row:hover h3{text-decoration:underline;text-decoration-thickness:1px;
+  text-underline-offset:3px;text-decoration-color:var(--ghost)}
+
+/* ---- responsive (screen 1h collapses to one column at 390) ---- */
+@media (max-width:1180px){
+  .fx-shell{grid-template-columns:206px minmax(0,1fr)}
+  .fx-rail{grid-column:1/-1;position:static;border-left:0;border-top:1px solid var(--rule);
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:28px;align-items:start}
+  .fx-chgs,.fx-sigs{margin-bottom:0}
+  .fx-foot{margin-top:0}
+}
+@media (max-width:860px){
+  .fx-shell{grid-template-columns:minmax(0,1fr)}
+  .fx-side{position:static;border-right:0;border-bottom:1px solid var(--rule);
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px;align-items:start}
+  .fx-sect{margin-top:0;padding-top:0;border-top:0}
+  .fx-sorts{margin-bottom:0}
+  .fx-main{padding:22px 18px 30px}
+  .fx-head{flex-wrap:wrap;gap:6px}
+  .fx-hero h2{font-size:27px}
+  .fx-hero-media{height:190px}
+  .fx-stats{gap:18px}
+  .fx-div{display:none}
+}
+@media (max-width:560px){
+  .fx-row{grid-template-columns:minmax(0,1fr);gap:12px}
+  .fx-row-thumb{height:150px}
+  .fx-hero-in{padding:18px 18px 20px}
+  .fx-hero h2{font-size:24px}
+  .fx-hero .fx-dek{font-size:16px}
+  .fx-stat{flex:1 1 100%}
+  .fx-readbtn{opacity:1;pointer-events:auto}
+}
 </style>
 </head>
 <body>
@@ -1140,6 +1494,8 @@ const GOOGLE_CLIENT_ID = _qsGid || localStorage.getItem('bl_gid')
 const S = {
   online: true, stories: [], trends: [], signals: [], topic: 'all',
   feedmode: 'recent',
+  // Redesigned feed's "Show me first" — '' means the server's ranked order.
+  fxsort: '',
   creds: JSON.parse(localStorage.getItem('bl_creds') || 'null'),
   eng: JSON.parse(localStorage.getItem('bl_eng') || '{"streak":1,"lastDay":"","understood":0,"topics":[]}'),
   live: JSON.parse(localStorage.getItem('bl_live') || '{"enabled":true,"categories":["breaking","events","sports","finance"]}'),
@@ -1461,6 +1817,12 @@ addEventListener('error', e=>{
     card?.classList.remove('has-img', 'lead');
   } else if (t.classList.contains('shero')){
     t.closest('.sherowrap')?.remove();
+  } else {
+    // Redesigned feed: the hero banner and the row thumbnail both collapse to
+    // nothing, and the row drops back to its full-width text-only grid.
+    const row = t.closest('.fx-row');
+    t.closest('.fx-hero-media, .fx-row-thumb')?.remove();
+    row?.classList.add('noimg');
   }
 }, true);
 
@@ -1491,6 +1853,14 @@ document.addEventListener('click', e=>{
       { const b=$('#welcomebar'); if(b) b.remove(); } break;
     case 'topic': S.topic = el.dataset.topic; Brief.render(); break;
     case 'feedmode': S.feedmode = el.dataset.mode; Brief.render(); break;
+    // Redesigned feed. Clicking the active option clears it (back to ranked
+    // order) — the mockup shows these as a preference, not a mode you're stuck in.
+    case 'fx-sort': S.fxsort = (S.fxsort === el.dataset.mode) ? '' : el.dataset.mode;
+      Brief.render(); break;
+    case 'fx-clear': S.fxsort = ''; S.topic = 'all'; Brief.render(); break;
+    case 'fx-follow': Follow.toggle(el.dataset.id); Brief.render(); break;
+    case 'fx-unfollow': Follow.toggle(el.dataset.id); Brief.render(); break;
+    case 'fx-impact': fxImpact(el.dataset.id, el); break;
     case 'go': if(el.dataset.hash) Nav.go(el.dataset.hash); break;
     case 'refresh': loadData().then(()=>Brief.render()); break;
     case 'signin': Auth.trigger(); break;
@@ -1498,8 +1868,8 @@ document.addEventListener('click', e=>{
     case 'unlock': Gate.require(el.dataset.gate || 'read'); break;
     case 'save': Story.toggleSave(); break;
     case 'reload-story': Story.render(el.dataset.id); break;
-    case 'read': markRead(el.dataset.id, el.closest('.scard')); break;
-    case 'unread': unmarkRead(el.dataset.id, el.closest('.scard')); break;
+    case 'read': markRead(el.dataset.id, el.closest('.scard, .fx-row')); break;
+    case 'unread': unmarkRead(el.dataset.id, el.closest('.scard, .fx-row')); break;
     case 'personalize': Gate.require('personalize'); break;
     case 'ask': if(Gate.require('ask')) Ask.open(); break;
     case 'hero-config': LiveHero.openConfig(); break;
@@ -1593,6 +1963,144 @@ function welcomeBannerHTML(){
   </div>`;
 }
 
+/* ================= Feed redesign: helpers =================
+   Everything here is derived from fields /feed and /stories ALREADY return.
+   Where the mockup asks for something the API doesn't carry yet (per-claim
+   verdict tallies, source counts, framing spread) the markup renders that stat
+   only `if (field != null)` — so those panels stay absent rather than faked,
+   and light up on their own the day the backend starts sending them. */
+const FX = {
+  /* The five-step scale the mockup labels THIN / CONTESTED / MIXED / CORROB. /
+     STRONG, mapped onto stories.credibility (0-100, written by Verifier). The
+     boundaries reproduce the mockup's own examples: 21 -> Thin, 58 -> Mixed,
+     82 -> Corroborated, 94 -> Strongly corroborated. */
+  BANDS:[{min:85,name:'Strongly corroborated',pips:5,tone:'fx-good'},
+         {min:70,name:'Corroborated',         pips:4,tone:'fx-good'},
+         {min:55,name:'Mixed',                pips:3,tone:'fx-mid'},
+         {min:40,name:'Contested',            pips:2,tone:'fx-mid'},
+         {min:-1,name:'Thin',                 pips:1,tone:'fx-bad'}],
+  band(c){ c = Math.round(c||0); return this.BANDS.find(b=>c>=b.min); },
+  pips(b){ return `<span class="fx-pips ${b.tone}" aria-hidden="true">`
+    + [1,2,3,4,5].map(n=>`<i class="${n<=b.pips?'on':''}"></i>`).join('') + '</span>'; },
+  /* Rule 1 of the design: the TIER WORD leads, the number follows — and the
+     number never appears on its own. On a row they read as one coloured unit
+     ("Mixed · 58"); on the hero the score is set apart in mono grey. */
+  scale(s, hero){ const b=this.band(s.credibility), c=Math.round(s.credibility||0);
+    return this.pips(b) + (hero
+      ? `<span class="fx-tier ${b.tone}">${b.name}</span><span class="fx-score">${c}</span>`
+      : `<span class="fx-tier ${b.tone}">${b.name} · ${c}</span>`); },
+  words(s){ return ((s.narrative||'').trim().match(/\S+/g)||[]).length; },
+  mins(s){ return Math.max(1, Math.round(this.words(s)/200)); },
+  /* "Developing" is a real, cheap signal: Storyteller UPDATES a story in place
+     when new articles land on the same event, so updated_at pulling away from
+     created_at means the storyline moved after it was first told. */
+  developing(s){ return ((s.updated_at||0) - (s.created_at||0)) > 3600; },
+  ago(sec){ const m=Math.floor((Date.now()/1000-(sec||0))/60);
+    if(m<1) return 'just now'; if(m<60) return m+' min ago';
+    const h=Math.floor(m/60); return h<24 ? h+'h ago' : Math.floor(h/24)+'d ago'; }
+};
+/* SHOW ME FIRST. These re-rank (and, where the label says "only", filter) the
+   list client-side — no extra request. `has` drives the mockup's status dot:
+   filled when the option would actually return something. */
+FX.SORTS = {
+  strong:{label:'Strongly corroborated',
+    apply:l=>[...l].sort((a,b)=>(b.credibility||0)-(a.credibility||0)),
+    has:l=>l.some(s=>(s.credibility||0)>=70)},
+  contested:{label:'Contested &amp; developing',
+    apply:l=>l.filter(s=>(s.credibility||0)<70 || FX.developing(s))
+              .sort((a,b)=>(b.updated_at||0)-(a.updated_at||0)),
+    has:l=>l.some(s=>(s.credibility||0)<70 || FX.developing(s))},
+  foryou:{label:'Affects me directly',
+    apply:l=>[...l].sort((a,b)=>(b.impact_score||0)-(a.impact_score||0)),
+    has:()=>hasLens()},
+  /* Relative, not a fixed word count. The story prompt asks for 200-260 words,
+     so any absolute threshold is either "everything" or "nothing" depending on
+     which side of it the corpus happens to sit — the first cut used >=180 and
+     silently emptied the feed. Taking the longer end of whatever is currently
+     loaded keeps the option meaningful however long stories get. */
+  long:{label:'Long reads only',
+    apply:l=>{
+      if (l.length < 4) return [...l].sort((a,b)=>FX.words(b)-FX.words(a));
+      const cut = l.map(s=>FX.words(s)).sort((a,b)=>a-b)[Math.floor(l.length*0.55)];
+      return l.filter(s=>FX.words(s)>=cut).sort((a,b)=>FX.words(b)-FX.words(a));
+    },
+    has:l=>l.length>0}
+};
+
+/* ---- "Changed since your last visit" ----
+   The mockup shows "68 -> 82 · two new primaries", which needs a credibility
+   HISTORY the backend does not keep. Rather than invent one, remember the score
+   this browser last saw per story and diff against it. That makes the claim
+   narrower but true: it is "since YOU last looked", not "overnight", and it is
+   per-device. A server-side history table would make it global — worth doing,
+   but this needs no migration and works today. */
+const Seen = {
+  KEY:'bl_seen_v1',
+  read(){ try{ return JSON.parse(localStorage.getItem(this.KEY)||'{}')||{}; }catch(e){ return {}; } },
+  write(o){ try{ localStorage.setItem(this.KEY, JSON.stringify(o)); }catch(e){} }
+};
+/* Computed once per page load and cached: the snapshot is rewritten on the
+   first call, so a re-render (filter click) would otherwise diff against
+   itself and report that nothing ever changes. */
+let _fxDiff = null;
+function fxDiff(list){
+  if (_fxDiff) return _fxDiff;
+  const prev = Seen.read(), was = prev.scores || {}, at = prev.at || 0;
+  const changes = [];
+  list.forEach(s=>{
+    const before = was[s.id];
+    if (before === undefined) return;          // never seen — new, not "changed"
+    const now = Math.round(s.credibility||0);
+    if (Math.abs(now - before) >= 2) changes.push({s, from:before, to:now});
+    else if (at && (s.updated_at||0)*1000 > at && (s.created_at||0)*1000 <= at)
+      changes.push({s, from:null, to:now});    // retold, score held steady
+  });
+  changes.sort((a,b)=>Math.abs(b.to-(b.from??b.to)) - Math.abs(a.to-(a.from??a.to)));
+  const scores = {}; list.forEach(s=>scores[s.id] = Math.round(s.credibility||0));
+  Seen.write({at:Date.now(), scores});
+  _fxDiff = {changes: changes.slice(0,4), lastVisit: at};
+  return _fxDiff;
+}
+
+/* ---- Following ----
+   The mockup follows an "issue" that spans months; no such entity exists (a
+   story is one event, and trends retire). Trends are the closest real thing
+   the API already ships on every feed item as trend_ids, so following works on
+   those — including the "N new" badge, counted from stories created since this
+   browser's last visit. Kept local: there is no server-side follow list. */
+const Follow = {
+  KEY:'bl_following',
+  ids(){ try{ const a=JSON.parse(localStorage.getItem(this.KEY)||'[]'); return Array.isArray(a)?a:[]; }
+         catch(e){ return []; } },
+  has(id){ return this.ids().indexOf(id) >= 0; },
+  toggle(id){ const a=this.ids(), i=a.indexOf(id);
+    if(i<0) a.push(id); else a.splice(i,1);
+    try{ localStorage.setItem(this.KEY, JSON.stringify(a)); }catch(e){}
+    return i<0; },
+  fresh(id, since){ return since ? S.stories.filter(s=>
+    (s.trend_ids||[]).indexOf(id)>=0 && (s.created_at||0)*1000 > since).length : 0; }
+};
+
+/* On-demand "what this means for you" from the feed hero — the same endpoint
+   the story page uses, so opening it here costs exactly one LLM call and the
+   result is cached server-side in feed_items for the story page to reuse. */
+async function fxImpact(id, el){
+  if (!signedIn() || !hasLens()){ Gate.require('personalize'); return; }
+  const s = (S.stories||[]).find(x=>x.id===id); if(!s) return;
+  const box = el.closest('.fx-why'); if(!box) return;
+  el.disabled = true; el.textContent = 'Reading your context…';
+  try{
+    const r = await api('/story/'+id+'/personalize?user_id='+S.creds.user_id, {method:'POST'});
+    s.impact_text = r.impact_text || ''; s.impact_score = r.impact_score || 0;
+    box.innerHTML = `<span class="fx-lbl">Why this matters to you</span><p>${
+      s.impact_text ? esc(s.impact_text)
+      : 'No personal angle on this one — Descry adds this when a story touches your work, city or interests.'}</p>`;
+  }catch(e){
+    el.disabled = false; el.textContent = 'Read the full impact →';
+    toast("Couldn't load your take on this one");
+  }
+}
+
 /* ================= Feed (home / landing) ================= */
 const Brief = { async render(){
   SEO.set({path:'/', jsonld:{'@context':'https://schema.org','@graph':[
@@ -1610,67 +2118,220 @@ const Brief = { async render(){
       loadRail().then(()=>{ if (Nav.path()==='/'||Nav.path().startsWith('/brief')) Brief.render(); });
   }
   bumpStreak();
-  const signedIn = !!(S.creds && S.creds.token);
-  const personalized = signedIn && S.creds.has_context;
-  const topics = ['all', ...new Set(S.stories.map(s=>s.topic))];
+  // NB: `signedIn` is a module-level function; don't shadow it here — the FX
+  // helpers and hasLens() call it while this render is on the stack.
+  const isIn = signedIn(), lensed = isIn && hasLens();
+  const ctx = S.ctx || {};
+
+  const topics = ['all', ...new Set(S.stories.map(s=>s.topic).filter(Boolean))];
   let list = S.stories.filter(s=>S.topic==='all'||s.topic===S.topic);
-  if (S.feedmode==='foryou' && personalized)
-    list = [...list].sort((a,b)=>(b.impact_score||0)-(a.impact_score||0));
-  const macro = S.trends.filter(t=>t.kind==='macro').slice(0,5);
-  const mins = Math.max(2, Math.round(list.length*0.45));
-  const hr = new Date().getHours(), greet = hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
-  // Only the top card gets the lead treatment, and card() ignores the request
-  // when that story has no artwork — so a text-only top story stays normal size.
-  const cardsHTML = list.map((s,i)=>this.card(s,i,{lead:i===0})).join('') ||
-    `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">No stories yet — run the backend pipeline, then refresh.<br><br><button class="btn ghost" data-act="refresh">Refresh</button></div>`;
-  // For You selected but not personalized → show the unlock prompt instead of cards.
-  const cardsOrUnlock = (S.feedmode==='foryou' && !personalized) ? forYouUnlockHTML() : cardsHTML;
+  const diff = fxDiff(S.stories);
+  const mode = FX.SORTS[S.fxsort] ? S.fxsort : '';
+  if (mode) list = FX.SORTS[mode].apply(list);
+  // "Affects me directly" needs a configured lens before it can mean anything.
+  const unlock = mode === 'foryou' && !lensed;
+  const hero = unlock ? null : list[0];
+  const rest = unlock ? [] : list.slice(1);
+
+  const now = new Date();
+  const part = now.getHours()<12 ? 'morning' : now.getHours()<17 ? 'afternoon' : 'evening';
+  const city = (ctx.location && (ctx.location.city || ctx.location.region || ctx.location.country)) || '';
+  const greet = `${now.toLocaleDateString('en-US',{weekday:'long'})} ${part}${city?', '+esc(city):''}`;
+
+  const lensBits = [...(Array.isArray(ctx.interests)?ctx.interests:[]).slice(0,6),
+                    city, ctx.profession].filter(Boolean);
+  const macro = S.trends.filter(t=>t.kind==='macro');
+  const followed = Follow.ids().map(id=>macro.find(t=>t.id===id)).filter(Boolean);
+  const suggest = macro.filter(t=>!Follow.has(t.id)).slice(0, Math.max(0, 3-followed.length));
+
   $('#view').innerHTML = `
-  <div class="wrap">
-    ${welcomeBannerHTML()}
-    <div id="livehero"></div>
-    <div class="brief-head rise"><h1>${greet}. Here's what matters.</h1>
-      <span class="date">${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span></div>
-    <p class="brief-sum rise" style="animation-delay:.05s"><b>${list.length} stories</b> · about <b>${mins} min</b> to understand ·
-      top signal: <b>${esc(cleanName(macro[0]?.name)||'—')}</b> · <span id="freshness"></span></p>
-    <div class="feedmodes rise" style="animation-delay:.06s">
-      <button class="chip ${S.feedmode!=='foryou'?'on':''}" data-act="feedmode" data-mode="recent">Latest</button>
-      <button class="chip ${S.feedmode==='foryou'?'on':''}" data-act="feedmode" data-mode="foryou">✨ For You</button>
-    </div>
-    <div id="newbanner"></div>
-    <div class="topics rise" style="animation-delay:.08s">${topics.map(t=>
-      `<button class="chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}">${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
-    <div class="cols">
-      <div id="cards">${cardsOrUnlock}</div>
-      <aside class="rail">
-        <div class="glass rise" style="animation-delay:.15s"><h4>Trending now</h4>
-          ${macro.map(t=>`<div class="titem" data-act="go" data-hash="/trend/${esc(t.id)}" style="cursor:pointer">
-            <span class="nm">${esc(cleanName(t.name))}</span><span class="cnt" style="font-family:var(--font-mono);font-size:11px;color:var(--text-3)">${t.article_count||0}</span></div>`).join('')||'<p style="font-size:13px;color:var(--text-2)">Run the pipeline to detect trends.</p>'}</div>
-        <div class="glass rise" style="animation-delay:.2s"><h4>Foresight · what may happen next</h4>
-          ${/* Signed out, the headline and the numbers stay legible but the
-                prediction itself does not: the headline is the hook, the
-                prediction is the product. One unlock covers the whole card
-                rather than one per item — three locks in a 300px rail would
-                triple its height to say the same sentence three times. */''}
-          ${(S.signals||[]).map(g=>{ const told = lastTold(g.created_at); return `<div class="signal" data-act="go" data-hash="/signal/${esc(g.id)}" style="cursor:pointer">
-            <div class="nm">${esc(g.title)}</div><div class="sg${signedIn?'':' locked-teaser'}">${esc(g.prediction)}</div>
-            <div class="sg" style="color:var(--predict);margin-top:5px">${g.story_count ?? (g.stories||[]).length} stories point here · ${Math.round(g.confidence*100)}% confidence${told?` · ${esc(told.rel)}`:''}</div></div>`;}).join('')
-          || '<p style="font-size:13px;color:var(--text-2)">Signals appear after the pipeline has enough cross-topic stories.</p>'}
-          ${signedIn || !(S.signals||[]).length ? '' : `<div class="signal-lock">
-            <div class="sl-pitch"><span class="locked-ic">🔒</span>Sign in to read what Descry expects next, and why.</div>
-            <button class="btn primary sm" data-act="unlock" data-gate="forecast">Sign in with Google</button></div>`}</div>
-        <div class="glass rise" style="animation-delay:.25s"><h4>Your intelligence</h4>
-          <div class="stat"><span>Learning streak</span><b>${S.eng.streak} day${S.eng.streak>1?'s':''}</b></div>
-          <div class="stat"><span>Stories understood</span><b>${S.eng.understood}</b></div>
-          <div class="stat"><span>Topics explored</span><b>${S.eng.topics.length}</b></div>
+  <div class="fx"><div class="fx-shell">
+
+    <aside class="fx-side">
+      <span class="fx-lbl">Your lens</span>
+      ${lensBits.length ? `<div class="fx-chips">${lensBits.map(b=>
+          `<span class="fx-chip">${esc(b)}</span>`).join('')}</div>
+        <a class="fx-link" href="/profile">Adjust the lens</a>`
+        : `<p class="fx-empty" style="margin:10px 0">${isIn
+            ? 'Tell Descry your work, city and interests and every story gets read against them.'
+            : 'Sign in to read the news against your work, city and interests.'}</p>
+           <button class="fx-link" data-act="${isIn?'personalize':'unlock-foryou'}">Set up your lens</button>`}
+
+      <div class="fx-sect">
+        <span class="fx-lbl" style="margin-bottom:12px">Show me first</span>
+        <div class="fx-sorts">${Object.keys(FX.SORTS).map(k=>{
+          const o = FX.SORTS[k];
+          return `<button class="fx-sort ${mode===k?'on':''} ${o.has(S.stories)?'has':''}"
+            data-act="fx-sort" data-mode="${k}" aria-pressed="${mode===k}"
+            ><span>${o.label}</span><span class="dot" aria-hidden="true">●</span></button>`;}).join('')}</div>
+      </div>
+
+      ${followed.length || suggest.length ? `<div class="fx-sect">
+        <span class="fx-lbl">Following</span>
+        <div class="fx-follows">
+        ${followed.map(t=>{ const n = Follow.fresh(t.id, diff.lastVisit);
+          return `<button class="fx-follow" data-act="go" data-hash="/trend/${esc(t.id)}"
+            ><span>${esc(cleanName(t.name))}</span>${n?`<span class="n">·${n} new</span>`:''}<span class="x"
+            data-act="fx-unfollow" data-id="${esc(t.id)}" title="Stop following">✕</span></button>`;}).join('')}
+        ${suggest.map(t=>`<button class="fx-follow" data-act="fx-follow" data-id="${esc(t.id)}"
+            ><span>${esc(cleanName(t.name))}</span><span class="x" style="opacity:1">＋</span></button>`).join('')}
         </div>
-      </aside>
-    </div>
-  </div>`;
-  if (!signedIn) Auth.renderInto($('#wb-signin'));
+      </div>` : ''}
+
+      ${topics.length > 2 ? `<div class="fx-sect">
+        <span class="fx-lbl">Topic</span>
+        <div class="fx-chips">${topics.map(t=>
+          `<button class="fx-chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}"
+            >${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
+      </div>` : ''}
+    </aside>
+
+    <main class="fx-main">
+      ${welcomeBannerHTML()}
+      <div id="livehero"></div>
+      <div class="fx-head">
+        <h1>${greet}</h1>
+        <span class="fx-meta">${list.length} ${list.length===1?'story':'stories'}${
+          diff.changes.length ? ` · ${diff.changes.length} changed since your last visit` : ''
+          } · <span id="freshness"></span></span>
+      </div>
+      <div id="newbanner"></div>
+      ${unlock ? forYouUnlockHTML()
+        : hero ? this.hero(hero, lensed, isIn) + (rest.length ? `
+          <div class="fx-listhead"><span class="fx-lbl">${
+            lensed ? 'Also on your lens' : 'Also today'}</span><span class="rule"></span></div>
+          ${rest.map(s=>this.row(s, isIn)).join('')}` : '')
+        : S.stories.length ? `<p class="fx-empty">Nothing here matches
+             <b>${FX.SORTS[mode] ? FX.SORTS[mode].label : esc(topicLabel(S.topic))}</b> right now.<br><br>
+             <button class="fx-link" data-act="fx-clear">Show everything</button></p>`
+        : `<p class="fx-empty">No stories yet — run the backend pipeline, then refresh.<br><br>
+           <button class="fx-link" data-act="refresh">Refresh</button></p>`}
+    </main>
+
+    <aside class="fx-rail">
+      ${diff.changes.length ? `
+        <span class="fx-lbl">Changed since your last visit</span>
+        <div class="fx-chgs">${diff.changes.map(c=>{
+          const dir = c.from==null ? '' : c.to>c.from ? 'up' : 'down';
+          return `<button class="fx-chg ${dir}" data-act="go" data-hash="/story/${esc(c.s.id)}">
+            <span class="t">${esc(c.s.headline)}</span>
+            <span class="d">${c.from==null ? 'retold · new reporting'
+              : `${c.from} → ${c.to} · corroboration ${c.to>c.from?'rose':'fell'}`}</span>
+          </button>`;}).join('')}</div>` : ''}
+
+      <div class="fx-ask">
+        <span class="fx-lbl">Ask Descry</span>
+        <q>What changed in the top story since I last looked?</q>
+        <button class="go" data-act="ask">Ask anything <span class="arrow" aria-hidden="true">→</span></button>
+      </div>
+
+      ${(S.signals||[]).length ? `<div class="fx-sect">
+        <span class="fx-lbl">What may happen next</span>
+        <div class="fx-sigs">${S.signals.slice(0,3).map(g=>`
+          <button class="fx-sig" data-act="go" data-hash="/signal/${esc(g.id)}">
+            <span class="t">${esc(g.title)}</span>
+            <span class="p${isIn?'':' locked-teaser'}">${esc(g.prediction)}</span>
+            <span class="c">${g.story_count ?? (g.stories||[]).length} stories · ${
+              Math.round(g.confidence*100)}% confidence</span></button>`).join('')}</div>
+        ${isIn ? '' : `<button class="fx-link" style="margin-top:12px"
+           data-act="unlock" data-gate="forecast">Sign in to read these</button>`}
+      </div>` : ''}
+
+      <p class="fx-foot">Corroboration scores measure source agreement, not absolute truth.</p>
+    </aside>
+
+  </div></div>`;
+  if (!isIn) Auth.renderInto($('#wb-signin'));
   LiveHero.mount();
   Feed.startFreshness();
   $('#fab').classList.remove('hidden');
+},
+
+/* The lead story: the mockup's evidence strip, rendered only from fields that
+   exist. claims_* / source_count / conflicts are NOT served yet (see the FX
+   comment) — each stat is emitted only when its field is present, so the strip
+   grows from one column to four the day /feed starts sending them. */
+hero(s, lensed, isIn){
+  // Each stat is emitted only when its field exists. claims_* / source_count /
+  // conflicts are NOT on the wire yet, so the strip shows what is real today
+  // and grows to the design's full four columns the day /feed sends them —
+  // rather than printing numbers nothing computed.
+  const stats = [`<div class="fx-stat"><span class="fx-lbl">Corroboration</span>
+      <div class="v">${FX.scale(s, true)}</div></div>`];
+  if (s.claims_verified != null || s.claims_disputed != null)
+    stats.push(`<div class="fx-stat"><span class="fx-lbl">Claims checked</span>
+      <div class="v"><span><b>${s.claims_verified||0} verified</b>${
+        s.claims_disputed ? ` · ${s.claims_disputed} disputed` : ''}${
+        s.claims_unverified ? ` · ${s.claims_unverified} unproven` : ''}</span></div></div>`);
+  if (s.source_count != null){
+    // The design shows "14 · 3 primary". We ingest no primary-document feeds
+    // yet, so source_primary is legitimately 0 — and printing "· 0 primary" on
+    // every card is noise that says nothing. Fall back to the largest real
+    // group in the breakdown, which is the same question answered with the
+    // evidence we actually have.
+    const kinds = s.source_kinds || {};
+    const top = Object.keys(kinds).filter(k=>k!=='unknown')
+      .sort((a,b)=>kinds[b]-kinds[a])[0];
+    const sub = s.source_primary ? `${s.source_primary} primary`
+      : top ? `${kinds[top]} ${top}${kinds[top]===1?'':'s'}` : '';
+    stats.push(`<div class="fx-stat"><span class="fx-lbl">Sources</span>
+      <div class="v"><span>${s.source_count}${
+        sub ? ` · <span class="sub">${esc(sub)}</span>` : ''}</span></div></div>`);
+  }
+  if (s.conflicts != null)
+    stats.push(`<div class="fx-stat"><span class="fx-lbl">Framing spread</span>
+      <div class="v"><span>${s.conflicts ? `${s.conflicts} point${s.conflicts===1?'':'s'} of disagreement`
+        : 'narrow'}</span></div></div>`);
+  if (s.credibility_note)
+    stats.push(`<div class="fx-stat" style="flex:1 1 240px;min-width:0">
+      <span class="fx-lbl">How it's checked</span>
+      <div class="v"><span class="sub" style="font-size:12.5px;line-height:1.45;display:-webkit-box;
+        -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${
+        esc(s.credibility_note)}</span></div></div>`);
+
+  const why = s.impact_text
+    ? `<p>${esc(s.impact_text)}</p>`
+    : lensed ? `<p><button data-act="fx-impact" data-id="${esc(s.id)}">Read the full impact →</button></p>`
+    : isIn ? `<p><button data-act="personalize">Set up your lens to see this →</button></p>`
+    : `<p><button data-act="unlock-foryou">Sign in to see what this means for you →</button></p>`;
+
+  return `<article class="fx-hero">
+    ${s.image_url ? `<a class="fx-hero-media" href="/story/${esc(s.id)}"><img src="${esc(s.image_url)}"
+       alt="" decoding="async" referrerpolicy="no-referrer"></a>` : ''}
+    <div class="fx-hero-in">
+      <div class="fx-kicker">
+        ${FX.developing(s) ? '<span class="dev">Developing</span><span class="sep"></span>' : ''}
+        <span class="rest">${esc(topicLabel(s.topic))} · ${FX.mins(s)} min read · updated ${
+          FX.ago(s.updated_at || s.created_at)}</span>
+      </div>
+      <h2><a href="/story/${esc(s.id)}">${esc(s.headline)}</a></h2>
+      <p class="fx-dek">${esc(s.narrative)}</p>
+      <div class="fx-stats">${stats.join('<div class="fx-div"></div>')}</div>
+      <div class="fx-why"><div class="bar"></div>
+        <div><span class="fx-lbl">Why this matters to you</span>${why}</div></div>
+    </div>
+  </article>`;
+},
+
+row(s, isIn){
+  // The design's row flag is a verdict fact ("1 disputed claim", "single
+  // anonymous source") in rust, or a calm grey note when it is only timing.
+  let flag = '', calm = '';
+  if (s.claims_disputed) flag = `${s.claims_disputed} disputed claim${s.claims_disputed===1?'':'s'}`;
+  else if (s.source_count === 1) flag = 'single source';
+  else if (FX.developing(s)) { flag = 'updated '+FX.ago(s.updated_at); calm = ' calm'; }
+  return `<a class="fx-row${s.image_url?'':' noimg'}" href="/story/${esc(s.id)}">
+    <div>
+      <div class="fx-top">${FX.scale(s)}
+        ${flag ? `<span class="fx-flag${calm}">${esc(flag)}</span>` : ''}
+        ${isIn ? `<button class="fx-readbtn" data-act="read" data-id="${esc(s.id)}"
+          title="Mark as read">✓ read</button>` : ''}</div>
+      <h3>${esc(s.headline)}</h3>
+      <p class="fx-dek">${esc(s.narrative)}</p>
+    </div>
+    ${s.image_url ? `<div class="fx-row-thumb"><img src="${esc(s.image_url)}" alt=""
+       loading="lazy" decoding="async" referrerpolicy="no-referrer"></div>` : ''}
+  </a>`;
 },
 card(s,i,opts){
   opts = opts || {};
@@ -1993,7 +2654,13 @@ const Theme = {
       const ctx = await api('/users/'+S.creds.user_id+'/context');
       S.ctx = ctx;
       const id = ctx.theme || 'default';
-      if (id !== this.current()){ this.set(id); route(); }
+      if (id !== this.current()){ this.set(id); route(); return; }
+      /* No theme change, but the feed's "Your lens" panel and its city greeting
+         read S.ctx — which did not exist when the first render ran. Repaint it,
+         otherwise a configured reader sees the "set up your lens" empty state
+         until they navigate somewhere and back. */
+      const p = Nav.path();
+      if (p === '/' || p.startsWith('/brief')) Brief.render();
     }catch(e){}
   },
   show(){

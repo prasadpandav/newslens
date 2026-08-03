@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, diag, images, llm, live, analytics, ranking, textmerge
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
-                     Personalizer, personalization_relevant)
+                     Personalizer, personalization_relevant, verdict_counts)
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 
@@ -198,6 +198,73 @@ def _is_authed(con, user_id, authorization):
     return bool(row) and secrets.compare_digest(authorization, f"Bearer {row['token']}")
 
 
+# ---------------------------------------------------------------- evidence
+# The redesign puts evidence on the surface of every card: "6 verified · 2
+# unproven", "14 sources · 3 primary", "2 points of disagreement". None of that
+# needed new computation — the verdicts, the article list and the merge stats
+# were all already stored per story and simply never serialized. This is the
+# one place that turns a stories row into those numbers, so the feed, the story
+# page, bookmarks and the read list can't drift apart on how they're counted.
+_VERIFIER = None
+
+
+def _verifier():
+    """Lazily built and reused: it parses sources.yaml on construction, and
+    /feed would otherwise re-read that file once per request."""
+    global _VERIFIER
+    if _VERIFIER is None:
+        _VERIFIER = Verifier()
+    return _VERIFIER
+
+
+def _evidence(row, sources=None):
+    """Evidence counts for a story row. Every key is omitted rather than
+    guessed when the underlying data isn't there, so a client can tell "no
+    disputed claims" from "we never checked" — the whole point of the panel."""
+    out = {}
+    keys = row.keys() if hasattr(row, "keys") else row
+    claims = db.uj(row["claims"]) if "claims" in keys else {}
+    verdicts = (claims or {}).get("verdicts") or []
+    if verdicts:
+        vc = verdict_counts(verdicts)
+        out["claims_verified"] = vc["verified"]
+        out["claims_disputed"] = vc["disputed"]
+        out["claims_unverified"] = vc["unverified"]
+        out["claims_total"] = len(verdicts)
+    if "article_ids" in keys:
+        out["source_count"] = len(db.uj(row["article_ids"], []))
+    stats = db.uj(row["merge_stats"]) if "merge_stats" in keys else {}
+    if stats:
+        if stats.get("conflicts") is not None:
+            out["conflicts"] = int(stats["conflicts"] or 0)
+        kinds = stats.get("kinds") or {}
+        if kinds:
+            out["source_kinds"] = kinds
+            # Surfaced separately because the reader shows it as its own figure.
+            # Currently always 0: we ingest no primary-document feeds yet (see
+            # the `kinds:` block in sources.yaml). Reporting the real 0 beats
+            # relabelling newsrooms to make the panel look fuller.
+            out["source_primary"] = int(kinds.get("primary") or 0)
+    # Fallback for stories written before merge_stats existed: the outlet mix
+    # can still be derived from the sources we're already returning.
+    if "source_kinds" not in out and sources:
+        kinds = _verifier().source_breakdown(
+            s.get("source", "") for s in sources if isinstance(s, dict))
+        if kinds:
+            out["source_kinds"] = kinds
+            out["source_primary"] = int(kinds.get("primary") or 0)
+    return out
+
+
+def _history(con, story_id, limit=12):
+    """Corroboration over time, oldest first — the series behind '68 → 82'."""
+    rows = con.execute(
+        "SELECT credibility, source_count, verified, disputed, unverified, "
+        "conflicts, created_at FROM story_history WHERE story_id=? "
+        "ORDER BY created_at DESC LIMIT ?", (story_id, limit)).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
 class GoogleAuthIn(BaseModel):
     id_token: str
 
@@ -261,8 +328,17 @@ def get_profile(user_id: str, authorization: str = Header("")):
 def add_bookmark(user_id: str, story_id: str, authorization: str = Header("")):
     con = db.connect()
     _auth(con, user_id, authorization)
-    con.execute("INSERT OR IGNORE INTO bookmarks VALUES (?,?,?,?)",
-                (db.new_id(), user_id, story_id, db.now()))
+    # Corroboration AT THE MOMENT OF SAVING. The design's Saved screen leads with
+    # "▲14 since you saved" — without this we would have to walk story_history
+    # for every row on every request, and for a story saved before its first
+    # history row exists there would be nothing to walk to.
+    cur = con.execute("SELECT credibility FROM stories WHERE id=?",
+                      (story_id,)).fetchone()
+    con.execute("INSERT OR IGNORE INTO bookmarks "
+                "(id, user_id, story_id, created_at, credibility_at_save) "
+                "VALUES (?,?,?,?,?)",
+                (db.new_id(), user_id, story_id, db.now(),
+                 cur["credibility"] if cur else None))
     con.commit(); con.close()
     return {"ok": True}
 
@@ -283,12 +359,29 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
     _auth(con, user_id, authorization)
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.image_url, '' AS impact_text, 0 AS impact_score
+                  s.topic, s.image_url, s.created_at, s.updated_at,
+                  s.article_ids, s.claims, s.merge_stats,
+                  b.created_at AS saved_at, b.credibility_at_save,
+                  r.progress AS progress, r.completed_at AS completed_at,
+                  '' AS impact_text, 0 AS impact_score
            FROM bookmarks b JOIN stories s ON s.id = b.story_id
+           LEFT JOIN read_stories r
+                  ON r.story_id = s.id AND r.user_id = b.user_id
            WHERE b.user_id = ? ORDER BY b.created_at DESC""",
         (user_id,)).fetchall()
     con.close()
-    return {"items": [dict(r) for r in rows]}
+    items = []
+    for r in rows:
+        it = dict(r)
+        it.update(_evidence(it))
+        del it["article_ids"]; del it["claims"]; del it["merge_stats"]
+        was = it.pop("credibility_at_save", None)
+        # Only a real change is reported. None (saved before this shipped, or
+        # the story had no score yet) means "we don't know", not "no change".
+        it["credibility_delta"] = (
+            round((it["credibility"] or 0) - was, 1) if was is not None else None)
+        items.append(it)
+    return {"items": items}
 
 
 @app.post("/read")
@@ -299,7 +392,8 @@ def mark_read(user_id: str, story_id: str, authorization: str = Header("")):
     and unread in another."""
     con = db.connect()
     _auth(con, user_id, authorization)
-    con.execute("INSERT OR IGNORE INTO read_stories VALUES (?,?,?,?)",
+    con.execute("INSERT OR IGNORE INTO read_stories "
+                "(id, user_id, story_id, created_at) VALUES (?,?,?,?)",
                 (db.new_id(), user_id, story_id, db.now()))
     con.commit(); con.close()
     return {"ok": True}
@@ -315,18 +409,85 @@ def unmark_read(user_id: str, story_id: str, authorization: str = Header("")):
     return {"ok": True}
 
 
+# What counts as "read in full". Not 1.0: almost nobody scrolls past the last
+# line of the closing paragraph, so demanding the very bottom would report a
+# diligent reader as having abandoned everything.
+_READ_COMPLETE_AT = 0.9
+
+
+@app.post("/read/progress")
+def set_read_progress(user_id: str, story_id: str, progress: float,
+                      authorization: str = Header("")):
+    """How far into a story the reader actually got, 0.0-1.0.
+
+    `read_stories` only ever recorded that a story was OPENED, which is why the
+    Read screen could not honestly say "31 of 58 read in full" or name the
+    topics you keep abandoning — opening and finishing looked identical.
+
+    Monotonic: progress only ever moves forward, so scrolling back up (or
+    reopening on a second device to check one line) can't erase the fact that
+    you already read it. Completion is stamped once, the first time the reader
+    crosses the threshold."""
+    p = max(0.0, min(1.0, float(progress)))
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    con.execute("INSERT OR IGNORE INTO read_stories "
+                "(id, user_id, story_id, created_at) VALUES (?,?,?,?)",
+                (db.new_id(), user_id, story_id, db.now()))
+    con.execute(
+        "UPDATE read_stories SET progress=MAX(COALESCE(progress,0), ?), "
+        "completed_at=COALESCE(completed_at, CASE WHEN ?>=? THEN ? END) "
+        "WHERE user_id=? AND story_id=?",
+        (p, p, _READ_COMPLETE_AT, db.now(), user_id, story_id))
+    con.commit(); con.close()
+    return {"ok": True, "progress": p}
+
+
 @app.get("/read")
 def list_read(user_id: str, authorization: str = Header("")):
     con = db.connect()
     _auth(con, user_id, authorization)
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.image_url, '' AS impact_text, 0 AS impact_score
+                  s.topic, s.image_url, s.created_at, s.updated_at,
+                  s.article_ids, s.claims, s.merge_stats,
+                  r.created_at AS read_at, r.progress, r.completed_at,
+                  '' AS impact_text, 0 AS impact_score
            FROM read_stories r JOIN stories s ON s.id = r.story_id
            WHERE r.user_id = ? ORDER BY r.created_at DESC""",
         (user_id,)).fetchall()
     con.close()
-    return {"items": [dict(r) for r in rows]}
+    items = []
+    for r in rows:
+        it = dict(r)
+        it.update(_evidence(it))
+        del it["article_ids"]; del it["claims"]; del it["merge_stats"]
+        items.append(it)
+    # The Read screen's summary panels: how much you finish, and the quality mix
+    # of what you read. Both are counts over rows we already have in hand, so
+    # they cost nothing extra and save the client three more requests.
+    opened = len(items)
+    finished = sum(1 for i in items if i.get("completed_at"))
+    band = {"strong": 0, "mixed": 0, "thin": 0}
+    for i in items:
+        c = i.get("credibility") or 0
+        band["strong" if c >= 70 else "mixed" if c >= 40 else "thin"] += 1
+    # Topics opened but rarely finished — the design's "blind spots". Named
+    # honestly: this is abandonment, not disinterest, and it is never fed back
+    # into ranking.
+    by_topic = {}
+    for i in items:
+        t = i.get("topic") or "other"
+        s_ = by_topic.setdefault(t, {"topic": t, "opened": 0, "finished": 0})
+        s_["opened"] += 1
+        s_["finished"] += 1 if i.get("completed_at") else 0
+    blind = sorted((t for t in by_topic.values()
+                    if t["opened"] >= 3 and t["finished"] * 2 < t["opened"]),
+                   key=lambda t: (t["finished"] / t["opened"], -t["opened"]))[:3]
+    return {"items": items,
+            "stats": {"opened": opened, "finished": finished,
+                      "abandoned": opened - finished, "bands": band,
+                      "blind_spots": blind}}
 
 
 @app.post("/users")
@@ -386,6 +547,7 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
                   s.topic, s.image_url, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
+                  s.claims, s.merge_stats,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
@@ -418,7 +580,11 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
         impact_of = lambda it: ranking.damped(len(db.uj(it["article_ids"], [])))
     items = ranking.sort_by_rank(items, impact_of)[:100]
     for it in items:
+        # Evidence counts BEFORE the raw columns are dropped — they are derived
+        # from claims/article_ids/merge_stats, none of which belong on the wire.
+        it.update(_evidence(it))
         del it["article_ids"]   # internal-only, not part of the API shape
+        del it["claims"]; del it["merge_stats"]
         # trend_ids IS part of the shape: the portal's story network draws the
         # story -> force edges from it, and without them it can only guess.
         it["trend_ids"] = db.uj(it["trend_ids"], [])
@@ -450,7 +616,8 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
     authed = _is_authed(con, user_id, authorization)
     if authed:  # opening a story counts as "read" — see POST /read for the
                 # explicit (no-open) dismiss path, same underlying table
-        con.execute("INSERT OR IGNORE INTO read_stories VALUES (?,?,?,?)",
+        con.execute("INSERT OR IGNORE INTO read_stories "
+                    "(id, user_id, story_id, created_at) VALUES (?,?,?,?)",
                     (db.new_id(), user_id, story_id, db.now()))
         con.commit()
     conns = []
@@ -466,8 +633,9 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
                           "other_url": (oa["url"] if oa else "") if authed else ""})
     fi = con.execute("SELECT impact_text,impact_score FROM feed_items "
                      "WHERE user_id=? AND story_id=?", (user_id, story_id)).fetchone()
+    history = _history(con, story_id)
     con.close()
-    return {"id": s["id"], "headline": s["headline"], "narrative": s["narrative"],
+    out = {"id": s["id"], "headline": s["headline"], "narrative": s["narrative"],
             # Separate field, not a paragraph split of `narrative` — see the
             # Storyteller. Empty on stories written before the split existed;
             # clients fall back to the old behaviour when it is.
@@ -478,6 +646,11 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
             "trends": trends, "connections": conns, "created_at": s["created_at"],
             "impact_text": fi["impact_text"] if fi else "",
             "impact_score": fi["impact_score"] if fi else 0}
+    # The evidence panel reads these; `sources` is passed so a story written
+    # before merge_stats existed can still report its outlet mix.
+    out.update(_evidence(s, articles))
+    out["history"] = history
+    return out
 
 
 @app.post("/story/{story_id}/personalize")
@@ -524,7 +697,8 @@ def stories(limit: int = 30):
     # not just whatever the last `limit` by raw created_at happened to include.
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-        "image_url, created_at, updated_at, article_ids, trend_ids FROM stories "
+        "image_url, created_at, updated_at, article_ids, trend_ids, claims, "
+        "merge_stats FROM stories "
         "ORDER BY updated_at DESC LIMIT ?",
         (max(limit * 10, 300),)).fetchall()
     con.close()
@@ -532,7 +706,8 @@ def stories(limit: int = 30):
     items = ranking.sort_by_rank(
         items, impact_of=lambda it: ranking.damped(len(db.uj(it["article_ids"], []))))[:limit]
     for it in items:
-        del it["article_ids"]
+        it.update(_evidence(it))
+        del it["article_ids"]; del it["claims"]; del it["merge_stats"]
         it["trend_ids"] = db.uj(it["trend_ids"], [])   # powers the story network
     return {"items": items}
 

@@ -3,3 +3,55 @@ tier1: [reuters.com, apnews.com, bbc.co.uk, bbc.com]
 tier2: [aljazeera.com, cnbc.com, theverge.com, arstechnica.com, thehindu.com, sciencedaily.com]
 tier3: [ndtv.com, feedburner.com, rechargenews.com]
 # anything unlisted = tier 4
+
+# ---------------------------------------------------------------- source kind
+# A DIFFERENT axis from tier, and the two must not be conflated. Tier asks "how
+# reliable is this outlet"; kind asks "what is its relationship to the story" —
+# which is the question the reader's "Where it's coming from" panel answers, and
+# why a vendor's own threat report is worth flagging even when the vendor is
+# perfectly reputable.
+#
+#   primary     publishes the underlying document itself — regulators, courts,
+#               CERTs, statistical agencies, company filings. We currently
+#               ingest NONE of these, so this list is deliberately EMPTY rather
+#               than padded with newsrooms to make the number look better. The
+#               UI shows the real breakdown instead of forcing an "N primary"
+#               figure. Adding a few primary feeds is the cheapest honest way to
+#               raise corroboration scores.
+#   newsroom    independent editorial organisations.
+#   trade       industry/sector press — covers an industry it is part of and
+#               partly funded by, so an "interested party" in the design's sense.
+#   aggregator  republishes or summarises others' reporting; also the feed-
+#               delivery hosts, which are not publishers at all.
+#
+# Unlisted hosts resolve to "unknown" — never silently counted as a newsroom.
+kinds:
+  primary: []
+  newsroom:
+    - bbc.co.uk
+    - bbc.com
+    - reuters.com
+    - apnews.com
+    - aljazeera.com
+    - cnbc.com
+    - cnbctv18.com
+    - thehindu.com
+    - thehindubusinessline.com
+    - economictimes.indiatimes.com
+    - livemint.com
+    - theprint.in
+    - ndtv.com
+    - espn.com
+    - arstechnica.com
+    - theverge.com
+    - engadget.com
+    - techcrunch.com
+    - wired.com
+    - venturebeat.com
+    - technologyreview.com
+    - the-decoder.com
+  trade:
+    - rechargenews.com
+  aggregator:
+    - sciencedaily.com      # republishes institutional press releases
+    - feedburner.com

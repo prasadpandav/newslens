@@ -689,13 +689,37 @@ class ConnectionFinder:
 # --------------------------------------------------------------- Verifier
 class Verifier:
     def __init__(self):
-        self.tiers = yaml.safe_load(config.SOURCES_FILE.read_text())
+        doc = yaml.safe_load(config.SOURCES_FILE.read_text()) or {}
+        # Only the tierN keys are tiers. `kinds` lives in the same file (one
+        # place to describe a source) but is a different axis — iterating the
+        # whole document here would try int("kinds"[-1]).
+        self.tiers = {k: v for k, v in doc.items() if k.startswith("tier")}
+        self.kinds = doc.get("kinds") or {}
 
     def source_tier(self, source):
         for tier, hosts in self.tiers.items():
             if any(h in source for h in hosts):
                 return int(tier[-1])
         return 4
+
+    def source_kind(self, source):
+        """What relationship this outlet has to the story it reports.
+
+        Distinct from tier: a reputable vendor is still an interested party.
+        Unlisted hosts are "unknown", never assumed to be newsrooms — the count
+        the reader sees has to be one we can actually stand behind."""
+        for kind, hosts in self.kinds.items():
+            if any(h in (source or "") for h in (hosts or [])):
+                return kind
+        return "unknown"
+
+    def source_breakdown(self, sources):
+        """{kind: count} over a story's outlets, for "Where it's coming from"."""
+        out = {}
+        for s in sources:
+            k = self.source_kind(s)
+            out[k] = out.get(k, 0) + 1
+        return out
 
     def run(self, con, cluster_article_ids, narrative_text):
         """Returns (claims, verdicts, score, note) or None if the LLM failed."""
@@ -721,9 +745,63 @@ class Verifier:
 
 
 # ------------------------------------------------------------ Storyteller
+def verdict_counts(verdicts):
+    """{verified, disputed, unverified} from the Verifier's per-claim verdicts.
+
+    The vocabulary on the wire is corroborated|unverified|disputed; the reader
+    says VERIFIED / DISPUTED / UNPROVEN. Mapping happens here, once, so the two
+    clients and the history table can't drift apart on it."""
+    out = {"verified": 0, "disputed": 0, "unverified": 0}
+    for v in verdicts or []:
+        got = str((v or {}).get("verdict", "")).lower()
+        if got.startswith("corrob"):
+            out["verified"] += 1
+        elif got.startswith("disput"):
+            out["disputed"] += 1
+        else:
+            out["unverified"] += 1
+    return out
+
+
 class Storyteller:
     # Configurable via MAX_STORIES_PER_RUN env var; the rest roll to next run.
     MAX_PER_RUN = config.MAX_STORIES_PER_RUN
+
+    @staticmethod
+    def _record_history(con, story_id, event_id, score, source_count,
+                        verdicts, bstats):
+        """Append to story_history — but only when something actually moved.
+
+        Writing a row per story per run regardless would make the table grow by
+        the whole catalogue every cycle to record that nothing happened, which
+        on a 512MB box with a 90-day retention is exactly the kind of unbounded
+        write we have been bitten by before. A quiet story writes nothing, so
+        the table is a log of CHANGES and "68 -> 82" reads straight off two
+        adjacent rows.
+
+        No commit here: this runs inside the Storyteller's per-story write, and
+        the caller owns the transaction boundary."""
+        vc = verdict_counts(verdicts)
+        conflicts = int((bstats or {}).get("conflicts") or 0)
+        prev = con.execute(
+            "SELECT credibility, source_count, verified, disputed, unverified, "
+            "conflicts FROM story_history WHERE story_id=? "
+            "ORDER BY created_at DESC LIMIT 1", (story_id,)).fetchone()
+        now_row = (round(float(score or 0), 1), int(source_count or 0),
+                   vc["verified"], vc["disputed"], vc["unverified"], conflicts)
+        if prev is not None:
+            was = (round(float(prev["credibility"] or 0), 1),
+                   int(prev["source_count"] or 0), int(prev["verified"] or 0),
+                   int(prev["disputed"] or 0), int(prev["unverified"] or 0),
+                   int(prev["conflicts"] or 0))
+            if was == now_row:
+                return False
+        con.execute(
+            "INSERT INTO story_history (id, story_id, event_id, credibility, "
+            "source_count, verified, disputed, unverified, conflicts, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (db.new_id(), story_id, event_id or "") + now_row + (db.now(),))
+        return True
 
     def run(self, con, verifier: Verifier):
         """Turn each macro trend cluster (and orphan articles) into a story.
@@ -823,6 +901,12 @@ class Storyteller:
             texts = fulltext.fetch_for_articles(arts) if len(arts) > 1 else {}
             items, bstats = textmerge.build_brief(
                 arts, texts=texts, tier_of=verifier.source_tier)
+            # bstats = {facts, core, unique, conflicts, sources}. `conflicts` is
+            # the count of points where outlets report different numbers — the
+            # design's "framing spread" / "where they differ". It was computed
+            # here and thrown away on every run since the merge was written.
+            bstats = dict(bstats or {})
+            bstats["kinds"] = verifier.source_breakdown(a["source"] for a in arts)
             if not items:       # nothing usable survived cleaning — keep the old shape
                 items = "\n".join(
                     f"- [{a['source']}] {a['title']}: {(a['summary'] or '')[:200]}"
@@ -863,24 +947,31 @@ class Storyteller:
                 con.execute(
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
-                    "connection_ids=?,updated_at=?,event_id=?,image_url=? WHERE id=?",
+                    "connection_ids=?,updated_at=?,event_id=?,image_url=?,"
+                    "merge_stats=? WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
                      db.j(sorted(tids)), db.j(conn_ids),
-                     db.now(), event_id, images.best_of(arts), mine["id"]))
+                     db.now(), event_id, images.best_of(arts), db.j(bstats),
+                     mine["id"]))
+                self._record_history(con, mine["id"], event_id, score, len(ids),
+                                     verdicts, bstats)
                 mine["aids"] = set(ids)
                 mine["eid"] = event_id   # legacy row adopts its event identity
                 upd_ct += 1
             else:
+                sid = db.new_id()
                 con.execute(
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                    "created_at,updated_at,event_id,image_url) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (db.new_id(), headline, narrative, why_matters, score, note,
+                    "created_at,updated_at,event_id,image_url,merge_stats) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (sid, headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
                      db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids),
-                     db.now(), db.now(), event_id, images.best_of(arts)))
+                     db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats)))
+                self._record_history(con, sid, event_id, score, len(ids),
+                                     verdicts, bstats)
                 new_ct += 1
             done_ids.update(ids)
             # Absorb superseded stories now fully covered by this trend story:
