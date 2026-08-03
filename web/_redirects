@@ -22,4 +22,26 @@
 #   Express  app.get('*', (req,res) => res.sendFile(__dirname + '/index.html'))
 #   nginx    location / { try_files $uri $uri/ /index.html; }
 #   serve    serve -s web        (the -s flag IS this rule)
+
+# ---------------------------------------------------------------- share cards
+# Shared links live on THIS domain (descry.in/s/<id>) so what people paste into
+# WhatsApp or Slack carries the product's name, not the API's hostname. The
+# server-rendered Open Graph card for a story — its real headline, description
+# and photograph — only exists on the API, so these three paths proxy through
+# to it. Status 200 = proxy, not redirect: the crawler must receive that HTML
+# under this domain, because a 301 to another host is where several unfurlers
+# stop following.
+#
+# MUST come before the /* rule below — first match wins, and the catch-all
+# would otherwise swallow these and hand back index.html (generic site card).
+#
+# If a host cannot proxy to an external origin (Cloudflare Pages cannot; Netlify
+# and Render can), delete these three lines: links keep working — index.html is
+# served and the SPA maps /s/<id> to /story/<id> — but previews fall back to the
+# site card. The alternative that needs no proxy is pointing a subdomain such as
+# link.descry.in at the API and setting SHARE_ORIGIN to it.
+/s/*  https://newslens-rmv6.onrender.com/s/:splat  200
+/t/*  https://newslens-rmv6.onrender.com/t/:splat  200
+/g/*  https://newslens-rmv6.onrender.com/g/:splat  200
+
 /*    /index.html   200

@@ -14,22 +14,25 @@ final class APIClient: ObservableObject {
     // Public web portal — used for share links. Set to your static site URL.
     var webBaseURL = "https://www.descry.in"
 
-    /// Short links pointing at the API's server-rendered share cards, matching
-    /// what the web portal's "Copy link" produces.
+    /// Short share links, identical to what the web portal's "Copy link" makes:
+    /// `https://<web domain>/s/<id>`.
     ///
     /// These used to be `\(webBaseURL)/#/story/<id>`, which was wrong twice
     /// over: the `#/` form is the legacy fragment routing the portal moved off
-    /// (a crawler treats everything after `#` as the same URL), and pointing at
-    /// the static host meant the request never reached the API — so a shared
-    /// story could only ever unfurl with the site-wide Descry logo. `/s/<id>`
-    /// is server-rendered with that story's own headline, description and
-    /// photograph, and redirects real visitors on to the canonical web page.
+    /// (a crawler treats everything after `#` as the same URL), and nothing at
+    /// that path is server-rendered — so a shared story could only ever unfurl
+    /// with the site-wide Descry logo. `/s/<id>` resolves to a card carrying
+    /// that story's own headline, description and photograph, then redirects
+    /// real visitors on to the canonical article page.
     private static let sharePrefix = ["story": "s", "trend": "t", "signal": "g"]
 
     func shareURL(_ path: String) -> URL {
         let parts = path.split(separator: "/", maxSplits: 1).map(String.init)
         if parts.count == 2, let short = Self.sharePrefix[parts[0]] {
-            return baseURL.appendingPathComponent(short).appendingPathComponent(parts[1])
+            // webBaseURL, not baseURL: a shared link should read descry.in, not
+            // the API's hostname. That domain proxies /s|/t|/g to the API so the
+            // crawler still gets the server-rendered card (see web/_redirects).
+            return URL(string: "\(webBaseURL)/\(short)/\(parts[1])")!
         }
         return URL(string: "\(webBaseURL)/\(path)")!   // real path, never "#/"
     }

@@ -1330,20 +1330,27 @@ const Nav = {
   },
   /* Absolute URL for sharing/canonical. */
   url(p){ return location.origin + (p || this.path()); },
-  /* Link to hand to a human, not a browser. `/story/<id>` is a client-rendered
-     SPA route — the web host is a static site whose only server-side behavior
-     is "rewrite every path to index.html" (see render.yaml), so a crawler that
-     fetches url('/story/'+id) gets the exact same generic homepage <head> no
-     matter which story it names. Facebook/X/WhatsApp/iMessage read Open Graph
-     tags but never run JS, so SEO.set()'s per-story title/description/image —
-     applied client-side after the SPA boots — arrives too late for them to see.
-     The backend already serves a tiny server-rendered page with the real
-     headline/description/image at /s, /t, /g (see _og_page in main.py) that
-     JS-redirects a human straight to the real article; it lives on the API
-     host, not this one, which is why this can't just be url() with a shorter
-     path. SHORT mirrors the reverse mapping in path() above. */
+  /* Link to hand to a human, not a browser.
+
+     Why not url('/story/'+id): that is a client-rendered SPA route, and the web
+     host only rewrites unknown paths to index.html. A crawler fetching it gets
+     the generic homepage <head> whatever story it names — Facebook/X/WhatsApp/
+     iMessage read Open Graph tags but never run JS, so SEO.set()'s per-story
+     title/description/image arrives long after they have given up. The backend
+     serves a real server-rendered card at /s, /t, /g (see _og_page in main.py)
+     carrying that story's own headline, description and photograph, and
+     JS-redirects a human on to the article.
+
+     Why this is on OUR origin and not the API's: a shared link is the most
+     public thing the product produces, and it should say descry.in, not
+     <service>.onrender.com. The web host proxies /s|/t|/g straight through to
+     the API so the crawler still gets that server-rendered card (see
+     web/_redirects). If that proxy rule is ever missing the link still WORKS —
+     the SPA fallback serves index.html and path() below maps /s/<id> back to
+     /story/<id> — the preview just falls back to the site card instead of the
+     story's photo. SHORT mirrors the reverse mapping in path() above. */
   SHORT: {story:'s', trend:'t', signal:'g'},
-  shareUrl(kind, id){ return API + '/' + (this.SHORT[kind] || kind) + '/' + id; }
+  shareUrl(kind, id){ return location.origin + '/' + (this.SHORT[kind] || kind) + '/' + id; }
 };
 
 /* Per-route <head>. A single-page app ships one static <head> to every URL, so
