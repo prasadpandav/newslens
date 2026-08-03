@@ -1110,34 +1110,26 @@ def admin_rebuild_intel(allow_mock: bool = False, token: str = "",
             "check": "GET /admin/usage — look for stage='rebuild_intel', status='ok'"}
 
 
-@app.post("/admin/backfill-images")
-def admin_backfill_images(dry_run: bool = True, token: str = "",
-                          authorization: str = Header("")):
-    """Attach artwork to articles ingested before images existed, then to the
-    stories built from them.
+# How many writes to batch before committing. Small enough that the SQLite
+# writer lock is released constantly (every other request writes to this same
+# file via the traffic middleware), large enough not to fsync per row.
+_BACKFILL_COMMIT_EVERY = 200
 
-    Feed entries aren't kept after ingest, so the only way to recover an image
-    for an existing article is to re-read the feeds and match on the article
-    URL — which is exactly what this does. That bounds it naturally: a feed
-    only carries its current window, so this recovers the most recent runs'
-    articles (the ones actually on screen) and not the whole archive. Older
-    rows simply stay text-only, which both clients already render.
 
-    Memory-safe by construction: feeds are streamed with the same byte cap as
-    Scout, one at a time, and only URL/dimension strings are kept.
-    dry_run=true (default) reports what it would attach without writing."""
-    _require_admin(authorization, token)
+def _collect_feed_images():
+    """Network phase, deliberately with NO database work in it: {link: (url, w, h)}.
+
+    Reading feeds and writing rows used to be interleaved, which meant a write
+    transaction stayed open across 40 sequential feed fetches — minutes of
+    holding SQLite's single writer lock while every ordinary request (the
+    traffic counter writes on all of them) queued behind it and eventually
+    timed out. Collecting first costs almost nothing to hold: ~1900 short URL
+    strings, well under a megabyte."""
     import feedparser
     import yaml as _yaml
-    con = db.connect()
     feeds = _yaml.safe_load(config.FEEDS_FILE.read_text())
-    seen, story_ct = 0, 0
-    # A set, not a counter: the same article often appears in several feeds
-    # (a publisher's "latest" and "markets" feeds overlap), and a dry run does
-    # no writes to deduplicate against, so counting hits would over-report and
-    # not match what the apply run then does.
-    matched_ids = set()
-    for topic, urls in feeds.items():
+    found = {}
+    for _topic, urls in feeds.items():
         for url in urls:
             try:
                 with httpx.stream("GET", url, timeout=15, follow_redirects=True,
@@ -1156,44 +1148,112 @@ def admin_backfill_images(dry_run: bool = True, token: str = "",
                 if not link:
                     continue
                 img, iw, ih = images.from_entry(e)
-                if not img:
-                    continue
-                seen += 1
-                row = con.execute(
-                    "SELECT id, image_url FROM articles WHERE url=?", (link,)).fetchone()
-                if not row or row["image_url"] or row["id"] in matched_ids:
-                    continue          # unknown article, or already has artwork
-                matched_ids.add(row["id"])
-                if not dry_run:
-                    con.execute(
-                        "UPDATE articles SET image_url=?, image_width=?, image_height=? "
-                        "WHERE id=?", (img, iw, ih, row["id"]))
-    if not dry_run:
-        con.commit()
-        # Now (re)pick each imageless story's artwork from its own articles.
-        for s in con.execute(
-                "SELECT id, article_ids FROM stories "
-                "WHERE image_url IS NULL OR image_url=''").fetchall():
-            aids = db.uj(s["article_ids"], [])
-            if not aids:
-                continue
-            arts = []
-            for chunk in _chunks(aids):
-                arts += con.execute(
-                    "SELECT image_url, image_width, image_height FROM articles "
-                    "WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk).fetchall()
-            best = images.best_of(arts)
-            if best:
-                con.execute("UPDATE stories SET image_url=? WHERE id=?", (best, s["id"]))
-                story_ct += 1
-        con.commit()
-        db.log_run(con, "backfill_images", "ok",
-                   f"{len(matched_ids)} articles and {story_ct} stories given artwork")
-    con.close()
-    gc.collect()
-    return {"dry_run": dry_run, "feed_entries_with_images": seen,
-            "articles_matched": len(matched_ids), "stories_updated": story_ct,
-            "note": "re-run with dry_run=false to apply" if dry_run else "applied"}
+                if img:
+                    found.setdefault(link, (img, iw, ih))
+    return found
+
+
+def _apply_image_backfill(con, found):
+    """Write phase: attach artwork to articles, then to the stories built from
+    them. Commits every _BACKFILL_COMMIT_EVERY rows so the writer lock is
+    handed back constantly instead of being held for the whole batch."""
+    arts_ct = story_ct = 0
+    for link, (img, iw, ih) in found.items():
+        row = con.execute(
+            "SELECT id, image_url FROM articles WHERE url=?", (link,)).fetchone()
+        if not row or row["image_url"]:
+            continue              # unknown article, or already has artwork
+        con.execute(
+            "UPDATE articles SET image_url=?, image_width=?, image_height=? WHERE id=?",
+            (img, iw, ih, row["id"]))
+        arts_ct += 1
+        if arts_ct % _BACKFILL_COMMIT_EVERY == 0:
+            con.commit()
+    con.commit()
+    # Now (re)pick each imageless story's artwork from its own articles. Read
+    # the list up front (fetchall) so the cursor isn't live while we write to
+    # the same table underneath it.
+    todo = con.execute("SELECT id, article_ids FROM stories "
+                       "WHERE image_url IS NULL OR image_url=''").fetchall()
+    for s in todo:
+        aids = db.uj(s["article_ids"], [])
+        if not aids:
+            continue
+        arts = []
+        for chunk in _chunks(aids):
+            arts += con.execute(
+                "SELECT image_url, image_width, image_height FROM articles "
+                "WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk).fetchall()
+        best = images.best_of(arts)
+        if best:
+            con.execute("UPDATE stories SET image_url=? WHERE id=?", (best, s["id"]))
+            story_ct += 1
+            if story_ct % _BACKFILL_COMMIT_EVERY == 0:
+                con.commit()
+    con.commit()
+    return arts_ct, story_ct
+
+
+@app.post("/admin/backfill-images")
+def admin_backfill_images(dry_run: bool = True, token: str = "",
+                          authorization: str = Header("")):
+    """Attach artwork to articles ingested before images existed, then to the
+    stories built from them.
+
+    Feed entries aren't kept after ingest, so the only way to recover an image
+    for an existing article is to re-read the feeds and match on the article
+    URL — which is exactly what this does. That bounds it naturally: a feed
+    only carries its current window, so this recovers the most recent runs'
+    articles (the ones actually on screen) and not the whole archive. Older
+    rows simply stay text-only, which both clients already render.
+
+    Memory-safe by construction: feeds are streamed with the same byte cap as
+    Scout, one at a time, and only URL/dimension strings are kept.
+    dry_run=true (default) reports what it would attach without writing."""
+    _require_admin(authorization, token)
+    if dry_run:
+        found = _collect_feed_images()
+        con = db.connect()
+        # A set, not a counter: the same article appears in several feeds (a
+        # publisher's "latest" and "markets" overlap), so counting hits would
+        # over-report and not match what the apply run then does.
+        pending = set()
+        for link in found:
+            row = con.execute(
+                "SELECT id, image_url FROM articles WHERE url=?", (link,)).fetchone()
+            if row and not row["image_url"]:
+                pending.add(row["id"])
+        con.close()
+        return {"dry_run": True, "feed_entries_with_images": len(found),
+                "articles_matched": len(pending), "stories_updated": 0,
+                "note": "re-run with dry_run=false to apply"}
+    if _pipeline_lock.locked():
+        return {"started": False,
+                "status": "a pipeline run is already in progress; retry shortly"}
+
+    def job():
+        if not _pipeline_lock.acquire(blocking=False):
+            return
+        diag.checkpoint("admin backfill-images start")
+        con2 = db.connect()
+        try:
+            # Feed reading happens HERE, not in the request: re-reading 40 feeds
+            # takes ~15s and put the apply call within range of a proxy timeout.
+            arts, stories = _apply_image_backfill(con2, _collect_feed_images())
+            db.log_run(con2, "backfill_images", "ok",
+                       f"{arts} articles and {stories} stories given artwork")
+        except Exception as e:  # noqa: BLE001 — must not die silently in a thread
+            db.log_run(con2, "backfill_images", "error", str(e)[:300])
+        finally:
+            con2.close()
+            gc.collect()
+            diag.checkpoint("admin backfill-images done")
+            _pipeline_lock.release()
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"started": True,
+            "status": "backfilling in background — check /admin/usage for "
+                      "stage='backfill_images'"}
 
 
 @app.post("/admin/dedupe-trends")

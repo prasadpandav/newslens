@@ -516,19 +516,24 @@ async function findMissingImages(){
       + '<button class="ghost" onclick="applyBackfillImages()">Apply</button>';
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
 }
+/* Applying runs in the BACKGROUND (it re-reads every feed, then writes
+   hundreds of rows), so this returns as soon as the job is queued and the
+   outcome shows up in Recent runs as stage='backfill_images'. It used to write
+   synchronously inside the request, which held SQLite's writer lock across all
+   40 feed fetches and 500'd once the batch got big. */
 async function applyBackfillImages(){
-  $('#result').textContent = 'Backfilling…';
+  $('#result').textContent = 'Starting…';
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
   try{
     const r = await adminPost('/admin/backfill-images?dry_run=false');
     const j = await r.json().catch(()=>({}));
     if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
-    else { $('#result').textContent = 'Done — '+j.articles_matched+' articles and '
-        + j.stories_updated+' stories given artwork.';
-      toast('Images backfilled'); }
+    else if(j.started === false){ $('#result').textContent = j.status || 'Busy — retry shortly.'; }
+    else { $('#result').textContent = j.status || 'Started.';
+      toast('Started — results appear in Recent runs'); }
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
-  setTimeout(refresh, 1500);
+  setTimeout(refresh, 2500);
 }
 async function applyRetell(){
   $('#result').textContent = 'Starting…';
