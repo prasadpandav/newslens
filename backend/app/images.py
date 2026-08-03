@@ -43,19 +43,47 @@ MIN_WIDTH, MIN_HEIGHT = 200, 120
 MIN_ASPECT, MAX_ASPECT = 0.4, 3.5
 
 
-def _upgrade(url):
-    """Rewrite a known thumbnail URL to its full-size variant.
+# What BBC thumbnails are rewritten up to. 1024 comfortably clears every
+# consumer of these dimensions (card, reader hero, and the 300x200 floor a
+# social crawler needs before it will render a large preview).
+UPGRADE_WIDTH = 1024
+_BBC_SIZED = re.compile(r"(ichef\.bbci\.co\.uk/(?:ace/)?[a-z]+/)(\d{2,4})(/)")
+
+
+def _upgrade(url, width=None, height=None):
+    """Rewrite a known thumbnail URL to its full-size variant, RETURNING THE
+    DIMENSIONS THAT NOW APPLY.
 
     BBC is the case that forces this: its feeds hand out 240x135 and the width
     lives in the path (`/ace/standard/240/...`), which is iChef's documented
-    resize parameter. NOTE: this could not be verified from the dev network —
+    resize parameter.
+
+    Scaling the declared size along with the URL is not cosmetic. The feed's
+    width/height describe the thumbnail that was just replaced, so carrying
+    them over makes a 1024px photograph look like a 240px one to every size
+    check downstream — which is exactly what made shared BBC stories unfurl
+    with the site logo instead of their own picture: the Open Graph card read
+    240x135, judged it too small for a rich preview, and substituted the
+    fallback.
+
+    NOTE: the rewrite itself could not be verified from the dev network —
     ichef.bbci.co.uk answers 403 to any request from here, including the
-    unmodified URL — so it is applied only to that one well-known pattern, and
-    a wrong guess degrades to a broken <img> the clients already handle rather
-    than to a crash.
+    unmodified URL — so it stays limited to that one well-known pattern, and a
+    wrong guess degrades to a broken <img> the clients already handle.
     """
-    return re.sub(r"(ichef\.bbci\.co\.uk/(?:ace/)?[a-z]+/)\d{2,4}(/)",
-                  r"\g<1>1024\g<2>", url or "")
+    if not url:
+        return url, width, height
+    m = _BBC_SIZED.search(url)
+    if not m:
+        return url, width, height
+    if int(m.group(2)) >= UPGRADE_WIDTH:
+        return url, width, height          # already at least this big
+    new_url = url[:m.start(2)] + str(UPGRADE_WIDTH) + url[m.end(2):]
+    w, h = _as_int(width), _as_int(height)
+    if w and h and w > 0:
+        return new_url, UPGRADE_WIDTH, int(round(h * (UPGRADE_WIDTH / float(w))))
+    # No declared size to scale from — report unknown rather than invent one.
+    return new_url, None, None
 
 
 def _dims_from_url(url):
@@ -153,7 +181,9 @@ def from_entry(entry):
     without re-reading the feed."""
     best, best_s = None, 0.0
     for url, w, h in candidates(entry):
-        url = _upgrade(url)
+        # Dimensions come back from _upgrade because rewriting the URL changes
+        # what they describe — see that function.
+        url, w, h = _upgrade(url, w, h)
         s = score(url, w, h)
         if s > best_s:
             wi, hi = _as_int(w), _as_int(h)

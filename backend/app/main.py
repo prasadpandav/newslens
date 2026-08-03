@@ -1157,17 +1157,32 @@ def _apply_image_backfill(con, found):
     """Write phase: attach artwork to articles, then to the stories built from
     them. Commits every _BACKFILL_COMMIT_EVERY rows so the writer lock is
     handed back constantly instead of being held for the whole batch."""
-    arts_ct = story_ct = 0
+    arts_ct = story_ct = fixed_ct = 0
     for link, (img, iw, ih) in found.items():
         row = con.execute(
-            "SELECT id, image_url FROM articles WHERE url=?", (link,)).fetchone()
-        if not row or row["image_url"]:
-            continue              # unknown article, or already has artwork
-        con.execute(
-            "UPDATE articles SET image_url=?, image_width=?, image_height=? WHERE id=?",
-            (img, iw, ih, row["id"]))
-        arts_ct += 1
-        if arts_ct % _BACKFILL_COMMIT_EVERY == 0:
+            "SELECT id, image_url, image_width, image_height FROM articles "
+            "WHERE url=?", (link,)).fetchone()
+        if not row:
+            continue                                   # article not ingested
+        if not row["image_url"]:
+            con.execute(
+                "UPDATE articles SET image_url=?, image_width=?, image_height=? "
+                "WHERE id=?", (img, iw, ih, row["id"]))
+            arts_ct += 1
+        elif (row["image_url"] == img
+              and (row["image_width"], row["image_height"]) != (iw, ih)):
+            # Same picture, stale dimensions. Rows written before _upgrade
+            # scaled its dimensions recorded a rewritten 1024px BBC URL against
+            # the 240x135 the feed declared, which is small enough that the
+            # share card refused it and fell back to the logo. Repairing needs
+            # no re-fetch, so it happens on any backfill pass.
+            con.execute(
+                "UPDATE articles SET image_width=?, image_height=? WHERE id=?",
+                (iw, ih, row["id"]))
+            fixed_ct += 1
+        else:
+            continue
+        if (arts_ct + fixed_ct) % _BACKFILL_COMMIT_EVERY == 0:
             con.commit()
     con.commit()
     # Now (re)pick each imageless story's artwork from its own articles. Read
@@ -1191,7 +1206,7 @@ def _apply_image_backfill(con, found):
             if story_ct % _BACKFILL_COMMIT_EVERY == 0:
                 con.commit()
     con.commit()
-    return arts_ct, story_ct
+    return arts_ct, story_ct, fixed_ct
 
 
 @app.post("/admin/backfill-images")
@@ -1239,9 +1254,10 @@ def admin_backfill_images(dry_run: bool = True, token: str = "",
         try:
             # Feed reading happens HERE, not in the request: re-reading 40 feeds
             # takes ~15s and put the apply call within range of a proxy timeout.
-            arts, stories = _apply_image_backfill(con2, _collect_feed_images())
+            arts, stories, fixed = _apply_image_backfill(con2, _collect_feed_images())
             db.log_run(con2, "backfill_images", "ok",
-                       f"{arts} articles and {stories} stories given artwork")
+                       f"{arts} articles and {stories} stories given artwork"
+                       + (f", {fixed} stale dimensions repaired" if fixed else ""))
         except Exception as e:  # noqa: BLE001 — must not die silently in a thread
             db.log_run(con2, "backfill_images", "error", str(e)[:300])
         finally:

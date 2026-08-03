@@ -1,5 +1,13 @@
 # Single-page app fallback.
 #
+# ⚠ INERT ON THE CURRENT HOST. descry.in is a Render static site configured
+# through the dashboard, and Render reads neither this file nor render.yaml for
+# a dashboard-managed service — the authoritative rules live in
+# Settings → Redirects/Rewrites, and this file is served as a plain asset.
+# It is kept because it is the same ruleset in portable form: if the site ever
+# moves to Netlify or Cloudflare Pages it starts working with no changes, and
+# it documents what the dashboard is expected to contain. Keep the two in sync.
+#
 # The portal addresses itself with REAL paths via history.pushState (/brief,
 # /story/<id>, /trend/<id>, /signal/<id>, /trends, /saved, /read, /profile) —
 # deliberately, so search engines and shared links see one canonical URL per
