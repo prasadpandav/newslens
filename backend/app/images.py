@@ -105,6 +105,33 @@ def _as_int(v):
         return None
 
 
+def declared_dims(url, width=None, height=None):
+    """The most trustworthy (width, height) for an image URL.
+
+    Stored dimensions can contradict the URL. Rows written before `_upgrade`
+    learned to scale kept the feed's 240x135 beside a rewritten 1024px BBC
+    URL, and those rows cannot fix themselves: repairing them by re-reading
+    feeds only reaches articles still inside the publisher's current window,
+    so anything older keeps lying about its size forever — which is why an
+    already-shared story went on unfurling with the logo.
+
+    Where the URL states a size it is the stronger evidence: it is the size the
+    CDN will actually render. Only that specific disagreement is overridden;
+    otherwise stored values win, since they came from the feed itself."""
+    w, h = _as_int(width), _as_int(height)
+    m = _BBC_SIZED.search(url or "")
+    if m:
+        url_w = int(m.group(2))
+        if w and h and w > 0 and w != url_w:
+            return url_w, int(round(h * (url_w / float(w))))   # scale to match
+        if w and h:
+            return w, h
+        return url_w, None
+    if w and h:
+        return w, h
+    return _dims_from_url(url or "")
+
+
 def usable(url, width=None, height=None):
     """False for artwork that is structurally not a story photo."""
     if not url or not url.startswith(("http://", "https://")):
@@ -134,7 +161,10 @@ def score(url, width=None, height=None):
     """
     if not usable(url, width, height):
         return 0.0
-    w, h = _as_int(width), _as_int(height)
+    # declared_dims, not the raw pair: a stored row may still carry dimensions
+    # that describe a thumbnail its URL has since been upgraded past, and
+    # scoring those would keep picking a genuinely large photo last.
+    w, h = declared_dims(url, width, height)
     if not (w and h):
         w2, h2 = _dims_from_url(url)
         w, h = w or w2, h or h2

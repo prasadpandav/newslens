@@ -812,8 +812,12 @@ def _og_image_for(con, image_url):
     row = con.execute(
         "SELECT image_width, image_height FROM articles WHERE image_url=? "
         "AND image_width IS NOT NULL LIMIT 1", (image_url,)).fetchone()
-    w = row["image_width"] if row else None
-    h = row["image_height"] if row else None
+    # Reconciled against the URL — a stored pair can describe a thumbnail the
+    # URL has since been upgraded past, and trusting it verbatim is what made
+    # a 1024px photograph read as 240px and lose to the logo here.
+    w, h = images.declared_dims(image_url,
+                                row["image_width"] if row else None,
+                                row["image_height"] if row else None)
     if w and h and (w < OG_MIN_WIDTH or h < OG_MIN_HEIGHT):
         return config.OG_IMAGE_URL, None, None   # too small to unfurl richly
     return image_url, w, h
