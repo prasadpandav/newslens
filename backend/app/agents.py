@@ -8,7 +8,7 @@ import math
 import re
 import time
 import yaml
-from . import config, db, llm, textmerge, fulltext
+from . import config, db, images, llm, textmerge, fulltext
 
 PROMPTS = yaml.safe_load(config.PROMPTS_FILE.read_text())
 
@@ -265,12 +265,15 @@ class Scout:
                             and pub < db.now() - max_age * 3600):
                         skipped_old += 1
                         continue
+                    # Artwork, if the feed carried any. URL only — see images.py.
+                    img, iw, ih = images.from_entry(e)
                     try:
                         con.execute(
                             "INSERT INTO articles (id,url,title,summary,source,topic,"
-                            "published,entities,fetched_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                            "published,entities,fetched_at,image_url,image_width,"
+                            "image_height) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                             (db.new_id(), link, title, summary, source, topic,
-                             pub, "", db.now()))
+                             pub, "", db.now(), img, iw, ih))
                         added += 1
                     except Exception:
                         pass  # duplicate url
@@ -855,14 +858,16 @@ class Storyteller:
                 # `trend` is None for an orphan event, which can now match a prior
                 # story by event_id — so guard the union instead of indexing None.
                 tids = mine["tids"] | ({trend["id"]} if trend else set())
+                # Re-pick on every retell: a later outlet joining the event may
+                # carry a better frame than whatever the first telling had.
                 con.execute(
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
-                    "connection_ids=?,updated_at=?,event_id=? WHERE id=?",
+                    "connection_ids=?,updated_at=?,event_id=?,image_url=? WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
                      db.j(sorted(tids)), db.j(conn_ids),
-                     db.now(), event_id, mine["id"]))
+                     db.now(), event_id, images.best_of(arts), mine["id"]))
                 mine["aids"] = set(ids)
                 mine["eid"] = event_id   # legacy row adopts its event identity
                 upd_ct += 1
@@ -870,11 +875,12 @@ class Storyteller:
                 con.execute(
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                    "created_at,updated_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "created_at,updated_at,event_id,image_url) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (db.new_id(), headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
                      db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids),
-                     db.now(), db.now(), event_id))
+                     db.now(), db.now(), event_id, images.best_of(arts)))
                 new_ct += 1
             done_ids.update(ids)
             # Absorb superseded stories now fully covered by this trend story:

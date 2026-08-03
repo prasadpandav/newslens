@@ -1,0 +1,25 @@
+# Single-page app fallback.
+#
+# The portal addresses itself with REAL paths via history.pushState (/brief,
+# /story/<id>, /trend/<id>, /signal/<id>, /trends, /saved, /read, /profile) —
+# deliberately, so search engines and shared links see one canonical URL per
+# story instead of everything collapsing to "#".
+#
+# The cost is that the host must hand back index.html for any path it has no
+# file for. Client-side routing only starts AFTER index.html loads, so on a
+# refresh or a pasted link the browser asks the host for /brief directly; with
+# no rule here that is a 404 from the host ("Cannot GET /brief") and the app
+# never boots. It bites logged-out visitors hardest because they are the ones
+# arriving on shared links rather than already having a tab open.
+#
+# Status 200 (not 301/302): rewrite, don't redirect, so the address bar keeps
+# the real URL for the router to read. Real files — index.html, icon.svg,
+# og.png, robots.txt — are served normally and still take precedence.
+#
+# Read by Netlify, Cloudflare Pages and Render static sites. Other hosts need
+# the same rule expressed their own way:
+#   Vercel   vercel.json -> {"rewrites":[{"source":"/(.*)","destination":"/index.html"}]}
+#   Express  app.get('*', (req,res) => res.sendFile(__dirname + '/index.html'))
+#   nginx    location / { try_files $uri $uri/ /index.html; }
+#   serve    serve -s web        (the -s flag IS this rule)
+/*    /index.html   200

@@ -8,9 +8,15 @@ from . import config
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, token TEXT, context TEXT, created_at REAL);
+-- image_url is a URL only, never bytes: clients load it straight from the
+-- publisher's CDN. Storing artwork here would put multi-MB blobs on a 512MB
+-- instance with a small disk. width/height are what the feed declared (or what
+-- was parsed out of the URL) and exist so images.best_of can rank a story's
+-- articles later without re-reading the feed.
 CREATE TABLE IF NOT EXISTS articles (
   id TEXT PRIMARY KEY, url TEXT UNIQUE, title TEXT, summary TEXT, source TEXT,
-  topic TEXT, published REAL, entities TEXT, fetched_at REAL, group_id TEXT);
+  topic TEXT, published REAL, entities TEXT, fetched_at REAL, group_id TEXT,
+  image_url TEXT, image_width INTEGER, image_height INTEGER);
 CREATE TABLE IF NOT EXISTS trends (
   id TEXT PRIMARY KEY, kind TEXT, name TEXT, narrative TEXT, sectors TEXT,
   regions TEXT, article_ids TEXT, velocity REAL, created_at REAL);
@@ -20,7 +26,7 @@ CREATE TABLE IF NOT EXISTS connections (
 CREATE TABLE IF NOT EXISTS stories (
   id TEXT PRIMARY KEY, headline TEXT, narrative TEXT, credibility REAL,
   credibility_note TEXT, claims TEXT, topic TEXT, article_ids TEXT,
-  trend_ids TEXT, connection_ids TEXT, created_at REAL);
+  trend_ids TEXT, connection_ids TEXT, created_at REAL, image_url TEXT);
 CREATE TABLE IF NOT EXISTS feed_items (
   id TEXT PRIMARY KEY, user_id TEXT, story_id TEXT, impact_text TEXT,
   impact_score INTEGER, created_at REAL, UNIQUE(user_id, story_id));
@@ -95,6 +101,19 @@ def connect():
                 con.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Story artwork. Existing rows stay NULL until the next run re-reads
+        # their feed (POST /admin/backfill-images does that on demand); both
+        # clients treat a missing image as "render the text-only card", so an
+        # un-backfilled row degrades instead of breaking.
+        for col in ("image_url TEXT", "image_width INTEGER", "image_height INTEGER"):
+            try:
+                con.execute(f"ALTER TABLE articles ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        try:
+            con.execute("ALTER TABLE stories ADD COLUMN image_url TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         try:
             con.execute("ALTER TABLE articles ADD COLUMN group_id TEXT")
         except sqlite3.OperationalError:

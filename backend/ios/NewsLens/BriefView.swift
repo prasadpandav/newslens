@@ -368,6 +368,44 @@ struct BriefView: View {
 
 // MARK: - Story card
 
+/// Publisher artwork for a story. URL only — nothing is cached to disk by us
+/// beyond URLSession's own handling, and the bytes never touch the backend.
+///
+/// Collapses to zero height when there is no image OR when loading fails:
+/// these URLs are hotlinked from publisher CDNs, some of which 404, block
+/// hotlinking, or are unreachable on a given network, and an empty grey box
+/// in the middle of a card reads as a bug. Text-only is the honest fallback.
+struct StoryImage: View {
+    @Environment(\.palette) private var pal
+
+    let urlString: String?
+    var height: CGFloat = 168
+    @State private var failed = false
+
+    var body: some View {
+        if let s = urlString, !s.isEmpty, let url = URL(string: s), !failed {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                case .failure:
+                    // Collapse on the next layout pass rather than showing a gap.
+                    Color.clear.onAppear { failed = true }
+                case .empty:
+                    Rectangle().fill(pal.surface2)
+                @unknown default:
+                    Color.clear
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: pal.r(12), style: .continuous))
+            .accessibilityHidden(true)   // decorative; the headline carries meaning
+        }
+    }
+}
+
 struct StoryCard: View {
     @Environment(\.palette) private var pal
 
@@ -375,6 +413,7 @@ struct StoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            StoryImage(urlString: item.imageUrl, height: 168)
             HStack(spacing: 8) {
                 Chip(text: item.topic.topicLabel)
                 Spacer()

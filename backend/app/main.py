@@ -13,7 +13,7 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
                                Response)
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import config, db, diag, llm, live, analytics, ranking, textmerge
+from . import config, db, diag, images, llm, live, analytics, ranking, textmerge
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant)
 from . import fulltext
@@ -283,7 +283,7 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
     _auth(con, user_id, authorization)
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, '' AS impact_text, 0 AS impact_score
+                  s.topic, s.image_url, '' AS impact_text, 0 AS impact_score
            FROM bookmarks b JOIN stories s ON s.id = b.story_id
            WHERE b.user_id = ? ORDER BY b.created_at DESC""",
         (user_id,)).fetchall()
@@ -321,7 +321,7 @@ def list_read(user_id: str, authorization: str = Header("")):
     _auth(con, user_id, authorization)
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, '' AS impact_text, 0 AS impact_score
+                  s.topic, s.image_url, '' AS impact_text, 0 AS impact_score
            FROM read_stories r JOIN stories s ON s.id = r.story_id
            WHERE r.user_id = ? ORDER BY r.created_at DESC""",
         (user_id,)).fetchall()
@@ -385,7 +385,7 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # via GET /read, and un-marking (DELETE /read) brings a story back.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
+                  s.topic, s.image_url, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
            FROM stories s
@@ -473,7 +473,8 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
             # clients fall back to the old behaviour when it is.
             "why_matters": s["why_matters"] or "",
             "credibility": s["credibility"], "credibility_note": s["credibility_note"],
-            "claims": db.uj(s["claims"]), "topic": s["topic"], "sources": articles,
+            "claims": db.uj(s["claims"]), "topic": s["topic"],
+            "image_url": s["image_url"] or "", "sources": articles,
             "trends": trends, "connections": conns, "created_at": s["created_at"],
             "impact_text": fi["impact_text"] if fi else "",
             "impact_score": fi["impact_score"] if fi else 0}
@@ -523,7 +524,7 @@ def stories(limit: int = 30):
     # not just whatever the last `limit` by raw created_at happened to include.
     rows = con.execute(
         "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-        "created_at, updated_at, article_ids, trend_ids FROM stories "
+        "image_url, created_at, updated_at, article_ids, trend_ids FROM stories "
         "ORDER BY updated_at DESC LIMIT ?",
         (max(limit * 10, 300),)).fetchall()
     con.close()
@@ -789,20 +790,59 @@ def _clip(text, n=180):
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
-def _og_page(title, description, web_path):
+# A shared card is only rich if the crawler accepts the image. Facebook's floor
+# is 200x200 and X's summary_large_image wants ~300x157, so anything smaller
+# renders as NO image at all — worse than the brand fallback. A wire thumbnail
+# (BBC ships 240x135) therefore defers to the logo rather than silently
+# producing a card with a blank slot.
+OG_MIN_WIDTH, OG_MIN_HEIGHT = 300, 200
+
+
+def _og_image_for(con, image_url):
+    """(url, width, height) to advertise for a story, or the site logo.
+
+    Dimensions aren't stored on `stories` — only the winning URL is — so they
+    are read back from whichever article supplied it. That costs one indexed
+    lookup on a request only crawlers make, and it is what lets the size check
+    above be real instead of a guess. Unknown dimensions are treated as
+    acceptable: most publisher artwork is 1200x675 or larger, and refusing
+    everything unmeasurable would throw away the majority of real photos."""
+    if not image_url or not image_url.startswith(("http://", "https://")):
+        return config.OG_IMAGE_URL, None, None
+    row = con.execute(
+        "SELECT image_width, image_height FROM articles WHERE image_url=? "
+        "AND image_width IS NOT NULL LIMIT 1", (image_url,)).fetchone()
+    w = row["image_width"] if row else None
+    h = row["image_height"] if row else None
+    if w and h and (w < OG_MIN_WIDTH or h < OG_MIN_HEIGHT):
+        return config.OG_IMAGE_URL, None, None   # too small to unfurl richly
+    return image_url, w, h
+
+
+def _og_page(title, description, web_path, image=None, image_w=None, image_h=None):
     """The share card behind a social unfurl. Facebook, X, Slack, WhatsApp and
     friends read OG tags but do not run JS, so this has to be server-rendered.
 
     It is explicitly NOT the indexable page. `noindex` plus a canonical pointing
     at the real article on the web domain means it never competes with the page
     it advertises — two URLs serving the same headline is how a site ends up
-    ranking its own doorway instead of its content. Everything is HTML-escaped."""
+    ranking its own doorway instead of its content. Everything is HTML-escaped.
+
+    `image` overrides the brand logo, so a shared story unfurls with its own
+    photograph. Third-party URL, so it is escaped like everything else here."""
     t, d = html.escape(title or "Descry"), html.escape(description or "")
     canonical = f"{config.WEB_BASE_URL}/{web_path}"
     can = html.escape(canonical)
-    img = html.escape(config.OG_IMAGE_URL)
+    img = html.escape(image or config.OG_IMAGE_URL or "")
+    # Declaring the size lets a crawler lay the card out without fetching the
+    # image first, which is the difference between an unfurl that appears
+    # instantly and one that appears a beat later (or not at all, on a timeout).
+    dims = (f'<meta property="og:image:width" content="{int(image_w)}">'
+            f'<meta property="og:image:height" content="{int(image_h)}">'
+            if image_w and image_h else "")
     img_tags = (f'<meta property="og:image" content="{img}">'
-                f'<meta name="twitter:image" content="{img}">') if config.OG_IMAGE_URL else ""
+                f'<meta property="og:image:alt" content="{t}">{dims}'
+                f'<meta name="twitter:image" content="{img}">') if img else ""
     return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{t} · Descry</title>
@@ -826,12 +866,18 @@ def _og_page(title, description, web_path):
 @app.get("/s/{story_id}", response_class=HTMLResponse)
 def og_story(story_id: str):
     con = db.connect()
-    s = con.execute("SELECT headline, narrative FROM stories WHERE id=?",
+    s = con.execute("SELECT headline, narrative, image_url FROM stories WHERE id=?",
                     (story_id,)).fetchone()
-    con.close()
     if not s:
+        con.close()
         return HTMLResponse(f'<script>location.replace("{config.WEB_BASE_URL}/")</script>')
-    return _og_page(s["headline"], _clip(s["narrative"]), f"story/{story_id}")
+    # The story's own photograph, not the Descry logo — a shared link should
+    # look like the story it points at. Falls back to the logo when the story
+    # has no artwork or the artwork is too small to unfurl (see _og_image_for).
+    img, iw, ih = _og_image_for(con, s["image_url"])
+    con.close()
+    return _og_page(s["headline"], _clip(s["narrative"]), f"story/{story_id}",
+                    image=img, image_w=iw, image_h=ih)
 
 
 @app.get("/t/{trend_id}", response_class=HTMLResponse)
@@ -1062,6 +1108,92 @@ def admin_rebuild_intel(allow_mock: bool = False, token: str = "",
             "reasoning_tasks": sorted(config.REASONING_TASKS),
             "status": "rebuilding all trends + forecasts in background",
             "check": "GET /admin/usage — look for stage='rebuild_intel', status='ok'"}
+
+
+@app.post("/admin/backfill-images")
+def admin_backfill_images(dry_run: bool = True, token: str = "",
+                          authorization: str = Header("")):
+    """Attach artwork to articles ingested before images existed, then to the
+    stories built from them.
+
+    Feed entries aren't kept after ingest, so the only way to recover an image
+    for an existing article is to re-read the feeds and match on the article
+    URL — which is exactly what this does. That bounds it naturally: a feed
+    only carries its current window, so this recovers the most recent runs'
+    articles (the ones actually on screen) and not the whole archive. Older
+    rows simply stay text-only, which both clients already render.
+
+    Memory-safe by construction: feeds are streamed with the same byte cap as
+    Scout, one at a time, and only URL/dimension strings are kept.
+    dry_run=true (default) reports what it would attach without writing."""
+    _require_admin(authorization, token)
+    import feedparser
+    import yaml as _yaml
+    con = db.connect()
+    feeds = _yaml.safe_load(config.FEEDS_FILE.read_text())
+    seen, story_ct = 0, 0
+    # A set, not a counter: the same article often appears in several feeds
+    # (a publisher's "latest" and "markets" feeds overlap), and a dry run does
+    # no writes to deduplicate against, so counting hits would over-report and
+    # not match what the apply run then does.
+    matched_ids = set()
+    for topic, urls in feeds.items():
+        for url in urls:
+            try:
+                with httpx.stream("GET", url, timeout=15, follow_redirects=True,
+                                  headers={"User-Agent": "DescryBot/0.1 (+beta)"}) as r:
+                    buf, total = [], 0
+                    for chunk in r.iter_bytes():
+                        buf.append(chunk)
+                        total += len(chunk)
+                        if total >= config.RSS_MAX_BYTES:
+                            break
+                parsed = feedparser.parse(b"".join(buf))
+            except Exception:  # noqa: BLE001 — one bad feed must not stop the sweep
+                continue
+            for e in parsed.entries[:200]:
+                link = getattr(e, "link", "")
+                if not link:
+                    continue
+                img, iw, ih = images.from_entry(e)
+                if not img:
+                    continue
+                seen += 1
+                row = con.execute(
+                    "SELECT id, image_url FROM articles WHERE url=?", (link,)).fetchone()
+                if not row or row["image_url"] or row["id"] in matched_ids:
+                    continue          # unknown article, or already has artwork
+                matched_ids.add(row["id"])
+                if not dry_run:
+                    con.execute(
+                        "UPDATE articles SET image_url=?, image_width=?, image_height=? "
+                        "WHERE id=?", (img, iw, ih, row["id"]))
+    if not dry_run:
+        con.commit()
+        # Now (re)pick each imageless story's artwork from its own articles.
+        for s in con.execute(
+                "SELECT id, article_ids FROM stories "
+                "WHERE image_url IS NULL OR image_url=''").fetchall():
+            aids = db.uj(s["article_ids"], [])
+            if not aids:
+                continue
+            arts = []
+            for chunk in _chunks(aids):
+                arts += con.execute(
+                    "SELECT image_url, image_width, image_height FROM articles "
+                    "WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk).fetchall()
+            best = images.best_of(arts)
+            if best:
+                con.execute("UPDATE stories SET image_url=? WHERE id=?", (best, s["id"]))
+                story_ct += 1
+        con.commit()
+        db.log_run(con, "backfill_images", "ok",
+                   f"{len(matched_ids)} articles and {story_ct} stories given artwork")
+    con.close()
+    gc.collect()
+    return {"dry_run": dry_run, "feed_entries_with_images": seen,
+            "articles_matched": len(matched_ids), "stories_updated": story_ct,
+            "note": "re-run with dry_run=false to apply" if dry_run else "applied"}
 
 
 @app.post("/admin/dedupe-trends")
@@ -1295,9 +1427,18 @@ def _split_one_blob(con, row, subjects, now):
     # and narrative were actually written about, so bookmarks stay meaningful.
     events = sorted(subjects.items(), key=lambda kv: -len(kv[1]))
     (primary_key, primary_ids), rest = events[0], events[1:]
+    # Re-pick the primary's artwork as well: its article set just shrank, so the
+    # image it was carrying may belong to an article that moved to a split-off
+    # story and would misrepresent what's left.
+    primary_arts = []
+    for chunk in _chunks(primary_ids):
+        primary_arts += [dict(a) for a in con.execute(
+            "SELECT * FROM articles WHERE id IN (%s)"
+            % ",".join("?" * len(chunk)), chunk).fetchall()]
     con.execute(
-        "UPDATE stories SET article_ids=?, event_id=?, updated_at=? WHERE id=?",
-        (db.j(primary_ids), primary_key, now, row["id"]))
+        "UPDATE stories SET article_ids=?, event_id=?, updated_at=?, image_url=? "
+        "WHERE id=?",
+        (db.j(primary_ids), primary_key, now, images.best_of(primary_arts), row["id"]))
     created = 0
     for key, ids in rest:
         arts = []
@@ -1316,10 +1457,12 @@ def _split_one_blob(con, row, subjects, now):
         con.execute(
             "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
             "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-            "created_at,updated_at,event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "created_at,updated_at,event_id,image_url) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (db.new_id(), lead["title"], narrative, "", row["credibility"],
              PLACEHOLDER_NOTE, "{}",
-             lead["topic"], db.j(ids), row["trend_ids"], "[]", now, now, key))
+             lead["topic"], db.j(ids), row["trend_ids"], "[]", now, now, key,
+             images.best_of(arts)))
         created += 1
     con.commit()
     return created

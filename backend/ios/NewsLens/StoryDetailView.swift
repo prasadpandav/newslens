@@ -139,6 +139,9 @@ struct StoryDetailView: View {
                 .lineSpacing(2)
                 .lineLimit(4)
                 .minimumScaleFactor(0.8)
+            // Taller than the feed card's thumbnail — this is the reader.
+            // Self-collapsing, so a story with no artwork loses nothing.
+            StoryImage(urlString: s.imageUrl, height: 220)
             HStack(spacing: 14) {
                 TrustRing(score: s.credibility)
                 VStack(alignment: .leading, spacing: 2) {

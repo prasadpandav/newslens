@@ -759,6 +759,43 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .scard .foot .impact{margin-left:auto}
 .scard .foot .readbtn{margin-left:auto;flex-shrink:0}
 .scard .foot .impact + .readbtn{margin-left:0}
+/* Story artwork. Always a progressive enhancement: it is hotlinked from the
+   publisher's CDN and can 404 or be hotlink-blocked, so every layout below has
+   to read correctly with no image at all. A delegated 'error' listener strips a
+   broken one and removes .has-img/.lead, returning the card to the plain block
+   layout with no reserved gap.
+
+   `aspect-ratio` rather than fixed heights: publishers ship wildly different
+   dimensions and object-fit:cover crops them to one consistent shape, so a feed
+   of mixed sources still lines up. The media element sits AFTER .scard-body in
+   the DOM (headline first for screen readers and for copy/paste) and is moved
+   visually with flex `order`. */
+.scard.has-img{display:flex;gap:18px;align-items:flex-start;
+  contain-intrinsic-size:auto 240px}
+.scard.has-img .scard-body{flex:1;min-width:0}
+.scard-media{flex-shrink:0;width:150px;aspect-ratio:4/3;border-radius:var(--r-md);
+  overflow:hidden;background:var(--surface-2)}
+.scard-media img{width:100%;height:100%;object-fit:cover;display:block}
+/* Lead story: the feed's visual anchor. Full-bleed 16:9 above a larger
+   headline. Only applied to the top card AND only when it actually has art —
+   a giant text-only card would just look like a rendering bug. */
+.scard.lead{flex-direction:column;gap:0;contain-intrinsic-size:auto 460px}
+.scard.lead .scard-media{order:-1;width:100%;aspect-ratio:16/9;margin-bottom:16px}
+.scard.lead h3{font-size:27px;line-height:1.2}
+.scard.lead p{-webkit-line-clamp:3;line-clamp:3}
+/* Narrow screens: there is no room beside the text, so every card leads with
+   its image. flex-column + order:-1 (not display:block) so the DOM order above
+   still holds and only the visual order changes. */
+@media(max-width:620px){
+  .scard.has-img{flex-direction:column;gap:0}
+  .scard.has-img .scard-media{order:-1;width:100%;aspect-ratio:16/9;margin-bottom:14px}
+  .scard.lead h3{font-size:23px}
+}
+/* Reader hero */
+.shero{width:100%;aspect-ratio:16/9;max-height:420px;object-fit:cover;display:block;
+  border-radius:var(--r-lg);background:var(--surface-2)}
+.sherowrap{margin:14px 0 4px}
+.sherowrap .cap{font-size:11.5px;color:var(--text-3);margin-top:6px}
 
 /* rail */
 .rail>div{padding:20px;margin-bottom:16px}
@@ -1216,10 +1253,31 @@ function bumpStreak(){
     S.eng.lastDay = today; saveEng();
   }
 }
+/* Forget credentials the server no longer accepts.
+
+   localStorage outlives the account it points at: a rebuilt database, a removed
+   user, or a rotated token all leave `bl_creds` holding a user_id that 401s.
+   Left in place it poisons every AUTHENTICATED call while the public ones keep
+   working — which is why this surfaced as "the feed loads but every story says
+   it no longer exists" rather than as a sign-in problem. Dropping them returns
+   the app to a clean signed-out state, where all of that content is readable. */
+function dropStaleCreds(){
+  if (!S.creds) return;
+  S.creds = null; S.saved = new Set(); S.read = new Set();
+  localStorage.removeItem('bl_creds');
+  try{ Auth.render(); }catch(e){}
+}
+
 async function api(path, opts={}){
   const r = await fetch(API+path, {...opts, headers:{'Content-Type':'application/json',
     ...(S.creds?{'Authorization':'Bearer '+S.creds.token}:{}), ...(opts.headers||{})}});
-  if (!r.ok) throw new Error('api '+r.status);
+  if (!r.ok){
+    if ((r.status === 401 || r.status === 403) && S.creds) dropStaleCreds();
+    // Carry the status so callers can tell "this is gone" (404) apart from
+    // "you aren't allowed" (401) and "the server broke" (5xx). They used to be
+    // indistinguishable, so every one of them rendered as "story rotated out".
+    const err = new Error('api '+r.status); err.status = r.status; throw err;
+  }
   return r.json();
 }
 function ring(score){
@@ -1381,6 +1439,24 @@ function route(){
 addEventListener('popstate', route);
 addEventListener('hashchange', route);       // legacy #/... links still land right
 
+/* Story artwork is hotlinked from publisher CDNs, so some of it will 404, be
+   hotlink-blocked, or be unreachable from a given network. Rather than leaving
+   a broken-image glyph in the middle of the feed, drop the element and let the
+   card/reader fall back to its text-only layout. Capture phase because 'error'
+   from an <img> does not bubble. */
+addEventListener('error', e=>{
+  const t = e.target;
+  if (!t || t.tagName !== 'IMG') return;
+  if (t.classList.contains('sthumb')){
+    const card = t.closest('.scard');
+    t.closest('.scard-media')?.remove();
+    // Drop `lead` too: without art it is just an oversized headline.
+    card?.classList.remove('has-img', 'lead');
+  } else if (t.classList.contains('shero')){
+    t.closest('.sherowrap')?.remove();
+  }
+}, true);
+
 /* Internal links navigate in-place. Anything with a target, a modifier key, or
    a different origin is left to the browser. */
 addEventListener('click', e=>{
@@ -1414,6 +1490,7 @@ document.addEventListener('click', e=>{
     case 'unlock-foryou': Gate.require('personalize'); break;
     case 'unlock': Gate.require(el.dataset.gate || 'read'); break;
     case 'save': Story.toggleSave(); break;
+    case 'reload-story': Story.render(el.dataset.id); break;
     case 'read': markRead(el.dataset.id, el.closest('.scard')); break;
     case 'unread': unmarkRead(el.dataset.id, el.closest('.scard')); break;
     case 'personalize': Gate.require('personalize'); break;
@@ -1535,7 +1612,9 @@ const Brief = { async render(){
   const macro = S.trends.filter(t=>t.kind==='macro').slice(0,5);
   const mins = Math.max(2, Math.round(list.length*0.45));
   const hr = new Date().getHours(), greet = hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
-  const cardsHTML = list.map((s,i)=>this.card(s,i)).join('') ||
+  // Only the top card gets the lead treatment, and card() ignores the request
+  // when that story has no artwork — so a text-only top story stays normal size.
+  const cardsHTML = list.map((s,i)=>this.card(s,i,{lead:i===0})).join('') ||
     `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">No stories yet — run the backend pipeline, then refresh.<br><br><button class="btn ghost" data-act="refresh">Refresh</button></div>`;
   // For You selected but not personalized → show the unlock prompt instead of cards.
   const cardsOrUnlock = (S.feedmode==='foryou' && !personalized) ? forYouUnlockHTML() : cardsHTML;
@@ -1597,11 +1676,24 @@ card(s,i,opts){
   const readBtn = !signedIn() ? '' : opts.unread
     ? `<button class="btn ghost sm readbtn" data-act="unread" data-id="${esc(s.id)}" title="Move back to feed">↺ Unread</button>`
     : `<button class="btn ghost sm readbtn" data-act="read" data-id="${esc(s.id)}" title="Mark as read">✓</button>`;
-  return `<a class="scard glass rise" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="/story/${s.id}">
+  // Artwork is optional everywhere: `has-img` only flips the layout when the
+  // story actually has one, and a broken URL is stripped at runtime (see the
+  // delegated 'error' listener), returning the card to its text-only shape.
+  // `lead` is requested by the caller (Brief only) and honoured only when there
+  // is art to lead with. The first card is eager-loaded — it is the largest
+  // thing above the fold, so lazy-loading it just delays the paint.
+  const lead = !!(opts.lead && s.image_url);
+  const media = s.image_url
+    ? `<div class="scard-media"><img class="sthumb" src="${esc(s.image_url)}" alt=""
+         ${lead?'':'loading="lazy" '}decoding="async" referrerpolicy="no-referrer"></div>` : '';
+  return `<a class="scard glass rise${s.image_url?' has-img':''}${lead?' lead':''}" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="/story/${s.id}">
+    <div class="scard-body">
     <div class="top"><span class="chip">${esc(topicLabel(s.topic))}</span>${cred>=85?'<span class="chip trust">Highly corroborated</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
-      <span class="tv">${cred}%</span>${impact}${readBtn}</div></a>`;
+      <span class="tv">${cred}%</span>${impact}${readBtn}</div>
+    </div>
+    ${media}</a>`;
 }};
 
 /* Unlock prompt for the For You tab when the visitor isn't personalized yet. */
@@ -1919,14 +2011,26 @@ const Theme = {
 /* ================= Story Reader ================= */
 const Story = { async render(id){
   $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
-  let s;
+  let s, err;
   try{ s = await api('/story/'+id+(S.creds?`?user_id=${S.creds.user_id}`:'')); }
-  catch(e){
+  catch(e){ err = e; }
+  // A 401 means api() has just discarded stale credentials. The story itself is
+  // public, so read it again as a signed-out visitor rather than telling someone
+  // the story is gone when it is sitting right there in the feed they came from.
+  if (!s && err && err.status === 401 && !S.creds){
+    try{ s = await api('/story/'+id); err = null; }catch(e2){ err = e2; }
+  }
+  if (!s && err){
     if (S.online){
-      // Never dress a missing real story in demo content — say it's gone.
+      // Only a 404 actually means "rotated out". Anything else is a fault on
+      // our side or the network's, and saying otherwise sends people away from
+      // a story that still exists.
+      const gone = err.status === 404;
       $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
         <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
-          This story is no longer available — stories rotate out after 7 days.<br><br>
+          ${gone ? 'This story is no longer available — stories rotate out after 7 days.'
+                 : 'Couldn\'t load this story just now — it may be a temporary problem.'}<br><br>
+          ${gone ? '' : '<button class="btn ghost" data-act="reload-story" data-id="'+esc(id)+'">Try again</button> '}
           <a class="btn primary" href="/brief">Back to the brief</a></div></div>`;
       return;
     }
@@ -2019,6 +2123,9 @@ const Story = { async render(id){
   <div class="wrap reader">
     <div class="crumb rise"><a href="/">← Feed</a> · <span class="chip">${esc(topicLabel(s.topic))}</span> · <span class="chip ${sent[1]}">${sent[0]}</span>${told?` · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h1 class="rise" style="animation-delay:.04s">${esc(s.headline)}</h1>
+    ${s.image_url?`<div class="sherowrap rise" style="animation-delay:.05s">
+      <img class="shero" src="${esc(s.image_url)}" alt="" decoding="async" referrerpolicy="no-referrer">
+      <div class="cap">Photo via the outlets listed under Sources</div></div>`:''}
     <div class="readerbar rise" style="animation-delay:.06s">
       <button class="btn ghost sm savebtn" data-act="save" id="savebtn">🔖 Save</button>
       <button class="btn ghost sm" data-act="copylink" data-kind="story" data-id="${esc(s.id)}">🔗 Copy link</button>

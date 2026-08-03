@@ -150,6 +150,7 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
       <button class="ghost" onclick="confirmRebuild()">Rebuild all trends &amp; forecasts</button>
       <button class="ghost" onclick="findBlobStories()">Find multi-subject stories</button>
       <button class="ghost" onclick="findPlaceholderStories()">Rewrite placeholder stories</button>
+      <button class="ghost" onclick="findMissingImages()">Backfill story images</button>
     </div>
     <div id="result"></div>
   </div>
@@ -494,6 +495,40 @@ async function findPlaceholderStories(){
     }
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
+}
+/* Story artwork for articles ingested before the image feature existed. Feed
+   entries aren't kept after ingest, so this re-reads the feeds and matches on
+   article URL — which naturally limits it to the most recent runs' articles. */
+async function findMissingImages(){
+  $('#result').textContent = 'Scanning feeds…';
+  try{
+    const r = await adminPost('/admin/backfill-images?dry_run=true');
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); return; }
+    if(!j.articles_matched){
+      $('#result').textContent = 'Nothing to backfill — every article the feeds still '
+        + 'carry already has artwork ('+j.feed_entries_with_images+' feed entries scanned).';
+      return;
+    }
+    $('#result').innerHTML = '<b>'+j.articles_matched+'</b> articles can be given artwork '
+      + '(from '+j.feed_entries_with_images+' feed entries with images).<br>'
+      + 'Stories built from them get the highest-resolution image across their sources.<br><br>'
+      + '<button class="ghost" onclick="applyBackfillImages()">Apply</button>';
+  }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
+}
+async function applyBackfillImages(){
+  $('#result').textContent = 'Backfilling…';
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
+  try{
+    const r = await adminPost('/admin/backfill-images?dry_run=false');
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok){ $('#result').textContent = 'Error '+r.status+': '+(j.detail||''); }
+    else { $('#result').textContent = 'Done — '+j.articles_matched+' articles and '
+        + j.stories_updated+' stories given artwork.';
+      toast('Images backfilled'); }
+  }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
+  document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
+  setTimeout(refresh, 1500);
 }
 async function applyRetell(){
   $('#result').textContent = 'Starting…';

@@ -18,6 +18,12 @@ the discount is steep; and anything on the order of the multi-day retention
 window is discounted to near zero no matter how impactful it once was — which
 is what keeps stale items from ever parking at the top.
 
+Having artwork is a small multiplicative nudge (RANK_IMAGE_BOOST), applied last
+and deliberately sized to lose to a single cycle of ageing. It settles ties
+between comparable stories so the feed doesn't read as a broken grid of picture
+cards with gaps, but it is not a sort key: no amount of artwork lifts a stale
+story back over fresh reporting.
+
 Developing items get *bounded* credit for being retold. A long-running
 storyline that picks up one new article per run genuinely is fresher than an
 abandoned one, so age is measured from the last retell (`updated_at`) — but
@@ -58,22 +64,34 @@ def effective_age(created_at, updated_at, now):
     return max(0.0, max(now - touched, (now - born) * STALE_FLOOR))
 
 
-def rank_score(impact, created_at, now=None, updated_at=None):
+def rank_score(impact, created_at, now=None, updated_at=None, has_image=False):
     """Higher is better. `impact` is whatever comparable-within-this-list metric
     the caller passes (source count, personalized impact_score, trend velocity,
-    forecast confidence, ...) — this function only handles the recency half."""
+    forecast confidence, ...) — this function only handles the recency half.
+
+    `has_image` applies config.RANK_IMAGE_BOOST, a small multiplier that lets an
+    illustrated story edge out a comparable text-only one WITHOUT changing the
+    hierarchy: the boost is far smaller than one cycle of ageing, so it can only
+    ever settle near-ties, never lift a stale story back over fresh reporting.
+    """
     now = time.time() if now is None else now
     cycle_hours = max(config.PIPELINE_INTERVAL_HOURS, 0.5)  # guard div-by-zero
     age_cycles = effective_age(created_at, updated_at, now) / 3600.0 / cycle_hours
-    return max(impact, 0.0) / (1.0 + age_cycles) ** config.RANK_GRAVITY
+    score = max(impact, 0.0) / (1.0 + age_cycles) ** config.RANK_GRAVITY
+    return score * config.RANK_IMAGE_BOOST if has_image else score
 
 
 def sort_by_rank(rows, impact_of, created_at_of=lambda r: r.get("created_at"),
-                 updated_at_of=lambda r: r.get("updated_at")):
+                 updated_at_of=lambda r: r.get("updated_at"),
+                 has_image_of=lambda r: bool(r.get("image_url"))):
     """Sort dict rows by rank_score, highest (best) first. One `now` for the
-    whole list so relative order can't shift mid-sort."""
+    whole list so relative order can't shift mid-sort.
+
+    The default `has_image_of` reads the same `image_url` the story endpoints
+    already select, and is simply False for row types that have no artwork
+    (trends, forecasts) — so those lists are unaffected."""
     now = time.time()
     return sorted(rows,
                   key=lambda r: rank_score(impact_of(r), created_at_of(r), now,
-                                           updated_at_of(r)),
+                                           updated_at_of(r), has_image_of(r)),
                   reverse=True)

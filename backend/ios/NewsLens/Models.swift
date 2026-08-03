@@ -99,6 +99,10 @@ struct FeedItem: Codable, Identifiable, Hashable {
     var topic: String
     var impactText: String?
     var impactScore: Int?
+    /// Publisher artwork, URL only — the app loads it straight from their CDN.
+    /// Absent on stories whose sources carried no image; the card renders
+    /// text-only in that case.
+    var imageUrl: String?
     // Optional: only /feed and /stories return it; /signals & /trend stories omit it.
     var createdAt: Double?
 
@@ -107,6 +111,7 @@ struct FeedItem: Codable, Identifiable, Hashable {
         case credibilityNote = "credibility_note"
         case impactText = "impact_text"
         case impactScore = "impact_score"
+        case imageUrl = "image_url"
         case createdAt = "created_at"
     }
 }
@@ -265,6 +270,7 @@ struct StoryDetail: Codable {
     var connections: [Connection]?
     var impactText: String?
     var impactScore: Int?
+    var imageUrl: String?
     var createdAt: Double?
     /// "Why it matters", stored separately from the storyline. Absent/empty on
     /// stories written before the split — callers fall back to the old
@@ -309,6 +315,7 @@ struct StoryDetail: Codable {
         case credibilityNote = "credibility_note"
         case impactText = "impact_text"
         case impactScore = "impact_score"
+        case imageUrl = "image_url"
         case createdAt = "created_at"
         case whyMatters = "why_matters"
     }

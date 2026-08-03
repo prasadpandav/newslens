@@ -106,6 +106,15 @@ PIPELINE_INTERVAL_HOURS = float(os.environ.get("PIPELINE_INTERVAL_HOURS", "6"))
 # "cycles" (see app/ranking.py). Higher = recency matters more; an item several
 # cycles old is discounted toward zero regardless of impact at any value > 1.
 RANK_GRAVITY = float(os.environ.get("RANK_GRAVITY", "1.5"))
+# Illustrated stories rank slightly above comparable text-only ones — a feed of
+# picture cards with holes in it reads as broken. Deliberately a small MULTIPLIER
+# on the final score rather than a sort key of its own, so the existing
+# recency/impact hierarchy still decides the order and artwork only settles
+# near-ties. It must stay well below the cost of being one pipeline cycle older
+# ((1+1)**RANK_GRAVITY = 2.83x at the defaults) or a stale-but-illustrated story
+# could climb back over fresh reporting, which is the exact failure ranking.py
+# exists to prevent. See test: an image must never beat a fresher story.
+RANK_IMAGE_BOOST = float(os.environ.get("RANK_IMAGE_BOOST", "1.15"))
 # Ingest freshness: skip feed entries published more than this many hours ago.
 # Feeds carry a long tail (some hold 200 items), so without a gate every run
 # re-considers week-old news. Keep it comfortably WIDER than the pipeline
