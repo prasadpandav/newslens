@@ -239,6 +239,18 @@ def connect():
             con.execute("ALTER TABLE read_stories ADD COLUMN beat TEXT")
         except sqlite3.OperationalError:
             pass
+        # ---- phase 5: how outlets framed it ----
+        # {axis, positions, spread, missing} — where each outlet that carried
+        # this event sat on a story-specific framing axis. NULL means "nobody
+        # has asked yet", which is the normal state: this is computed on demand
+        # when a reader opens the panel (like personalization), never in the
+        # pipeline, so LLM spend tracks real reads instead of catalogue size.
+        # Cleared on retell when the source set changes — the spread a new
+        # outlet joins is not the spread we classified.
+        try:
+            con.execute("ALTER TABLE stories ADD COLUMN framing TEXT")
+        except sqlite3.OperationalError:
+            pass
         # COMMIT THE MIGRATION before flipping the flag. Without this the DDL
         # above sits in this connection's open transaction: it is visible here,
         # so a PRAGMA check passes, but no OTHER connection can see the new

@@ -1679,6 +1679,124 @@ body:has(.fx) footer{color:#9A958B}
   .fx-stat{flex:1 1 100%}
   .fx-readbtn{opacity:1;pointer-events:auto}
 }
+
+/* ============ Phase 5a: corrections ============
+   A story we published can stop holding up. The design has no "CORRECTION"
+   stamp for this and it would be wrong to invent one: we are not reporting a
+   publisher's retraction, we are reporting OUR OWN corroboration falling. So it
+   is drawn the way every other verdict on this page is drawn — a rust rule and
+   a mono line, marginalia rather than an alarm. */
+.fx-corr{display:flex;gap:7px;align-items:baseline;padding-left:9px;
+  border-left:2px solid var(--bad);font:400 11px/1.5 var(--mono);color:var(--bad)}
+.fx-corr .w{font-family:var(--sans);font-size:11.5px;color:var(--ink-2)}
+.fx-hero .fx-corr{margin:14px 0 0}
+.fx-row .fx-corr{margin-top:7px}
+.rx-corr{margin:0 0 30px;padding:14px 16px;border-left:2px solid var(--bad);
+  background:var(--sand)}
+.rx-corr .h{display:block;font:500 10px var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--bad);margin-bottom:7px}
+.rx-corr p{margin:0;font:400 13px/1.6 var(--sans);color:#3A342A}
+:root[data-mode="dark"]:not([data-skin]) .rx-corr p{color:var(--ink-2)}
+.rx-corr .m{display:block;margin-top:7px;font:400 10.5px var(--mono);color:var(--faint)}
+
+/* corroboration over time — the real series from story_history, drawn as a
+   sparkline. Bars, not a curve: we have a handful of discrete readings taken
+   when something changed, and a smooth line would imply we measured in between. */
+.rx-hist{display:flex;align-items:flex-end;gap:3px;height:34px;margin:12px 0 8px}
+.rx-hist i{flex:1;min-width:3px;background:var(--rule-2);border-radius:1px}
+.rx-hist i.good{background:var(--good)} .rx-hist i.mid{background:var(--mid)}
+.rx-hist i.bad{background:var(--bad)}
+.rx-hist i.now{outline:1px solid var(--ink);outline-offset:1px}
+.rx-histm{display:flex;justify-content:space-between;font:400 10.5px var(--mono);
+  color:var(--faint)}
+
+/* ============ Phase 5b: the framing spectrum (screen 1e) ============
+   One axis, named for this story, with each outlet placed on it. The axis is
+   about EMPHASIS, never politics — the prompt forbids ideological labels — so
+   the poles are set in the sand ink used for editorial apparatus, not in the
+   verdict colours, which mean corroboration and nothing else. */
+.rx-frame{margin-top:26px}
+/* The margin column is ~230px. Two 2-4 word poles do NOT fit either side of an
+   axis at that width — laid out as a space-between row they wrap into each
+   other and read as one run-on phrase. So they bracket the axis vertically
+   instead: left pole above, right pole below, each with an arrow pointing at
+   its end of the line. Same information, and it survives the column it lives in. */
+.rx-pole{display:block;font:500 10px var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--sand-ink)}
+.rx-pole.lo{margin:14px 0 2px}
+.rx-pole.hi{text-align:right;margin:2px 0 12px}
+.rx-axis{position:relative;height:26px}
+.rx-axis .ln{position:absolute;left:4px;right:4px;top:12px;height:1px;background:var(--rule-2)}
+.rx-axis .end{position:absolute;top:8px;width:1px;height:9px;background:var(--rule-2)}
+.rx-axis .end.l{left:4px} .rx-axis .end.r{right:4px}
+.rx-axis .mid{position:absolute;left:50%;top:6px;width:1px;height:13px;background:var(--ghost)}
+.rx-axis .pt{position:absolute;top:7px;width:11px;height:11px;border-radius:50%;
+  background:var(--ink);border:2px solid var(--sand);transform:translateX(-50%);cursor:default}
+:root[data-mode="dark"]:not([data-skin]) .rx-axis .pt{border-color:#171512}
+/* Source name then its note underneath, NOT side by side: at 230px a
+   space-between row leaves ~90px for a 10-word note, which wraps into the host
+   beside it and reads as one sentence belonging to neither. */
+.rx-frame .out{display:flex;flex-direction:column;gap:11px;margin-bottom:12px}
+.rx-frame .out div{font:400 11.5px/1.45 var(--sans);color:#3A342A}
+:root[data-mode="dark"]:not([data-skin]) .rx-frame .out div{color:var(--ink-2)}
+.rx-frame .out .s{display:block;font:400 10.5px var(--mono);color:var(--mute)}
+.rx-frame .out .n{display:block}
+.rx-frame .miss{margin:10px 0 0;font:400 11.5px/1.55 var(--sans);color:var(--mute)}
+.rx-frame .spread{font:400 10.5px var(--mono);color:var(--faint)}
+
+/* ============ Phase 5: Saved (2b) and Read (2c) ============
+   Both were still the pre-redesign card list. They are the two screens where a
+   correction and the framing breadth actually land, so they get the same
+   ruled-column treatment as the feed rather than a banner bolted onto glass. */
+.pg{max-width:1080px;margin:0 auto;padding:26px 30px 40px}
+.pg-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+  padding-bottom:16px;border-bottom:1px solid var(--rule-2)}
+.pg-head h1{margin:0;font:300 34px/1.12 var(--serif);letter-spacing:-.015em;color:var(--ink)}
+.pg-head p{margin:7px 0 0;font:400 13px/1.5 var(--sans);color:var(--mute);max-width:52ch}
+.pg-grid{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:0;align-items:start}
+.pg-main{padding:22px 30px 0 0;min-width:0}
+.pg-rail{padding:22px 0 0 24px;border-left:1px solid var(--rule);position:sticky;
+  top:calc(var(--navh) + 1px)}
+.pg-card{padding:14px 0 16px;border-bottom:1px solid var(--rule)}
+.pg-card + .pg-card{padding-top:16px}
+.pg-card h3{margin:0 0 6px;font:400 17px/1.35 var(--serif);color:var(--ink)}
+.pg-card a.t{color:inherit;text-decoration:none}
+.pg-card a.t:hover{text-decoration:underline;text-underline-offset:3px}
+.pg-meta{display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+  font:400 11px var(--mono);color:var(--mute)}
+.pg-meta .sep{color:var(--ghost)}
+/* FX.scale emits pips and the tier word as siblings with no separator of their
+   own — the feed's own row gives them one via .fx-top's gap, so this column
+   has to as well or they butt together ("▰▰▰▰▰Strongly corroborated"). */
+.pg-meta .fx-pips{margin-right:7px}
+.pg-delta.up{color:var(--good)} .pg-delta.down{color:var(--bad)}
+.pg-prog{display:flex;align-items:center;gap:8px;margin-top:8px;
+  font:400 10.5px var(--mono);color:var(--faint)}
+.pg-prog .track{flex:1;max-width:150px;height:2px;background:var(--rule-2)}
+.pg-prog .track i{display:block;height:100%;background:var(--sand-2)}
+.pg-prog .done{color:var(--good)}
+.pg-stat{padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid var(--rule)}
+.pg-stat:last-child{border-bottom:0}
+.pg-big{display:block;margin:9px 0 4px;font:300 30px/1 var(--serif);color:var(--ink)}
+.pg-big.bad{color:var(--bad)}
+.pg-sub{font:400 11.5px/1.5 var(--sans);color:var(--mute)}
+.pg-bars{display:flex;flex-direction:column;gap:7px;margin:11px 0 6px}
+.pg-bars div{display:flex;align-items:center;gap:8px;font:400 11px var(--mono);color:var(--mute)}
+.pg-bars .track{flex:1;height:4px;background:var(--rule-2);border-radius:2px}
+.pg-bars .track i{display:block;height:100%;border-radius:2px;background:var(--mute)}
+.pg-bars .good i{background:var(--good)} .pg-bars .mid i{background:var(--mid)}
+.pg-bars .bad i{background:var(--bad)}
+.pg-empty{padding:44px 0;font:400 14px/1.7 var(--sans);color:var(--mute);max-width:44ch}
+@media (max-width:860px){
+  .pg{padding:22px 18px 34px}
+  .pg-grid{grid-template-columns:minmax(0,1fr)}
+  .pg-main{padding-right:0}
+  .pg-rail{position:static;border-left:0;border-top:1px solid var(--rule);
+    padding:22px 0 0;margin-top:22px;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px;align-items:start}
+  .pg-stat{border-bottom:0;padding-bottom:0;margin-bottom:0}
+  .pg-head h1{font-size:28px}
+}
 </style>
 </head>
 <body>
@@ -2181,6 +2299,7 @@ document.addEventListener('click', e=>{
     case 'fx-follow': Follow.toggle(el.dataset.id); Brief.render(); break;
     case 'fx-unfollow': Follow.toggle(el.dataset.id); Brief.render(); break;
     case 'fx-impact': fxImpact(el.dataset.id, el); break;
+    case 'rx-framing': fxFraming(el.dataset.id, el); break;
     case 'go': if(el.dataset.hash) Nav.go(el.dataset.hash); break;
     case 'refresh': loadData().then(()=>Brief.render()); break;
     case 'signin': Auth.trigger(); break;
@@ -2188,8 +2307,9 @@ document.addEventListener('click', e=>{
     case 'unlock': Gate.require(el.dataset.gate || 'read'); break;
     case 'save': Story.toggleSave(); break;
     case 'reload-story': Story.render(el.dataset.id); break;
-    case 'read': markRead(el.dataset.id, el.closest('.scard, .fx-row')); break;
-    case 'unread': unmarkRead(el.dataset.id, el.closest('.scard, .fx-row')); break;
+    case 'read': markRead(el.dataset.id, el.closest('.scard, .fx-row, .pg-card')); break;
+    case 'unread': unmarkRead(el.dataset.id, el.closest('.scard, .fx-row, .pg-card')); break;
+    case 'pg-unsave': pgUnsave(el.dataset.id, el.closest('.pg-card')); break;
     case 'personalize': Gate.require('personalize'); break;
     case 'ask': if(Gate.require('ask')) Ask.open(); break;
     case 'hero-config': LiveHero.openConfig(); break;
@@ -2322,6 +2442,31 @@ const FX = {
     return this.pips(b) + (hero
       ? `<span class="fx-tier ${b.tone}">${b.name}</span><span class="fx-score">${c}</span>`
       : `<span class="fx-tier ${b.tone}">${b.name} · ${c}</span>`); },
+  /* ---- Corrections (phase 5a) ----
+     The server sends `correction` ONLY on stories whose own corroboration
+     really fell, a checked claim flipped to disputed, or outlets began
+     reporting different numbers. The key's absence is the signal for
+     everything else, so nothing has to be drawn for a story that is fine — and
+     a story with no history at all (everything written before phase 2) simply
+     never carries one, which is why this is safe on a mixed catalogue.
+
+     Never the word "retracted", here or in the strings the server sends. We
+     observe OUR corroboration falling; we cannot see a publisher withdraw
+     anything, and the two are not the same claim. */
+  CORR:{weakened:'Corroboration weakened', contested:'A checked claim is now disputed',
+        conflicting:'Outlets now disagree on the numbers'},
+  correction(s, long){
+    const c = s && s.correction; if (!c) return '';
+    const head = this.CORR[c.kind] || this.CORR.weakened;
+    // The note already states the fall in words ("fallen from 72 to 31"), so on
+    // the hero the numeric pair is dropped rather than printed beside its own
+    // restatement. On a row, where there is no room for the note, the numbers
+    // ARE the message.
+    const note = long && c.note ? `<span class="w">${esc(c.note)}</span>` : '';
+    const num = !note && c.kind === 'weakened' && c.from != null
+      ? `<span>${Math.round(c.from)} → ${Math.round(c.to)}</span>` : '';
+    return `<div class="fx-corr"><span>${esc(head)}</span>${num}${note}</div>`;
+  },
   words(s){ return ((s.narrative||'').trim().match(/\S+/g)||[]).length; },
   mins(s){ return Math.max(1, Math.round(this.words(s)/200)); },
   /* "Developing" is a real, cheap signal: Storyteller UPDATES a story in place
@@ -2361,12 +2506,20 @@ FX.SORTS = {
 };
 
 /* ---- "Changed since your last visit" ----
-   The mockup shows "68 -> 82 · two new primaries", which needs a credibility
-   HISTORY the backend does not keep. Rather than invent one, remember the score
-   this browser last saw per story and diff against it. That makes the claim
-   narrower but true: it is "since YOU last looked", not "overnight", and it is
-   per-device. A server-side history table would make it global — worth doing,
-   but this needs no migration and works today. */
+   Two sources now, and they answer different questions, so both are kept and
+   each entry says which one it came from:
+
+     1. `correction` from the server (phase 5) — computed from story_history,
+        so it is GLOBAL, survives a cache clear, and is true on a device that
+        has never seen the story before. It answers "has this stopped holding
+        up?", measured against the story's own peak.
+     2. the localStorage snapshot below — per-device, and the only thing that
+        can answer "since YOU last looked", including scores that went UP.
+
+   Server entries lead. What is NOT done here is folding them together and
+   labelling the result one thing: "corroboration fell since it was first told"
+   and "the number moved since you were last here" are different claims, and
+   the rail prints whichever one it actually has. */
 const Seen = {
   KEY:'bl_seen_v1',
   read(){ try{ return JSON.parse(localStorage.getItem(this.KEY)||'{}')||{}; }catch(e){ return {}; } },
@@ -2379,19 +2532,34 @@ let _fxDiff = null;
 function fxDiff(list){
   if (_fxDiff) return _fxDiff;
   const prev = Seen.read(), was = prev.scores || {}, at = prev.at || 0;
-  const changes = [];
+  const changes = [], server = new Set();
+  // 1. Server truth first: these are stories whose corroboration has actually
+  //    collapsed, whoever is looking and from whatever device.
   list.forEach(s=>{
+    if (!s.correction) return;
+    server.add(s.id);
+    changes.push({s, src:'server', kind:s.correction.kind,
+                  from:s.correction.from, to:s.correction.to});
+  });
+  // 2. Then this browser's own snapshot, for anything the server hasn't
+  //    already flagged — including rises, which a correction never reports.
+  list.forEach(s=>{
+    if (server.has(s.id)) return;
     const before = was[s.id];
     if (before === undefined) return;          // never seen — new, not "changed"
     const now = Math.round(s.credibility||0);
-    if (Math.abs(now - before) >= 2) changes.push({s, from:before, to:now});
+    if (Math.abs(now - before) >= 2) changes.push({s, src:'local', from:before, to:now});
     else if (at && (s.updated_at||0)*1000 > at && (s.created_at||0)*1000 <= at)
-      changes.push({s, from:null, to:now});    // retold, score held steady
+      changes.push({s, src:'local', from:null, to:now});  // retold, score held steady
   });
-  changes.sort((a,b)=>Math.abs(b.to-(b.from??b.to)) - Math.abs(a.to-(a.from??a.to)));
+  const mag = c => Math.abs((c.to ?? 0) - (c.from ?? c.to ?? 0));
+  // Server entries stay above local ones regardless of magnitude: a story that
+  // stopped standing up matters more than one whose number drifted three points.
+  changes.sort((a,b)=>(a.src===b.src ? mag(b)-mag(a) : a.src==='server' ? -1 : 1));
   const scores = {}; list.forEach(s=>scores[s.id] = Math.round(s.credibility||0));
   Seen.write({at:Date.now(), scores});
-  _fxDiff = {changes: changes.slice(0,4), lastVisit: at};
+  _fxDiff = {changes: changes.slice(0,4), lastVisit: at,
+             weakened: changes.filter(c=>c.src==='server').length};
   return _fxDiff;
 }
 
@@ -2431,6 +2599,29 @@ async function fxImpact(id, el){
   }catch(e){
     el.disabled = false; el.textContent = 'Read the full impact →';
     toast("Couldn't load your take on this one");
+  }
+}
+
+/* On-demand framing, mirroring fxImpact: one LLM call, charged when a reader
+   actually asks for it. Unlike personalization the result is cached on the
+   STORY, so the next reader — signed in or not — gets it for free. */
+async function fxFraming(id, el){
+  if (!signedIn()){ Gate.require('read'); return; }
+  const box = $('#rx-frame'); if (!box) return;
+  el.disabled = true; el.textContent = 'Reading the coverage…';
+  try{
+    const r = await api(`/story/${encodeURIComponent(id)}/framing?user_id=${S.creds.user_id}`,
+                        {method:'POST'});
+    // Store it on the loaded story so a re-render (save, resize) keeps it.
+    if (S.currentStory && S.currentStory.id === id)
+      S.currentStory.framing = r.framing || {sources: r.reason === 'single_source' ? 1 : 2};
+    box.innerHTML = Story.framingHTML(S.currentStory || {framing: r.framing});
+  }catch(e){
+    // A 503 here is a rate limit, not "this story has no framing" — leave the
+    // button so it can be tried again rather than caching a failure on screen.
+    el.disabled = false; el.textContent = 'Compare the coverage →';
+    toast(e && e.status === 503 ? 'Framing is busy right now — try again shortly'
+                                : "Couldn't compare the coverage");
   }
 }
 
@@ -2553,13 +2744,22 @@ const Brief = { async render(){
 
     <aside class="fx-rail">
       ${diff.changes.length ? `
-        <span class="fx-lbl">Changed since your last visit</span>
+        <span class="fx-lbl">${diff.weakened ? 'What stopped holding up' : 'Changed since your last visit'}</span>
         <div class="fx-chgs">${diff.changes.map(c=>{
-          const dir = c.from==null ? '' : c.to>c.from ? 'up' : 'down';
+          const dir = c.src==='server' ? 'down' : c.from==null ? '' : c.to>c.from ? 'up' : 'down';
+          // Each line says which claim it is making. A server entry is measured
+          // against the story's own peak ("since it was first told"); a local
+          // one against this browser's last visit. Printing both under one
+          // heading without the distinction would overstate the weaker of them.
+          const d = c.src==='server'
+            ? (c.kind==='weakened' && c.from!=null
+                ? `${Math.round(c.from)} → ${Math.round(c.to)} · since it was first told`
+                : (FX.CORR[c.kind] || FX.CORR.weakened))
+            : c.from==null ? 'retold · new reporting'
+            : `${c.from} → ${c.to} · corroboration ${c.to>c.from?'rose':'fell'} since you looked`;
           return `<button class="fx-chg ${dir}" data-act="go" data-hash="/story/${esc(c.s.id)}">
             <span class="t">${esc(c.s.headline)}</span>
-            <span class="d">${c.from==null ? 'retold · new reporting'
-              : `${c.from} → ${c.to} · corroboration ${c.to>c.from?'rose':'fell'}`}</span>
+            <span class="d">${esc(d)}</span>
           </button>`;}).join('')}</div>` : ''}
 
       <div class="fx-ask">
@@ -2649,6 +2849,7 @@ hero(s, lensed, isIn){
       </div>
       <h2><a href="/story/${esc(s.id)}">${esc(s.headline)}</a></h2>
       <p class="fx-dek">${esc(s.narrative)}</p>
+      ${FX.correction(s, true)}
       <div class="fx-stats">${stats.join('<div class="fx-div"></div>')}</div>
       <div class="fx-why"><div class="bar"></div>
         <div><span class="fx-lbl">Why this matters to you</span>${why}</div></div>
@@ -2671,6 +2872,7 @@ row(s, isIn){
           title="Mark as read">✓ read</button>` : ''}</div>
       <h3>${esc(s.headline)}</h3>
       <p class="fx-dek">${esc(s.narrative)}</p>
+      ${FX.correction(s)}
     </div>
     ${s.image_url ? `<div class="fx-row-thumb"><img src="${esc(s.image_url)}" alt=""
        loading="lazy" decoding="async" referrerpolicy="no-referrer"></div>` : ''}
@@ -3203,6 +3405,34 @@ async _render(id){
   const fromHTML = KINDS.filter(([k])=>kinds[k]).map(([k,label])=>
     `<div class="${k==='trade'?'interested':''}"><span>${label}</span><span>${kinds[k]}</span></div>`).join('');
 
+  // ---- Corroboration over time. `history` is the real story_history series
+  // (oldest first) and has been on the wire since phase 2 without anything
+  // reading it. Two readings are the minimum that can show a direction; below
+  // that the block is absent rather than a single bar pretending to be a trend.
+  const hist = Array.isArray(s.history) ? s.history.filter(h=>h && h.credibility != null) : [];
+  const histHTML = hist.length < 2 ? '' : (()=>{
+    const bandOf = c => c>=70 ? 'good' : c>=40 ? 'mid' : 'bad';
+    const bars = hist.map((h,i)=>`<i class="${bandOf(h.credibility)}${
+      i===hist.length-1?' now':''}" style="height:${
+      Math.max(8, Math.round((h.credibility||0)))}%"></i>`).join('');
+    const first = Math.round(hist[0].credibility), last = Math.round(hist[hist.length-1].credibility);
+    return `<div class="rx-hr"></div>
+      <span class="fx-lbl">Corroboration over time</span>
+      <div class="rx-hist">${bars}</div>
+      <div class="rx-histm"><span>${first} first told</span><span>${last} now</span></div>
+      <p class="sub" style="margin-top:8px">One reading per change, not per day —
+        a quiet story records nothing.</p>`;
+  })();
+
+  // ---- What stopped holding up. Present only when the server found a real
+  // move in that history; absent on every story with no history at all, which
+  // is everything written before phase 2.
+  const corrHTML = !s.correction ? '' : `<div class="rx-corr">
+    <span class="h">${esc(FX.CORR[s.correction.kind] || FX.CORR.weakened)}</span>
+    <p>${esc(s.correction.note || '')}</p>
+    <span class="m">This is Descry's own corroboration score moving as the
+      reporting changed. It is not a retraction by any publisher.</span></div>`;
+
   const city = (S.ctx && S.ctx.location &&
     (S.ctx.location.city || S.ctx.location.region)) || '';
   const youBody = s.impact_text
@@ -3268,6 +3498,7 @@ async _render(id){
             {day:'numeric',month:'short',year:'numeric'})}</span>
           ${told?`<span class="d"></span><span title="${esc(told.full)}">last told ${esc(told.rel)}</span>`:''}
         </div>
+        ${corrHTML}
         ${beats.map((b,i)=>`<section class="rx-sec" id="beat-${b.id}">
           <div class="rx-beatlbl">${esc(b.label)}</div>
           ${b.claims ? Story.markClaims(b.body, verdicts, s.anchors) : b.body}
@@ -3289,6 +3520,9 @@ async _render(id){
           <div class="rx-from">${fromHTML}</div>` : ''}
         ${disputed.length||s.sources?.length ? `<button class="rx-link" data-act="rx-beat"
            data-to="${disputed.length?'disputed':'src'}">Open the full evidence panel →</button>` : ''}
+        ${histHTML}
+        <div class="rx-hr"></div>
+        <div class="rx-frame" id="rx-frame">${Story.framingHTML(s)}</div>
         <div class="rx-you">
           <span class="fx-lbl">${city?`For you, in ${esc(city)}`:'What this means for you'}</span>
           ${youBody}
@@ -3304,6 +3538,56 @@ async _render(id){
   // clicking rather than reading, and the beats are no longer collapsible.
   this.mountReader(s, beats);
 },
+/* "How outlets framed this" (screen 1e).
+   Four distinct states, and the difference between them is the whole point:
+
+     • a real spectrum      — the outlets disagreed about what the story is about
+     • "framed alike"       — they agreed. A real answer, not a failed one, and
+                              far commoner than the design's example suggests.
+     • "one outlet"         — there is nothing to compare. Never drawn as a
+                              single centred dot, which would read as "balanced".
+     • not classified yet   — nobody has opened this panel on this story. The
+                              chart is ABSENT and an action takes its place.
+
+   The last state is what makes this safe on stories written before phase 5:
+   every one of them starts there, and the classifier needs only the articles
+   they already cite, so any story in the catalogue can reach a real answer. */
+framingHTML(s){
+  const f = s.framing;
+  if (!f) {
+    return `<span class="fx-lbl">How outlets framed this</span>
+      <p class="sub" style="margin:9px 0 10px">Descry can compare what each
+        outlet led with — and name the angle none of them took.</p>
+      ${signedIn()
+        ? `<button class="rx-link" data-act="rx-framing" data-id="${esc(s.id)}"
+             >Compare the coverage →</button>`
+        : `<button class="rx-link" data-act="unlock" data-gate="read"
+             >Sign in to compare the coverage →</button>`}`;
+  }
+  const lbl = `<span class="fx-lbl">How outlets framed this</span>`;
+  if (!f.positions || !f.positions.length){
+    // Cached, but with nothing to plot. Say which of the two reasons it is.
+    return lbl + `<p class="sub" style="margin-top:9px">${
+      (f.sources || 0) < 2
+        ? 'Only one outlet carried this event, so there is no spread of framing to compare.'
+        : 'The outlets that carried this framed it the same way — there is no meaningful spread to plot.'
+      }</p>`;
+  }
+  const pt = p => `<span class="pt" title="${esc(p.source)}"
+    style="left:${(50 + p.pos*46).toFixed(1)}%"></span>`;
+  return lbl + `
+    <span class="rx-pole lo">◀ ${esc(f.axis.left)}</span>
+    <div class="rx-axis"><span class="ln"></span>
+      <span class="end l"></span><span class="end r"></span><span class="mid"></span>
+      ${f.positions.map(pt).join('')}</div>
+    <span class="rx-pole hi">${esc(f.axis.right)} ▶</span>
+    <div class="out">${f.positions.map(p=>`<div>
+      <span class="s">${esc(p.source)}</span>
+      ${p.note ? `<span class="n">${esc(p.note)}</span>` : ''}</div>`).join('')}</div>
+    <span class="spread">${f.positions.length} outlets · ${esc(f.spread)} spread</span>
+    ${f.missing ? `<p class="miss">Nobody covered: ${esc(f.missing)}</p>` : ''}`;
+},
+
 /* Mark up claims that the Verifier checked AND which appear VERBATIM in the
    prose. The design underlines the exact sentence a margin note belongs to;
    nothing anchors a claim to an offset yet (that is phase 4 — having the claims
@@ -3525,8 +3809,15 @@ const Trends = { tab:'macro', async render(){
     .sort((a,b)=>(a.article_count||0)-(b.article_count||0)).slice(0,2);
   const byLoudThin = [...plot].filter(t=>(t.credibility||0)<40)
     .sort((a,b)=>(b.article_count||0)-(a.article_count||0)).slice(0,2);
-  // "Moved most" — real deltas, but per-device (see fxDiff). Labelled as such.
+  // "Moved most" — server corrections where they exist, this browser's snapshot
+  // otherwise. Each entry carries `src`, so the note below can describe what it
+  // is actually showing instead of applying the weaker caveat to both.
   const moved = fxDiff(S.stories).changes.filter(c=>c.from!=null).slice(0,3);
+  const anyLocal = moved.some(c=>c.src!=='server');
+  // Trends whose stories have lost corroboration since they were first told.
+  // Global and cross-device — this comes from story_history, not localStorage.
+  const shaky = all.filter(t=>t.weakened_count)
+    .sort((a,b)=>b.weakened_count-a.weakened_count).slice(0,3);
 
   const dot = t => {
     const x = 6 + 88 * ((t.article_count||0) / maxA);
@@ -3585,13 +3876,25 @@ const Trends = { tab:'macro', async render(){
         ${card('good','Solid, and hardly anyone is reading it', byUnderread)}
         ${card('bad','Spreading fastest, standing up worst', byLoudThin,
           "We show this so you recognise it, not so you share it.")}
+        ${shaky.length?`<div class="tx-card bad">
+          <div class="fx-lbl">Weakened since first told</div>
+          ${shaky.map(t=>`<a class="tx-item" href="/trend/${esc(t.id)}">
+            <span class="h">${esc(cleanName(t.name))}</span>
+            <span class="m fx-bad">${t.weakened_count} of ${t.story_count} stor${
+              t.story_count===1?'y':'ies'} lost corroboration</span></a>`).join('')}
+          <p class="n">Measured against each story's own peak, from the record we
+             keep of every time a score moved. This is our corroboration falling —
+             no publisher has retracted anything.</p>
+        </div>`:''}
         ${moved.length?`<div class="tx-card">
-          <div class="fx-lbl">Moved since your last visit</div>
+          <div class="fx-lbl">${anyLocal ? 'Moved recently' : 'Moved since first told'}</div>
           ${moved.map(c=>`<a class="tx-item" href="/story/${esc(c.s.id)}">
             <span class="h">${esc(c.s.headline)}</span>
-            <span class="m ${c.to>c.from?'fx-good':'fx-bad'}">${c.from} → ${c.to}</span></a>`).join('')}
-          <p class="n">Measured against what this browser last saw, so it is
-             per-device until corroboration history is served for everyone.</p>
+            <span class="m ${c.to>c.from?'fx-good':'fx-bad'}">${Math.round(c.from)} → ${
+              Math.round(c.to)}</span></a>`).join('')}
+          <p class="n">${anyLocal
+            ? 'Some of these are measured against what this browser last saw, so that part is per-device; the falls are measured server-side against each story\'s own peak.'
+            : 'Measured server-side against each story\'s own peak, so this reads the same on every device.'}</p>
         </div>`:''}
         ${all.length && !plot.length ? `<div class="tx-card">
           <div class="fx-lbl">Not enough signal</div>
@@ -3783,47 +4086,192 @@ async function unmarkRead(id, cardEl){
     toast('Moved back to your feed'); }
   catch(e){ toast('Couldn\'t undo — try again'); }
 }
+async function pgUnsave(id, cardEl){
+  if(!id || !signedIn()) return;
+  S.saved.delete(id);
+  fadeOutCard(cardEl);
+  try{ await api('/bookmarks?user_id='+S.creds.user_id+'&story_id='+encodeURIComponent(id),
+                 {method:'DELETE'}); toast('Removed from saved'); }
+  catch(e){ toast("Couldn't remove — try again"); }
+}
+
+/* ============ Saved (2b) and Read (2c) ============
+   Shared shell, because they are the same object seen from two angles: a list
+   of stories you have a relationship with, plus a rail of what that
+   relationship actually looks like. Both were still the pre-redesign glass
+   cards; they are also the two screens where a phase-5 correction lands, since
+   these are the stories a reader chose to keep or has already been told. */
+const PG = {
+  gate(icon, title, body, slot){
+    $('#view').innerHTML = `<div class="fx"><div class="pg">
+      <div class="pg-empty" style="max-width:none;text-align:center;padding-top:60px">
+        <div style="font-size:28px;margin-bottom:10px">${icon}</div>
+        <h1 style="font:300 28px/1.2 var(--serif);color:var(--ink);margin:0 0 10px">${title}</h1>
+        <p style="margin:0 auto 20px;max-width:44ch">${body}</p>
+        <span id="${slot}"></span></div></div></div>`;
+    Auth.renderInto($('#'+slot));
+  },
+  skel(){ $('#view').innerHTML =
+    `<div class="fx"><div class="pg"><div class="skel" style="height:300px"></div></div></div>`; },
+  /* One story row. Every optional field is drawn only when the server sent it:
+     a story saved before credibility_at_save existed shows no delta rather than
+     a fabricated 0, and a story with no history shows no correction. */
+  card(s, opts){
+    opts = opts || {};
+    const bits = [`<span>${FX.scale(s)}</span>`];
+    if (opts.savedAt) bits.push(`<span class="sep">·</span><span>saved ${FX.ago(opts.savedAt)}</span>`);
+    if (opts.readAt) bits.push(`<span class="sep">·</span><span>read ${FX.ago(opts.readAt)}</span>`);
+    // Only a real, known change. null means "we can't say", which prints nothing.
+    if (s.credibility_delta != null && Math.abs(s.credibility_delta) >= 1){
+      const up = s.credibility_delta > 0;
+      bits.push(`<span class="sep">·</span><span class="pg-delta ${up?'up':'down'}">${
+        up?'▲':'▼'}${Math.abs(Math.round(s.credibility_delta))} since you saved</span>`);
+    }
+    // The action each list had before the redesign, kept: Read can push a story
+    // back to the feed, Saved can drop one.
+    if (opts.act) bits.push(`<span class="sep">·</span><button class="rx-link"
+      data-act="${opts.act}" data-id="${esc(s.id)}">${opts.actLabel}</button>`);
+    const p = Math.round((s.progress || 0) * 100);
+    const prog = !p ? '' : `<div class="pg-prog">
+      <div class="track"><i style="width:${Math.min(100,p)}%"></i></div>
+      ${s.completed_at ? '<span class="done">read in full</span>'
+        : `<span>${p}% in${s.stopped_at ? ` · stopped at “${esc(s.stopped_at)}”` : ''}</span>`}
+    </div>`;
+    return `<div class="pg-card">
+      <h3><a class="t" href="/story/${esc(s.id)}">${esc(s.headline)}</a></h3>
+      <div class="pg-meta">${bits.join('')}</div>
+      ${FX.correction(s)}
+      ${prog}
+    </div>`;
+  },
+  /* The corroboration mix of a set of stories. Bars are proportions of the
+     stories themselves — no scaling to make a thin band look fuller. */
+  bands(b, total){
+    if (!b || !total) return '';
+    const row = (k, label, cls) => !b[k] ? '' : `<div class="${cls}">
+      <span style="width:44px">${b[k]}</span>
+      <div class="track"><i style="width:${Math.round(b[k]/total*100)}%"></i></div>
+      <span>${label}</span></div>`;
+    return `<div class="pg-bars">${row('strong','strong','good')}${
+      row('mixed','mixed','mid')}${row('thin','thin','bad')}</div>`;
+  }
+};
+
 const ReadPage = { async render(){
   SEO.set({title:'Read stories · Descry', path:'/read', robots:'noindex,follow'});
   if(!(S.creds && S.creds.token)){
-    $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
-      <div style="font-size:30px;margin-bottom:8px">✓</div>
-      <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Keep your feed from going stale</h3>
-      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign in and stories you've read or dismissed drop out of your feed automatically — find them here any time.</p>
-      <span id="read-signin"></span></div></div>`;
-    Auth.renderInto($('#read-signin'));
+    PG.gate('✓', 'Keep your feed from going stale',
+      "Sign in and stories you've read or dismissed drop out of your feed automatically — find them here any time.",
+      'read-signin');
     return;
   }
-  $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div></div>`;
-  let items=[];
-  try{ const r=await api('/read?user_id='+S.creds.user_id); items=r.items||[]; S.read=new Set(items.map(x=>x.id)); }catch(e){}
-  $('#view').innerHTML = `<div class="wrap">
-    <div class="brief-head rise"><h1>Read</h1><span class="date">${items.length} ${items.length===1?'story':'stories'}</span></div>
-    <div style="margin-top:16px">${items.length? items.map((s,i)=>Brief.card(s,i,{unread:true})).join('')
-      : `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">Nothing here yet — stories you open or mark as read will show up here.</div>`}</div>
-  </div>`;
+  PG.skel();
+  let items = [], st = {};
+  try{ const r = await api('/read?user_id='+S.creds.user_id);
+       items = r.items || []; st = r.stats || {}; S.read = new Set(items.map(x=>x.id)); }catch(e){}
+  const opened = st.opened ?? items.length, finished = st.finished || 0;
+  const blind = st.blind_spots || [];
+  const fr = st.framing;      // absent until something you read has been classified
+  $('#view').innerHTML = `<div class="fx"><div class="pg">
+    <div class="pg-head">
+      <div><h1>Read</h1>
+        <p>What you have actually been told — and, where we can measure it,
+           how much of it you finished.</p></div>
+      <span class="fx-meta">${opened} ${opened===1?'story':'stories'}</span>
+    </div>
+    <div class="pg-grid">
+      <main class="pg-main">${items.length
+        ? items.map(s=>PG.card(s, {readAt: s.read_at, act:'unread', actLabel:'↺ back to feed'})).join('')
+        : `<p class="pg-empty">Nothing here yet — stories you open or mark as read
+             will show up here, with how far into each one you got.</p>`}</main>
+      <aside class="pg-rail">
+        ${opened ? `<div class="pg-stat">
+          <span class="fx-lbl">Finished</span>
+          <span class="pg-big">${finished} of ${opened}</span>
+          <span class="pg-sub">Counted from real scroll position, not from opening
+            the page. ${st.abandoned || 0} left part-read.</span>
+        </div>` : ''}
+        ${opened ? `<div class="pg-stat">
+          <span class="fx-lbl">What you read holds up</span>
+          ${PG.bands(st.bands, opened)}
+          <span class="pg-sub">Corroboration of the stories you opened — source
+            agreement, not truth.</span>
+        </div>` : ''}
+        ${st.weakened ? `<div class="pg-stat">
+          <span class="fx-lbl">Stopped holding up</span>
+          <span class="pg-big bad">${st.weakened}</span>
+          <span class="pg-sub">${st.weakened===1?'A story you read has':'Stories you read have'}
+            since lost corroboration. Flagged in the list — not a publisher retraction.</span>
+        </div>` : ''}
+        ${fr ? `<div class="pg-stat">
+          <span class="fx-lbl">Breadth of framing</span>
+          <span class="pg-big">${fr.wide} wide</span>
+          <span class="pg-sub">${fr.narrow} of these were framed near-identically
+            by every outlet that carried them.<br><br>
+            Based on ${fr.classified} of the ${fr.of} ${fr.of===1?'story':'stories'} you
+            read — framing is compared only when someone opens that panel, so the
+            rest are simply unmeasured.</span>
+        </div>` : ''}
+        ${blind.length ? `<div class="pg-stat">
+          <span class="fx-lbl">Opened, rarely finished</span>
+          <div class="pg-bars">${blind.map(t=>`<div>
+            <span style="width:44px">${t.finished}/${t.opened}</span>
+            <div class="track"><i style="width:${Math.round(t.finished/t.opened*100)}%"></i></div>
+            <span>${esc(topicLabel(t.topic))}</span></div>`).join('')}</div>
+          <span class="pg-sub">This is abandonment, not disinterest — and it is
+            never fed back into what you are shown.</span>
+        </div>` : ''}
+      </aside>
+    </div>
+  </div></div>`;
 }};
+
 const Saved = { async render(){
   // Personal pages hold nothing a stranger could use and shouldn't compete with
   // the article pages in the index.
   SEO.set({title:'Saved stories · Descry', path:'/saved', robots:'noindex,follow'});
   if(!(S.creds && S.creds.token)){
-    $('#view').innerHTML = `<div class="wrap"><div class="glass" style="padding:44px 28px;text-align:center;max-width:480px;margin:40px auto">
-      <div style="font-size:30px;margin-bottom:8px">🔖</div>
-      <h3 style="font-family:var(--font-ed);font-size:22px;margin-bottom:8px">Save stories to read later</h3>
-      <p style="color:var(--text-2);font-size:14px;margin-bottom:18px">Sign in to bookmark stories and sync them across every device you use.</p>
-      <span id="saved-signin"></span></div></div>`;
-    Auth.renderInto($('#saved-signin'));
+    PG.gate('🔖', 'Save stories to read later',
+      'Sign in to bookmark stories and sync them across every device you use.',
+      'saved-signin');
     return;
   }
-  $('#view').innerHTML = `<div class="wrap"><div class="skel" style="height:120px"></div></div>`;
-  let items=[];
-  try{ const r=await api('/bookmarks?user_id='+S.creds.user_id); items=r.items||[]; S.saved=new Set(items.map(x=>x.id)); }catch(e){}
-  $('#view').innerHTML = `<div class="wrap">
-    <div class="brief-head rise"><h1>Saved</h1><span class="date">${items.length} ${items.length===1?'story':'stories'}</span></div>
-    <div style="margin-top:16px">${items.length? items.map((s,i)=>Brief.card(s,i)).join('')
-      : `<div class="glass" style="padding:40px;text-align:center;color:var(--text-2)">Nothing saved yet — tap 🔖 Save on any story to keep it here.</div>`}</div>
-  </div>`;
+  PG.skel();
+  let items = [], st = {};
+  try{ const r = await api('/bookmarks?user_id='+S.creds.user_id);
+       items = r.items || []; st = r.stats || {}; S.saved = new Set(items.map(x=>x.id)); }catch(e){}
+  const weakened = st.weakened || 0;
+  // Sort the weakened ones up. Someone coming back to a saved list weeks later
+  // most needs to know which of these no longer stands up, and burying that
+  // under reverse-chronological order is how it goes unread.
+  const list = [...items].sort((a,b)=>(b.correction?1:0)-(a.correction?1:0));
+  $('#view').innerHTML = `<div class="fx"><div class="pg">
+    <div class="pg-head">
+      <div><h1>Saved</h1>
+        <p>Kept for later — and checked since. Corroboration keeps moving after
+           you save something.</p></div>
+      <span class="fx-meta">${items.length} ${items.length===1?'story':'stories'}</span>
+    </div>
+    <div class="pg-grid">
+      <main class="pg-main">${list.length
+        ? list.map(s=>PG.card(s, {savedAt: s.saved_at, act:'pg-unsave', actLabel:'remove'})).join('')
+        : `<p class="pg-empty">Nothing saved yet — tap Save on any story to keep it
+             here, and Descry will tell you if the reporting behind it moves.</p>`}</main>
+      <aside class="pg-rail">
+        ${weakened ? `<div class="pg-stat">
+          <span class="fx-lbl">Worth re-reading</span>
+          <span class="pg-big bad">${weakened}</span>
+          <span class="pg-sub">${weakened===1?'One saved story has':weakened+' saved stories have'}
+            lost corroboration since you saved ${weakened===1?'it':'them'} — listed first.
+            That is our score moving, not a publisher retraction.</span>
+        </div>` : items.length ? `<div class="pg-stat">
+          <span class="fx-lbl">Still standing up</span>
+          <span class="pg-sub">Nothing you saved has lost corroboration. Stories with
+            no history recorded yet are simply not counted either way.</span>
+        </div>` : ''}
+      </aside>
+    </div>
+  </div></div>`;
 }};
 
 /* ================= Search ================= */

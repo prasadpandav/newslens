@@ -16,7 +16,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from . import config, db, diag, images, llm, live, analytics, ranking, textmerge
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
-                     depth_hint, clean_beats, clean_anchors)
+                     depth_hint, clean_beats, clean_anchors,
+                     detect_correction, Framer)
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 
@@ -266,6 +267,48 @@ def _history(con, story_id, limit=12):
     return [dict(r) for r in reversed(rows)]
 
 
+def _corrections(con, story_ids):
+    """{story_id: correction} covering only the stories that HAVE one.
+
+    One query for the whole page. Calling _history per row would put an N+1 on
+    the feed's hot path — 100 indexed lookups per request — which is the exact
+    shape that has stalled this box before. Stories with no history (everything
+    written before phase 2, and every story that has never moved) are simply
+    absent from the result, and absent means "nothing to report", never "stable":
+    the client shows no notice either way, so the distinction costs nothing.
+
+    Never labelled a retraction anywhere in this path. We can observe our own
+    corroboration falling; we cannot observe a publisher withdrawing anything."""
+    ids = [i for i in (story_ids or []) if i]
+    if not ids:
+        return {}
+    by_story = {}
+    for chunk in _chunks(ids):
+        for r in con.execute(
+                "SELECT story_id, credibility, disputed, conflicts, created_at "
+                "FROM story_history WHERE story_id IN (%s) "
+                "ORDER BY story_id, created_at" % ",".join("?" * len(chunk)),
+                chunk).fetchall():
+            by_story.setdefault(r["story_id"], []).append(r)
+    out = {}
+    for sid, rows in by_story.items():
+        c = detect_correction(rows)
+        if c:
+            out[sid] = c
+    return out
+
+
+def _attach_corrections(con, items):
+    """Add `correction` to the items that have one, in place. Omitted entirely
+    from the rest — the key's presence IS the signal."""
+    fixes = _corrections(con, [i.get("id") for i in items])
+    for it in items:
+        c = fixes.get(it.get("id"))
+        if c:
+            it["correction"] = c
+    return items
+
+
 class GoogleAuthIn(BaseModel):
     id_token: str
 
@@ -371,7 +414,6 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
                   ON r.story_id = s.id AND r.user_id = b.user_id
            WHERE b.user_id = ? ORDER BY b.created_at DESC""",
         (user_id,)).fetchall()
-    con.close()
     items = []
     for r in rows:
         it = dict(r)
@@ -383,7 +425,12 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
         it["credibility_delta"] = (
             round((it["credibility"] or 0) - was, 1) if was is not None else None)
         items.append(it)
-    return {"items": items}
+    # Saved is where a correction matters most: these are stories the reader
+    # chose to keep, and may come back to weeks after the reporting moved.
+    _attach_corrections(con, items)
+    con.close()
+    weakened = sum(1 for i in items if i.get("correction"))
+    return {"items": items, "stats": {"saved": len(items), "weakened": weakened}}
 
 
 @app.post("/read")
@@ -455,20 +502,25 @@ def list_read(user_id: str, authorization: str = Header("")):
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
                   s.topic, s.image_url, s.created_at, s.updated_at,
-                  s.article_ids, s.claims, s.merge_stats,
+                  s.article_ids, s.claims, s.merge_stats, s.framing,
                   r.created_at AS read_at, r.progress, r.completed_at,
                   r.beat AS stopped_at,
                   '' AS impact_text, 0 AS impact_score
            FROM read_stories r JOIN stories s ON s.id = r.story_id
            WHERE r.user_id = ? ORDER BY r.created_at DESC""",
         (user_id,)).fetchall()
-    con.close()
     items = []
+    framings = []
     for r in rows:
         it = dict(r)
         it.update(_evidence(it))
         del it["article_ids"]; del it["claims"]; del it["merge_stats"]
+        f = db.uj(it.pop("framing", None) or "") or {}
+        if f.get("positions"):
+            framings.append(f)
         items.append(it)
+    _attach_corrections(con, items)
+    con.close()
     # The Read screen's summary panels: how much you finish, and the quality mix
     # of what you read. Both are counts over rows we already have in hand, so
     # they cost nothing extra and save the client three more requests.
@@ -490,10 +542,29 @@ def list_read(user_id: str, authorization: str = Header("")):
     blind = sorted((t for t in by_topic.values()
                     if t["opened"] >= 3 and t["finished"] * 2 < t["opened"]),
                    key=lambda t: (t["finished"] / t["opened"], -t["opened"]))[:3]
-    return {"items": items,
-            "stats": {"opened": opened, "finished": finished,
-                      "abandoned": opened - finished, "bands": band,
-                      "blind_spots": blind}}
+    # "Breadth of framing" — how much disagreement in emphasis the reader was
+    # actually exposed to. Only stories somebody has classified can contribute
+    # (framing is on-demand), so the denominator is reported alongside it and
+    # the client is expected to say "based on N of M". Claiming it covers
+    # everything read would be the easiest lie on this page to tell and the
+    # hardest for a reader to catch.
+    breadth = None
+    if framings:
+        wide = sum(1 for f in framings if (f.get("span") or 0) >= 1.0)
+        narrow = sum(1 for f in framings if (f.get("span") or 0) < 0.5)
+        breadth = {"classified": len(framings), "of": opened,
+                   "wide": wide, "narrow": narrow,
+                   "mean_span": round(
+                       sum(float(f.get("span") or 0) for f in framings) / len(framings), 2)}
+    stats = {"opened": opened, "finished": finished,
+             "abandoned": opened - finished, "bands": band,
+             "blind_spots": blind,
+             "weakened": sum(1 for i in items if i.get("correction"))}
+    # Omitted, not zeroed: "no story you read has been classified" and "the
+    # stories you read were framed identically" are different facts.
+    if breadth:
+        stats["framing"] = breadth
+    return {"items": items, "stats": stats}
 
 
 @app.post("/users")
@@ -574,7 +645,6 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     if sort == "foryou":
         u = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
         ctx = db.uj(u["context"] if u else "{}")
-    con.close()
     items = [dict(r) for r in rows]
     if sort == "foryou":
         impact_of = lambda it: it["impact_score"] or (
@@ -585,6 +655,10 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
         # count is unbounded.
         impact_of = lambda it: ranking.damped(len(db.uj(it["article_ids"], [])))
     items = ranking.sort_by_rank(items, impact_of)[:100]
+    # After the slice, so the correction lookup covers the 100 rows actually
+    # being sent rather than the whole 1000-row candidate pool.
+    _attach_corrections(con, items)
+    con.close()
     for it in items:
         # Evidence counts BEFORE the raw columns are dropped — they are derived
         # from claims/article_ids/merge_stats, none of which belong on the wire.
@@ -653,6 +727,12 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
             # empty", which should never happen.
             "beats": db.uj(s["beats"]) if "beats" in s.keys() and s["beats"] else None,
             "anchors": db.uj(s["anchors"]) if "anchors" in s.keys() and s["anchors"] else None,
+            # Same rule: null means "nobody has opened the framing panel on this
+            # story yet", which the client answers with a button rather than an
+            # empty chart. A cached-but-unusable result (one outlet, or outlets
+            # that all framed it the same way) comes back as an object WITHOUT
+            # `positions`, and says so in words instead of drawing a spectrum.
+            "framing": _framing_out(s),
             "image_url": s["image_url"] or "", "sources": articles,
             "trends": trends, "connections": conns, "created_at": s["created_at"],
             "impact_text": fi["impact_text"] if fi else "",
@@ -661,7 +741,50 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
     # before merge_stats existed can still report its outlet mix.
     out.update(_evidence(s, articles))
     out["history"] = history
+    c = detect_correction(history)
+    if c:
+        out["correction"] = c
     return out
+
+
+def _framing_out(row):
+    """The stored framing, or None when it has never been classified. Kept in
+    one place so /story and POST /story/{id}/framing cannot disagree about what
+    a cached "no spread" answer looks like on the wire."""
+    keys = row.keys() if hasattr(row, "keys") else row
+    raw = row["framing"] if "framing" in keys else None
+    return db.uj(raw) or None if raw else None
+
+
+@app.post("/story/{story_id}/framing")
+def story_framing(story_id: str, user_id: str, authorization: str = Header("")):
+    """"How outlets framed this" — classified on first open, then cached on the
+    story for every later reader, signed in or not.
+
+    Sign-in is required to TRIGGER it, for the same reason personalization is:
+    this is the one place a request costs an LLM call, and an open endpoint is
+    an open tab on someone else's bill. Reading a cached result costs nothing
+    and needs no account — GET /story returns it to everyone.
+
+    Works on stories written long before phase 5: it reads the articles the
+    story already cites, so there is no old/new split here at all."""
+    con = db.connect()
+    _auth(con, user_id, authorization)
+    s = con.execute("SELECT * FROM stories WHERE id=?", (story_id,)).fetchone()
+    if not s:
+        con.close()
+        raise HTTPException(404, "story not found")
+    llm.set_context(f"request framing story={story_id}")
+    try:
+        framing, reason = Framer().classify(con, s)
+    finally:
+        llm.set_context("")
+    con.close()
+    if reason == "llm_unavailable":
+        # 503, not an empty 200: a rate limit is temporary and the client should
+        # be able to offer "try again" rather than caching "no framing" in the UI.
+        raise HTTPException(503, "framing is unavailable right now")
+    return {"framing": framing, "reason": reason}
 
 
 @app.post("/story/{story_id}/personalize")
@@ -712,10 +835,11 @@ def stories(limit: int = 30):
         "merge_stats FROM stories "
         "ORDER BY updated_at DESC LIMIT ?",
         (max(limit * 10, 300),)).fetchall()
-    con.close()
     items = [dict(r) for r in rows]
     items = ranking.sort_by_rank(
         items, impact_of=lambda it: ranking.damped(len(db.uj(it["article_ids"], []))))[:limit]
+    _attach_corrections(con, items)
+    con.close()
     for it in items:
         it.update(_evidence(it))
         del it["article_ids"]; del it["claims"]; del it["merge_stats"]
@@ -780,12 +904,23 @@ def trends():
     # whole map. Only stories still inside the feed window are counted, which is
     # the same horizon the page's "last 48 hours" framing implies.
     agg = {}
-    for r in con.execute(
-            "SELECT credibility, trend_ids FROM stories WHERE updated_at > ?",
-            (db.now() - 7 * 86400,)).fetchall():
+    window = [dict(r) for r in con.execute(
+        "SELECT id, credibility, trend_ids FROM stories WHERE updated_at > ?",
+        (db.now() - 7 * 86400,)).fetchall()]
+    for r in window:
         for tid in db.uj(r["trend_ids"], []):
             a = agg.setdefault(tid, [0.0, 0])
             a[0] += float(r["credibility"] or 0); a[1] += 1
+    # Which trends are held up by reporting that has since weakened. One batched
+    # history read over the same window the scatter already scans — this is the
+    # global, cross-device answer to the question the page used to answer only
+    # from this browser's localStorage snapshot.
+    fixes = _corrections(con, [r["id"] for r in window])
+    weakened = {}
+    for r in window:
+        if r["id"] in fixes:
+            for tid in db.uj(r["trend_ids"], []):
+                weakened[tid] = weakened.get(tid, 0) + 1
     con.close()
     out = []
     for d in macro + micro:
@@ -799,6 +934,11 @@ def trends():
         # the bottom of the corroboration axis as if we had checked and failed it.
         d["credibility"] = round(tot / n, 1) if n else None
         d["story_count"] = n
+        # Only ever a positive count. 0 is left off for the same reason
+        # `credibility` is: "no story here has weakened" and "no story here has
+        # enough history to tell" are different, and the second is far commoner.
+        if weakened.get(d["id"]):
+            d["weakened_count"] = weakened[d["id"]]
         out.append(d)
     return {"items": out}
 
@@ -1735,9 +1875,12 @@ def _split_one_blob(con, row, subjects, now):
         primary_arts += [dict(a) for a in con.execute(
             "SELECT * FROM articles WHERE id IN (%s)"
             % ",".join("?" * len(chunk)), chunk).fetchall()]
+    # framing=NULL for the same reason the artwork is re-picked: this row's
+    # source set just shrank, so a cached spectrum describes outlets that are no
+    # longer part of this story. Split-off rows below start NULL anyway.
     con.execute(
-        "UPDATE stories SET article_ids=?, event_id=?, updated_at=?, image_url=? "
-        "WHERE id=?",
+        "UPDATE stories SET article_ids=?, event_id=?, updated_at=?, image_url=?, "
+        "framing=NULL WHERE id=?",
         (db.j(primary_ids), primary_key, now, images.best_of(primary_arts), row["id"]))
     created = 0
     for key, ids in rest:

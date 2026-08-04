@@ -144,7 +144,7 @@ story: |
 
   All fields: plain language, no hype beyond the facts.
 
-  3. "headline" — genuinely catchy and attention-grabbing: use tension, a concrete
+  5. "headline" — genuinely catchy and attention-grabbing: use tension, a concrete
      stake, or a sharp question — while staying strictly true to the verified claims
      below. Every factual element in the headline must appear in the claims.
      Never use generic templates like "What Just Changed and Why It Matters".
@@ -158,8 +158,10 @@ story: |
     version: state the disagreement plainly (e.g. "reports put the toll at 12 to 14").
   Verified claims: {claims}
   Merged brief: {items}
-  Reply ONLY with JSON:
-  {{"headline": "...", "what_happened": "...", "why_it_matters": "..."}}
+  Reply ONLY with JSON — every field above, in this shape:
+  {{"headline": "...", "what_happened": "...", "why_it_matters": "...",
+    "beats": [{{"label": "...", "text": "..."}}],
+    "anchors": [{{"claim": 0, "quote": "..."}}]}}
 
 same_story: |
   You are de-duplicating a news feed. Below are numbered PAIRS of headlines.
@@ -218,6 +220,41 @@ ask: |
   Question: {question}
   Reply ONLY with JSON:
   {{"answer": "...", "followups": ["2-3 natural follow-up questions"]}}
+
+framing: |
+  Below is one news event and how each outlet that covered it presented it —
+  one block per outlet, with its headline and the opening of its report.
+  {coverage}
+  Work out the DISAGREEMENT IN EMPHASIS: not who is right, but what each outlet
+  chose to lead with, and therefore what a reader of only that outlet would come
+  away believing the story is about.
+
+  1. "axis" — the single sharpest tension in HOW this event was framed, named as
+     two opposing poles specific to THIS story. Examples of the shape (not the
+     wording to reuse): {{"left": "Regulatory failure", "right": "Company misstep"}},
+     {{"left": "Security incident", "right": "Market event"}}. 2-4 words per pole.
+     The poles must be two framings that genuinely appear in the coverage below.
+     They are NOT political labels: never use left/right-wing, liberal,
+     conservative, or any party or ideology. This axis is about emphasis.
+
+  2. "positions" — one entry per outlet, using the outlet host EXACTLY as it is
+     written in the blocks below: {{"source": "...", "pos": -1.0 to 1.0,
+     "note": "..."}}. "pos" places that outlet between the two poles (-1 is
+     fully the "left" pole, +1 fully the "right" pole, 0 balanced between them).
+     "note" is under 12 words on what that outlet led with. Include only outlets
+     that appear below. If an outlet's framing is genuinely neutral, say so and
+     use 0 — do not spread outlets apart to make the picture look interesting.
+
+  3. "missing" — one short sentence naming an angle NONE of these outlets took,
+     if there is a clear one. Empty string if they collectively covered it well.
+     Do not invent an omission to fill this field.
+
+  Be conservative. Outlets frequently frame an event the same way, and reporting
+  that as agreement is the correct answer, not a failure.
+  Reply ONLY with JSON:
+  {{"axis": {{"left": "...", "right": "..."}},
+    "positions": [{{"source": "...", "pos": 0.0, "note": "..."}}],
+    "missing": "..."}}
 
 personalize: |
   Reader profile: {context}

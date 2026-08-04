@@ -219,6 +219,13 @@ BRIEF_MAX_CHARS = int(os.environ.get("BRIEF_MAX_CHARS", "2600"))
 # the 7-day feed window while still covering "moved most this week" and the
 # "since you saved it" comparisons on stories bookmarked months ago.
 HISTORY_KEEP_DAYS = int(os.environ.get("HISTORY_KEEP_DAYS", "90"))
+# How far corroboration must fall from a story's own peak before we tell the
+# reader it weakened. Deliberately absolute rather than proportional: at the
+# bottom of the scale a proportional test fires on rounding noise, and at the
+# top it would never fire at all. 8 points is roughly one Verifier source
+# dropping out — small enough to catch a real collapse early, large enough that
+# a rescored-but-unchanged story stays quiet.
+CORRECTION_MIN_DROP = float(os.environ.get("CORRECTION_MIN_DROP", "8"))
 DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))
 FEEDS_FILE = ROOT / "feeds.yaml"
 SOURCES_FILE = ROOT / "sources.yaml"

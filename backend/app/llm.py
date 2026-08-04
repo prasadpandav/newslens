@@ -417,6 +417,17 @@ def _mock(task, prompt):
                           f".env for real answers.",
                 "followups": ["What happens next?", "How does this affect my area?",
                               "Show opposing viewpoints"]}
+    if task == "framing":
+        # Mock cannot read emphasis, so it places every outlet it can see at 0
+        # ("framed it the same way") rather than inventing a disagreement. That
+        # is also the honest answer whenever the real model is unsure, so the
+        # mock exercises the same client path a cautious real answer produces.
+        srcs = re.findall(r"^\[([^\]]+)\]$", prompt, re.M)
+        return {"axis": {"left": f"{label} as cause", "right": f"{label} as effect"},
+                "positions": [{"source": s, "pos": 0.0,
+                               "note": "mock mode: framing not assessed"}
+                              for s in srcs],
+                "missing": ""}
     if task == "personalize":
         return {"impact_text": f"Given your profile, developments in {label.lower()} "
                                f"could affect your sector or region. Worth a closer read.",

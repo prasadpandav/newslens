@@ -828,6 +828,181 @@ def clean_anchors(raw, claims, beats):
     return out or None
 
 
+# --------------------------------------------------------------- corrections
+# A story we published can stop holding up: an outlet drops out, a claim we had
+# corroborated starts being disputed, or outlets begin reporting different
+# numbers. story_history already records every one of those moves; nothing read
+# it back. This is what does.
+#
+# What this is NOT: a retraction notice. We observe our OWN corroboration
+# falling — we cannot see a publisher retract anything, and saying "retracted"
+# would put a claim in the reader's head that nobody made. Every string this
+# produces says what actually happened: corroboration weakened, or outlets now
+# disagree.
+def detect_correction(rows, min_drop=None):
+    """A correction for one story, or None. `rows` is its story_history in
+    ASCENDING time order (what main._history already returns).
+
+    Judged against the story's own PEAK, not against the previous row: a score
+    that slides 71 -> 62 -> 54 over three runs never drops far enough between
+    any two adjacent rows to be noticed, and that slow slide is exactly the case
+    a reader most needs told."""
+    drop = config.CORRECTION_MIN_DROP if min_drop is None else min_drop
+    rows = [r for r in (rows or []) if r is not None]
+    if len(rows) < 2:
+        return None            # one data point is a starting value, not a change
+    get = lambda r, k: (r[k] if not hasattr(r, "keys") or k in r.keys() else None)
+    cur = rows[-1]
+    now_c = float(get(cur, "credibility") or 0)
+    peak = max(rows, key=lambda r: float(get(r, "credibility") or 0))
+    peak_c = float(get(peak, "credibility") or 0)
+    # Only claims that were checked at BOTH ends count. A story whose earliest
+    # history row predates verdict counting has None there, and None is "we
+    # don't know", never "there were zero disputed claims then".
+    first_d = get(rows[0], "disputed")
+    now_d = get(cur, "disputed")
+    first_x = get(rows[0], "conflicts")
+    now_x = get(cur, "conflicts")
+    disputed_added = (int(now_d) - int(first_d)
+                      if now_d is not None and first_d is not None else 0)
+    conflicts_added = (int(now_x) - int(first_x)
+                       if now_x is not None and first_x is not None else 0)
+    fell = (peak_c - now_c) >= drop
+    if not fell and disputed_added <= 0 and conflicts_added <= 0:
+        return None
+    # A claim flipping is a stronger, more specific statement than a score
+    # sliding, so it wins the label when both happened.
+    kind = "contested" if disputed_added > 0 else "weakened"
+    if kind == "contested":
+        note = (f"{disputed_added} claim{'' if disputed_added == 1 else 's'} we had "
+                f"checked {'is' if disputed_added == 1 else 'are'} now disputed by "
+                f"the sources covering this.")
+    elif conflicts_added > 0 and not fell:
+        kind = "conflicting"
+        note = (f"Outlets have started reporting {conflicts_added} figure"
+                f"{'' if conflicts_added == 1 else 's'} differently since this was "
+                f"first told.")
+    else:
+        note = (f"Corroboration has fallen from {round(peak_c)} to {round(now_c)} "
+                f"since this was first told.")
+    return {"kind": kind,
+            "from": round(peak_c, 1), "to": round(now_c, 1),
+            "delta": round(now_c - peak_c, 1),
+            "disputed_added": max(0, disputed_added),
+            "conflicts_added": max(0, conflicts_added),
+            "since": get(peak, "created_at"), "note": note}
+
+
+# ------------------------------------------------------------------- framing
+def clean_framing(raw, sources):
+    """{axis, positions, spread, missing} or None.
+
+    `sources` is the set of outlet hosts this story actually cites. Any position
+    naming an outlet we did not ingest is dropped rather than shown: the panel's
+    whole claim is "here is where the outlets we read sat", and an invented
+    twelfth outlet would break it in the way readers are least able to check."""
+    if not isinstance(raw, dict):
+        return None
+    axis = raw.get("axis") or {}
+    left = str(axis.get("left") or "").strip()[:40]
+    right = str(axis.get("right") or "").strip()[:40]
+    if not (left and right):
+        return None                       # an unnamed axis places nothing
+    allowed = {str(s or "").strip().lower() for s in (sources or []) if s}
+    seen, positions = set(), []
+    for p in (raw.get("positions") or []):
+        if not isinstance(p, dict):
+            continue
+        src = str(p.get("source") or "").strip()
+        key = src.lower()
+        if not src or key in seen:
+            continue
+        # Tolerant on shape (a model may answer "BBC News" or "www.bbc.co.uk"),
+        # strict on membership: it has to resolve to an outlet we really cite.
+        match = next((a for a in allowed if a == key or a in key or key in a), None)
+        if not match:
+            continue
+        try:
+            pos = max(-1.0, min(1.0, float(p.get("pos"))))
+        except (TypeError, ValueError):
+            continue
+        seen.add(key)
+        positions.append({"source": match, "pos": round(pos, 2),
+                          "note": str(p.get("note") or "").strip()[:120]})
+    if len(positions) < 2:
+        return None       # a spectrum needs two points; one outlet is not a spread
+    span = max(p["pos"] for p in positions) - min(p["pos"] for p in positions)
+    return {"axis": {"left": left, "right": right},
+            "positions": positions,
+            # Named, not just numeric, so the client never has to invent the
+            # threshold vocabulary and the two clients cannot disagree on it.
+            "spread": "wide" if span >= 1.0 else "moderate" if span >= 0.5 else "narrow",
+            "span": round(span, 2),
+            "missing": str(raw.get("missing") or "").strip()[:200]}
+
+
+class Framer:
+    """"How outlets framed this" — computed the first time a reader opens the
+    panel on a given story, then cached on the story row for everyone.
+
+    Per STORY, not per user (unlike Personalizer), so the first reader pays for
+    it and every later reader — including signed-out ones — gets it free. Works
+    on stories written long before phase 5, because it needs only the articles
+    the story already cites."""
+
+    # Enough coverage per outlet for the model to see a frame, small enough that
+    # a 20-source story doesn't blow the context. Ordered by the story's own
+    # article order, so the outlets that led the reporting are the ones kept.
+    MAX_SOURCES = 10
+    EXCERPT = 400
+
+    def classify(self, con, story_row, articles=None):
+        """Returns (framing_dict_or_None, reason). `reason` is why it is None:
+        'ok' | 'cached' | 'single_source' | 'llm_unavailable' | 'no_spread'."""
+        cached = story_row["framing"] if "framing" in story_row.keys() else None
+        if cached:
+            return db.uj(cached) or None, "cached"
+        if articles is None:
+            ids = db.uj(story_row["article_ids"], [])
+            articles = [con.execute(
+                "SELECT title, summary, source FROM articles WHERE id=?", (i,)).fetchone()
+                for i in ids]
+            articles = [a for a in articles if a]
+        by_source = {}
+        for a in articles:
+            src = (a["source"] or "").strip()
+            if src and src not in by_source:
+                by_source[src] = a
+        if len(by_source) < 2:
+            # Not a failure and not worth an LLM call: one outlet cannot
+            # disagree with itself. Cached as a real answer so re-opening the
+            # panel doesn't retry forever.
+            self._store(con, story_row["id"], {"sources": len(by_source)})
+            return None, "single_source"
+        blocks = []
+        for src, a in list(by_source.items())[:self.MAX_SOURCES]:
+            blocks.append(f"[{src}]\nHeadline: {a['title'] or ''}\n"
+                          f"Report: {(a['summary'] or '')[:self.EXCERPT]}")
+        out = llm.complete_json("framing", prompt("framing", coverage="\n\n".join(blocks)))
+        if out is None:
+            # Don't cache an LLM outage as "no framing" — that would make a
+            # transient rate limit permanent for this story. Let the next open
+            # try again.
+            return None, "llm_unavailable"
+        framing = clean_framing(out, by_source.keys())
+        # A genuine "they all framed it the same way" is an answer worth
+        # caching; so is a malformed reply, which we record as no-spread rather
+        # than re-asking on every open.
+        self._store(con, story_row["id"], framing or {"sources": len(by_source)})
+        return framing, "ok" if framing else "no_spread"
+
+    @staticmethod
+    def _store(con, story_id, payload):
+        con.execute("UPDATE stories SET framing=? WHERE id=?",
+                    (db.j(payload), story_id))
+        con.commit()
+
+
 class Storyteller:
     # Configurable via MAX_STORIES_PER_RUN env var; the rest roll to next run.
     MAX_PER_RUN = config.MAX_STORIES_PER_RUN
@@ -1017,13 +1192,25 @@ class Storyteller:
                 # `trend` is None for an orphan event, which can now match a prior
                 # story by event_id — so guard the union instead of indexing None.
                 tids = mine["tids"] | ({trend["id"]} if trend else set())
+                # A cached framing spectrum describes the outlets that had
+                # covered the event when it was classified. If a NEW OUTLET has
+                # since joined, that picture is stale — drop it so the next
+                # reader who opens the panel gets one that includes them. A
+                # retell that only adds another piece from an outlet already
+                # placed leaves it alone, so a developing story doesn't re-pay
+                # for the same classification every run. (No extra query: `arts`
+                # already covers both the old and the new article ids.)
+                old_srcs = {a["source"] for a in arts if a["id"] in mine["aids"]}
+                new_srcs = {a["source"] for a in arts}
+                drop_framing = bool(new_srcs - old_srcs)
                 # Re-pick on every retell: a later outlet joining the event may
                 # carry a better frame than whatever the first telling had.
                 con.execute(
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
                     "connection_ids=?,updated_at=?,event_id=?,image_url=?,"
-                    "merge_stats=?,beats=?,anchors=? WHERE id=?",
+                    "merge_stats=?,beats=?,anchors=?"
+                    + (",framing=NULL" if drop_framing else "") + " WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
                      db.j(sorted(tids)), db.j(conn_ids),
