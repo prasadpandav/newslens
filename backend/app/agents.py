@@ -277,6 +277,9 @@ class Scout:
                         added += 1
                     except Exception:
                         pass  # duplicate url
+                con.commit()   # per feed — see the note in Storyteller.run: one
+                               # commit at the end would hold the write lock
+                               # across every remaining feed's HTTP fetch
         con.commit()
         if skipped_dups or skipped_old:
             note = f"{skipped_dups} same-source repeats skipped"
@@ -302,6 +305,64 @@ class Scout:
 
 
 # ------------------------------------------------------- Entity extraction
+# The `entities` prompt asks for flat lists of strings, but a model is free to
+# answer {"entities": [{"name": "Reserve Bank of India", "type": "ORG"}]} instead
+# — and one of our providers does. That shape reached the DB verbatim and then
+# blew up wherever the terms were treated as strings: `set(...)` in
+# ConnectionFinder raised "unhashable type: 'dict'" and killed the whole stage,
+# and `", ".join(...)` in _numbered_items would have raised too.
+#
+# So terms are normalised on BOTH sides. On write, so new rows are clean; on
+# read, because rows already stored the wrong way are not rewritten and must
+# keep working. Anything unusable is dropped rather than stringified — a term
+# only earns its place if it is a name we can actually compare.
+_TERM_KEYS = ("name", "entity", "text", "label", "title", "value")
+
+
+def _terms(raw):
+    """Any JSON the model handed back -> a de-duplicated list of clean strings."""
+    out = []
+    if isinstance(raw, (str, int, float)):
+        raw = [raw]
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict):
+            # Take the first recognised name key; a dict with none of them
+            # carries no term we can use.
+            item = next((item[k] for k in _TERM_KEYS
+                         if isinstance(item.get(k), (str, int, float))), None)
+        elif isinstance(item, list):
+            out += _terms(item)          # one level of nesting, seen in the wild
+            continue
+        if isinstance(item, (int, float)) and not isinstance(item, bool):
+            item = str(item)
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+    return list(dict.fromkeys(out))
+
+
+def entity_terms(blob, *keys):
+    """Clean terms for the given keys of a stored `articles.entities` blob.
+
+    Tolerates every shape that column has ever held: missing, empty string,
+    non-dict JSON, a key present but null, and lists of dicts.
+    """
+    doc = db.uj(blob)
+    if not isinstance(doc, dict):
+        return []
+    out = []
+    for k in (keys or ("entities", "sectors")):
+        out += _terms(doc.get(k))
+    return list(dict.fromkeys(out))
+
+
+def clean_entities(out):
+    """Normalise one `entities` LLM response before it is stored."""
+    doc = out if isinstance(out, dict) else {}
+    return {"entities": _terms(doc.get("entities")),
+            "sectors": _terms(doc.get("sectors")),
+            "regions": _terms(doc.get("regions"))}
+
+
 # --------------------------------------------------- Near-duplicate merging
 def _verify_same_story(pairs):
     """Resolve borderline pairs with ONE batched LLM call.
@@ -425,10 +486,13 @@ class EntityTagger:
                     "entities", title=src["title"], summary=src["summary"]))
                 if out is None:
                     continue  # LLM unavailable; retried next run
-                ent = db.j(out)
+                ent = db.j(clean_entities(out))
                 called += 1
             for m in members:
                 con.execute("UPDATE articles SET entities=? WHERE id=?", (ent, m["id"]))
+            con.commit()   # per group — see the note in Storyteller.run: a commit
+                           # only after the loop holds the write lock across every
+                           # later group's LLM call and stalls signed-in readers
         con.commit()
         db.log_run(con, "entities", "ok",
                    f"{called} groups tagged + {copied} copied from reps "
@@ -449,8 +513,7 @@ def _numbered_items(rows):
     lines = []
     for i, a in enumerate(rows, 1):
         keys = a.keys()
-        ent = db.uj(a["entities"]) if "entities" in keys else {}
-        tags = ", ".join((ent.get("entities", []) + ent.get("sectors", []))[:6])
+        tags = ", ".join(entity_terms(a["entities"] if "entities" in keys else "")[:6])
         src = a["source"] if "source" in keys else ""
         title = (a["title"] or "").replace("\n", " ")
         summary = (a["summary"] or "").replace("\n", " ")[:220]
@@ -655,11 +718,7 @@ class ConnectionFinder:
                                  _tf(b["title"] + b["summary"]))
                 if surface > 0.3:
                     continue  # obviously related; trends handle those
-                ea = set(db.uj(a["entities"]).get("entities", []) +
-                         db.uj(a["entities"]).get("sectors", []))
-                eb = set(db.uj(b["entities"]).get("entities", []) +
-                         db.uj(b["entities"]).get("sectors", []))
-                shared = ea & eb
+                shared = set(entity_terms(a["entities"])) & set(entity_terms(b["entities"]))
                 if shared:
                     cands.append((len(shared), a, b))
         cands.sort(key=lambda x: -x[0])
@@ -679,6 +738,7 @@ class ConnectionFinder:
                 "affected,created_at) VALUES (?,?,?,?,?,?,?)",
                 (db.new_id(), a["id"], b["id"], out.get("chain", ""), conf,
                  db.j(out.get("affected", [])), db.now()))
+            con.commit()   # per pair — see the note in Storyteller.run
             if conf >= 0.6:
                 made += 1
         con.commit()
@@ -1257,6 +1317,16 @@ class Storyteller:
                     con.execute("DELETE FROM feed_items WHERE story_id=?", (p["id"],))
                     prior.remove(p)
                     absorbed += 1
+            # Commit each storyline as it is finished, NOT once at the end.
+            # SQLite has one write lock. The first write above opens a
+            # transaction, and a commit only at the end of the loop would hold
+            # that lock across every remaining group's full-text fetches and
+            # three LLM calls — minutes. GET /story/{id} writes too when the
+            # reader is signed in (read_stories), so every signed-in story open
+            # in that window queued behind this, waiting out busy_timeout.
+            # Per-group commits also mean an OOM kill mid-run keeps the
+            # storylines already told instead of discarding the whole pass.
+            con.commit()
         con.commit()
         db.log_run(con, "storyteller", "ok",
                    f"{new_ct} new + {upd_ct} updated stories, {absorbed} absorbed")
@@ -1284,8 +1354,8 @@ class Foresight:
         for aid in db.uj(s["article_ids"], [])[:3]:
             a = con.execute("SELECT entities FROM articles WHERE id=?", (aid,)).fetchone()
             if a:
-                e = db.uj(a["entities"])
-                ents += e.get("entities", [])[:4] + e.get("sectors", [])[:2]
+                ents += (entity_terms(a["entities"], "entities")[:4]
+                         + entity_terms(a["entities"], "sectors")[:2])
         claims = db.uj(s["claims"]).get("claims") or []
         claim_txt = " ; ".join(str(c) for c in claims[:2])[:180]
         cred = s["credibility"] if "credibility" in s.keys() and s["credibility"] else 0

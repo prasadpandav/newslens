@@ -1245,8 +1245,24 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
   max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .fx-chip.more{background:none;border:1px dashed var(--rule-2);color:var(--mute)}
 .fx-chip.more:hover{border-color:var(--ink);color:var(--ink)}
-button.fx-chip:hover{background:var(--sand-2);color:var(--ink)}
-button.fx-chip.on{background:var(--ink);color:var(--card)}
+
+/* Topic filter. Deliberately NOT .fx-chip: an interest chip is a fact Descry
+   is telling you about yourself, a topic is a control you press, and when the
+   two shared one style every chip in the column looked equally pressable. This
+   is the same pill the Trends/Saved/Read filters use, sized for a 206px rail —
+   an outline when off, filled ink when on, so "which topic am I in" is legible
+   at a glance instead of being one shade of sand away from its neighbours.
+   Scoped under .fx because `.fx button{padding:0;border:0}` (0,1,1) outranks a
+   bare class selector no matter what order they appear in. */
+.fx-topics{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 0}
+.fx .fx-topic{padding:6px 12px;border-radius:100px;border:1px solid var(--rule-2);
+  background:none;color:var(--ink-2);font:400 12.5px/1.35 var(--sans);
+  white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+  transition:border-color .15s var(--ease),background .15s var(--ease)}
+.fx .fx-topic:hover:not(.on){border-color:var(--ink);color:var(--ink)}
+.fx .fx-topic.on{background:var(--ink);color:var(--paper);border-color:var(--ink);
+  font-weight:500}
+.fx .fx-topic:focus-visible{outline:2px solid var(--indigo);outline-offset:2px}
 .fx-link{font:400 12px var(--sans);color:var(--indigo);
   text-decoration:underline;text-underline-offset:3px}
 .fx-sorts{display:flex;flex-direction:column;gap:11px;margin-bottom:28px}
@@ -2823,6 +2839,15 @@ const Brief = { async render(){
         <span>Your interests &amp; filters</span><span class="chev" aria-hidden="true">▾</span>
       </button>
       <div class="col-body">
+      ${topics.length > 2 ? `<div>
+        <span class="fx-lbl">Topics</span>
+        <div class="fx-topics">${topics.map(t=>
+          `<button class="fx-topic${t===S.topic?' on':''}" data-act="topic"
+            data-topic="${esc(t)}" aria-pressed="${t===S.topic}"
+            >${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
+      </div>` : ''}
+
+      <div class="${topics.length > 2 ? 'fx-sect' : ''}">
       <span class="fx-lbl">Your interests</span>
       ${lensBits.length ? `<div class="fx-chips">${lensBits.slice(0, LENS_CHIPS).map(b=>
           `<span class="fx-chip">${esc(b)}</span>`).join('')}${
@@ -2833,6 +2858,7 @@ const Brief = { async render(){
             ? 'Tell Descry your work, city and interests and every story gets read against them.'
             : 'Sign in to read the news against your work, city and interests.'}</p>
            <button class="fx-link" data-act="${isIn?'personalize':'unlock-foryou'}">Set my interests</button>`}
+      </div>
 
       <div class="fx-sect">
         <span class="fx-lbl" style="margin-bottom:12px">Show me first</span>
@@ -2855,12 +2881,6 @@ const Brief = { async render(){
         </div>
       </div>` : ''}
 
-      ${topics.length > 2 ? `<div class="fx-sect">
-        <span class="fx-lbl">Topic</span>
-        <div class="fx-chips">${topics.map(t=>
-          `<button class="fx-chip ${t===S.topic?'on':''}" data-act="topic" data-topic="${esc(t)}"
-            >${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
-      </div>` : ''}
       </div>
     </aside>
 

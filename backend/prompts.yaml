@@ -2,8 +2,18 @@
 # Placeholders in {braces} are filled by the code.
 
 entities: |
-  Extract from this news item. Reply ONLY with JSON:
-  {{"entities": [...], "sectors": [...], "regions": [...]}}
+  Extract from this news item.
+
+  Every list holds PLAIN STRINGS and nothing else — no objects, no {{"name": ...}}
+  wrappers, no nesting. These names are compared against each other across
+  stories, so a wrapped name matches nothing.
+    entities — named organisations, companies, people, agencies
+    sectors  — the industries involved
+    regions  — countries, states or cities involved
+
+  Reply ONLY with JSON, in exactly this shape:
+  {{"entities": ["Reserve Bank of India", "HDFC Bank"],
+    "sectors": ["banking"], "regions": ["India"]}}
   Title: {title}
   Summary: {summary}
 
