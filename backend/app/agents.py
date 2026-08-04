@@ -872,19 +872,22 @@ def detect_correction(rows, min_drop=None):
         return None
     # A claim flipping is a stronger, more specific statement than a score
     # sliding, so it wins the label when both happened.
+    # PLAIN WORDS, as the design requires: these strings are printed verbatim on
+    # the feed, the reader, Saved and Read, and the mockups are explicit that
+    # nothing in the product says "corroborated", "verified" or "disputed".
     kind = "contested" if disputed_added > 0 else "weakened"
     if kind == "contested":
-        note = (f"{disputed_added} claim{'' if disputed_added == 1 else 's'} we had "
-                f"checked {'is' if disputed_added == 1 else 'are'} now disputed by "
-                f"the sources covering this.")
+        note = (f"{disputed_added} fact{'' if disputed_added == 1 else 's'} we "
+                f"checked {'is' if disputed_added == 1 else 'are'} now argued over "
+                f"by the sources covering this.")
     elif conflicts_added > 0 and not fell:
         kind = "conflicting"
         note = (f"Outlets have started reporting {conflicts_added} figure"
                 f"{'' if conflicts_added == 1 else 's'} differently since this was "
                 f"first told.")
     else:
-        note = (f"Corroboration has fallen from {round(peak_c)} to {round(now_c)} "
-                f"since this was first told.")
+        note = (f"Fewer sources agree now than when this was first told — "
+                f"down from {round(peak_c)} to {round(now_c)}.")
     return {"kind": kind,
             "from": round(peak_c, 1), "to": round(now_c, 1),
             "delta": round(now_c - peak_c, 1),

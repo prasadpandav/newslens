@@ -903,14 +903,20 @@ def trends():
     # stories carry trend_ids, so one pass over the recent catalogue builds the
     # whole map. Only stories still inside the feed window are counted, which is
     # the same horizon the page's "last 48 hours" framing implies.
+    # `claims` comes along now because the reader's Trends page (design 3a)
+    # states an "Agree / disagree" figure per trend. That is a sum of the
+    # per-claim verdicts the Verifier already wrote on each story — no new
+    # computation, just an aggregation nobody had asked for before.
     agg = {}
     window = [dict(r) for r in con.execute(
-        "SELECT id, credibility, trend_ids FROM stories WHERE updated_at > ?",
+        "SELECT id, credibility, trend_ids, claims FROM stories WHERE updated_at > ?",
         (db.now() - 7 * 86400,)).fetchall()]
     for r in window:
+        vc = verdict_counts((db.uj(r["claims"]) or {}).get("verdicts") or [])
         for tid in db.uj(r["trend_ids"], []):
-            a = agg.setdefault(tid, [0.0, 0])
+            a = agg.setdefault(tid, [0.0, 0, 0, 0])
             a[0] += float(r["credibility"] or 0); a[1] += 1
+            a[2] += vc["verified"]; a[3] += vc["disputed"]
     # Which trends are held up by reporting that has since weakened. One batched
     # history read over the same window the scatter already scans — this is the
     # global, cross-device answer to the question the page used to answer only
@@ -928,12 +934,18 @@ def trends():
         d["regions"] = db.uj(d["regions"], [])
         d["article_count"] = len(db.uj(d["article_ids"], []))
         del d["article_ids"]
-        tot, n = agg.get(d["id"], (0.0, 0))
+        tot, n, agree, disagree = agg.get(d["id"], (0.0, 0, 0, 0))
         # Omitted, not zeroed, when no story in the window carries this trend:
-        # the scatter must be able to leave a point out rather than plot it at
-        # the bottom of the corroboration axis as if we had checked and failed it.
+        # the page must be able to say "not enough to judge yet" rather than
+        # report a zero as if we had checked and found nothing.
         d["credibility"] = round(tot / n, 1) if n else None
         d["story_count"] = n
+        # "Agree / disagree" on the trend card. Only sent when claims were
+        # actually checked on the stories underneath — 0/0 would read as
+        # "nobody agrees", when it means "we haven't checked".
+        if agree or disagree:
+            d["agree"] = agree
+            d["disagree"] = disagree
         # Only ever a positive count. 0 is left off for the same reason
         # `credibility` is: "no story here has weakened" and "no story here has
         # enough history to tell" are different, and the second is far commoner.
