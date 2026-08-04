@@ -1096,6 +1096,37 @@ nav .links a.active{color:var(--text);background:var(--surface-2)}
 .rrow .sub{color:var(--text-3);font-size:12px;margin-left:auto;flex-shrink:0}
 
 /* ============ Ask AI ============ */
+/* Screen 5b. Desktop keeps the top nav and never shows this. */
+.tabbar{display:none}
+@media (max-width:760px){
+  nav .links{display:none}
+  /* The sign-in block is the widest thing in the bar and was already pushing
+     the document past the viewport before this bar existed; a fixed bar pinned
+     left:0/right:0 then stretches to the overflowing width and hangs off the
+     screen. Let the nav shrink instead of forcing the page wider than it is. */
+  nav{overflow:hidden}
+  .account{min-width:0;flex-shrink:1}
+  .account .acct-name{max-width:70px}
+  .gbtn-fallback{max-width:150px;overflow:hidden}
+  /* Without a min-width of 0 the placeholder wraps to three lines and the bar
+     grows to fit it, which is what it was doing before the links moved out. */
+  .searchbtn{min-width:0;flex-shrink:1;white-space:nowrap;padding:8px 11px}
+  .searchbtn span{overflow:hidden;text-overflow:ellipsis}
+  .searchbtn kbd{display:none}
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;
+    justify-content:space-around;align-items:center;gap:2px;
+    padding:11px 6px calc(11px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--border);background:var(--surface);
+    -webkit-backdrop-filter:saturate(180%) blur(12px);backdrop-filter:saturate(180%) blur(12px)}
+  .tabbar a{flex:1;text-align:center;padding:3px 2px;font-size:10.5px;line-height:1.2;
+    color:var(--text-3);white-space:nowrap}
+  .tabbar a.active{color:var(--text);font-weight:500}
+  /* Clear the bar so the last line of every page stays readable, and lift the
+     Ask button off it rather than letting the two overlap. */
+  body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
+  .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
+  .askpanel{bottom:calc(72px + env(safe-area-inset-bottom))}
+}
 .fab{position:fixed;right:26px;bottom:26px;z-index:60;display:flex;align-items:center;gap:9px;
   padding:13px 20px;border-radius:var(--r-pill);background:var(--grad-ai);color:#fff;font-weight:600;
   font-size:14px;box-shadow:0 10px 34px rgb(from var(--accent) r g b / .45);transition:transform .25s var(--ease)}
@@ -1187,11 +1218,17 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
    Only the FEED is ported — Saved/Read/Trends still render the older .scard,
    so Brief.card() is deliberately left intact. */
 .fx,.rx{
-  --ink:#17150F; --ink-2:#4A4640; --mute:#7A756C; --faint:#9A958B; --ghost:#C0BAB0;
+  --ink:#17150F; --ink-2:#4A4640; --mute:#7A756C; --faint:#6F6A61; --ghost:#C0BAB0;
   --paper:#F7F4EE; --card:#FFFDF9; --sand:#EFE9DC; --sand-2:#C8B98F; --sand-ink:#8A7A4E;
   --rule:rgba(23,21,15,.09); --rule-2:rgba(23,21,15,.14);
   --indigo:#2E4A7D;
+  /* The verdict hues now come in two strengths, because the redesign's
+     legibility pass split them by ROLE. #A9741C is bright enough to read as a
+     filled pip or bar against paper, and too light to read as 11px text on it —
+     so the amber label darkens to #8A5A18 while the pip it sits beside keeps
+     the original. Green and red pass at both sizes and stay single-valued. */
   --good:#3F6B4A; --mid:#A9741C; --bad:#9B3F30;
+  --good-ink:#3F6B4A; --mid-ink:#8A5A18; --bad-ink:#9B3F30;
   --serif:'Newsreader',Georgia,serif;
   --sans:'IBM Plex Sans',system-ui,sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,monospace;
@@ -1204,12 +1241,14 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
    mechanical inversion: paper goes to #12110F, the rail lifts to #171512, and
    the verdict hues desaturate so they stay separable on black. */
 :root[data-mode="dark"]:not([data-skin]) :is(.fx,.rx){
-    --ink:#F2EEE6; --ink-2:rgba(242,238,230,.82); --mute:rgba(247,244,238,.5);
-    --faint:rgba(247,244,238,.4); --ghost:rgba(247,244,238,.25);
+    --ink:#F2EEE6; --ink-2:rgba(242,238,230,.82); --mute:rgba(247,244,238,.62);
+    --faint:rgba(247,244,238,.55); --ghost:rgba(247,244,238,.25);
     --paper:#12110F; --card:#171512; --sand:#1E1B16; --sand-2:#C8B98F; --sand-ink:#C8B98F;
     --rule:rgba(247,244,238,.12); --rule-2:rgba(247,244,238,.18);
     --indigo:#9DB4DC;
+    /* Same split, mirrored: on black the TEXT variant is the lighter one. */
     --good:#7AA884; --mid:#D2A54F; --bad:#C87F6A;
+    --good-ink:#8FBA98; --mid-ink:#E2B96A; --bad-ink:#D8927D;
 }
 .fx a{color:inherit;text-decoration:none}
 .fx button{font-family:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
@@ -1230,10 +1269,14 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 /* ---- corroboration: tier word first, number second (rule 1) ---- */
 .fx-pips{display:inline-flex;gap:2px;vertical-align:middle}
 .fx-pips i{display:block;width:13px;height:5px;border-radius:2px;background:var(--rule-2)}
-.fx-pips i.on{background:currentColor}
+/* --pip, not currentColor: the tone classes below set the TEXT hue, and the
+   amber text hue is deliberately darker than the amber a pip is drawn in. */
+.fx-pips i.on{background:var(--pip,currentColor)}
 .fx-hero .fx-pips{gap:3px}
 .fx-hero .fx-pips i{width:22px;height:6px}
-.fx-good{color:var(--good)} .fx-mid{color:var(--mid)} .fx-bad{color:var(--bad)}
+.fx-good{color:var(--good-ink); --pip:var(--good)}
+.fx-mid{color:var(--mid-ink); --pip:var(--mid)}
+.fx-bad{color:var(--bad-ink); --pip:var(--bad)}
 .fx-tier{font:500 11.5px var(--sans)}
 .fx-hero .fx-tier{font-size:13px}
 .fx-score{font:400 12px var(--mono);color:var(--mute)}
@@ -1269,7 +1312,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx-sort{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;
   text-align:left;font:400 13px var(--sans);color:var(--ink-2)}
 .fx-sort .dot{color:var(--ghost);font-size:11px;line-height:1}
-.fx-sort.has .dot{color:var(--good)}
+.fx-sort.has .dot{color:var(--good-ink)}
 .fx-sort.on span:first-child{color:var(--ink);font-weight:500}
 .fx-sort:hover span:first-child{color:var(--ink)}
 .fx-sect{padding-top:22px;border-top:1px solid var(--rule);margin-top:28px}
@@ -1277,7 +1320,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx-follow{display:flex;align-items:baseline;gap:6px;width:100%;text-align:left;
   font:400 13px var(--sans);color:var(--ink-2)}
 .fx-follow:hover{color:var(--ink)}
-.fx-follow .n{font:400 10px var(--mono);color:var(--bad);white-space:nowrap}
+.fx-follow .n{font:400 10px var(--mono);color:var(--bad-ink);white-space:nowrap}
 .fx-follow .x{margin-left:auto;font:400 12px var(--mono);color:var(--faint);opacity:0}
 .fx-follow:hover .x{opacity:1}
 
@@ -1293,7 +1336,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx-hero-in{padding:22px 26px 24px}
 .fx-kicker{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .fx-kicker .dev{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
-  color:var(--bad)}
+  color:var(--bad-ink)}
 .fx-kicker .sep{width:3px;height:3px;border-radius:50%;background:var(--ghost);flex:none}
 .fx-kicker .rest{font:400 11.5px var(--sans);color:var(--mute)}
 .fx-hero h2{margin:0 0 12px;font:400 36px/1.15 var(--serif);color:var(--ink);
@@ -1346,7 +1389,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx-row .fx-dek{margin:0;font:400 13.5px/1.6 var(--sans);color:var(--mute);max-width:530px}
 .fx-row-thumb{height:92px;border-radius:5px;overflow:hidden;background:var(--sand)}
 .fx-row-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.fx-flag{font:400 11px var(--mono);color:var(--bad)}
+.fx-flag{font:400 11px var(--mono);color:var(--bad-ink)}
 .fx-flag.calm{color:var(--mute)}
 .fx-readbtn{margin-left:auto;font:400 11px var(--mono);color:var(--faint);opacity:0;
   pointer-events:none;transition:opacity .15s}
@@ -1360,7 +1403,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx-chg.up{border-left-color:var(--good)} .fx-chg.down{border-left-color:var(--bad)}
 .fx-chg .t{display:block;font:400 12.5px/1.5 var(--sans);color:var(--ink)}
 .fx-chg .d{display:block;font:400 11px var(--mono);color:var(--mute);margin-top:3px}
-.fx-chg.up .d{color:var(--good)} .fx-chg.down .d{color:var(--bad)}
+.fx-chg.up .d{color:var(--good-ink)} .fx-chg.down .d{color:var(--bad-ink)}
 .fx-ask{padding:16px;background:var(--ink);border-radius:8px}
 .fx-ask .fx-lbl{color:rgba(247,244,238,.5);margin-bottom:9px}
 .fx-ask q{display:block;margin:0 0 13px;font:400 13.5px/1.55 var(--serif);
@@ -1404,7 +1447,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
    through around the 1280px shell and under a short page. */
 body:has(.fx){background:#E8E4DB}
 body:has(.fx)::before{display:none}
-body:has(.fx) footer{color:#9A958B}
+body:has(.fx) footer{color:#6F6A61}
 .fx{min-height:calc(100vh - var(--navh))}
 :root[data-mode="dark"]:not([data-skin]) body:has(.fx){background:#0E0D0B}
 
@@ -1448,7 +1491,7 @@ body:has(.fx) footer{color:#9A958B}
 .rx-back:hover{color:var(--ink)}
 .rx-vr{width:1px;height:16px;background:rgba(23,21,15,.12);flex:none}
 .rx-dev{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
-  color:var(--bad);white-space:nowrap;flex:none}
+  color:var(--bad-ink);white-space:nowrap;flex:none}
 .rx-thread{font:400 12.5px var(--sans);color:var(--ink-2);overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .rx-pill{display:flex;align-items:center;gap:7px;padding:5px 11px;
@@ -1507,7 +1550,7 @@ body:has(.fx) footer{color:#9A958B}
 /* ---- 3: the article ---- */
 .rx-art{padding:36px 40px 60px 38px;min-width:0}
 .rx-beatlbl{font:500 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;
-  color:var(--bad);margin-bottom:14px;scroll-margin-top:calc(var(--navh) + 70px)}
+  color:var(--bad-ink);margin-bottom:14px;scroll-margin-top:calc(var(--navh) + 70px)}
 .rx-art h1{margin:0 0 20px;font:300 42px/1.1 var(--serif);color:var(--ink);
   letter-spacing:-.02em;text-wrap:pretty}
 .rx-by{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:28px;
@@ -1556,8 +1599,8 @@ body:has(.fx) footer{color:#9A958B}
 .rx-note.ok .tick{background:var(--good)} .rx-note.mid .tick{background:var(--mid)}
 .rx-note.bad .tick{background:var(--bad)}
 .rx-note .v{font:500 10.5px var(--mono);letter-spacing:.06em;margin-bottom:5px}
-.rx-note.ok .v{color:var(--good)} .rx-note.mid .v{color:var(--mid)}
-.rx-note.bad .v{color:var(--bad)}
+.rx-note.ok .v{color:var(--good-ink)} .rx-note.mid .v{color:var(--mid-ink)}
+.rx-note.bad .v{color:var(--bad-ink)}
 .rx-note p{margin:0 0 7px;font:400 12.5px/1.55 var(--sans);color:#3A342A}
 :root[data-mode="dark"]:not([data-skin]) .rx-note p{color:var(--ink-2)}
 .rx-note .m{font:400 10.5px/1.5 var(--mono);color:var(--faint)}
@@ -1567,7 +1610,7 @@ body:has(.fx) footer{color:#9A958B}
   font:400 12px var(--sans);color:#3A342A}
 :root[data-mode="dark"]:not([data-skin]) .rx-from div{color:var(--ink-2)}
 .rx-from span:last-child{font-family:var(--mono);color:var(--mute)}
-.rx-from div.interested span:last-child{color:var(--mid)}
+.rx-from div.interested span:last-child{color:var(--mid-ink)}
 .rx-link{font:400 12px var(--sans);color:var(--indigo);text-decoration:underline;
   text-underline-offset:3px}
 .rx-you{padding:16px;background:var(--card);border:1px solid rgba(23,21,15,.11);
@@ -1660,9 +1703,9 @@ body:has(.fx) footer{color:#9A958B}
   text-decoration:underline;text-underline-offset:3px}
 .tx-fhead{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px}
 .tx-odds{padding:2px 9px;border-radius:100px;font:500 10.5px var(--mono)}
-.tx-odds.good{background:rgba(63,107,74,.12);color:var(--good)}
-.tx-odds.mid{background:rgba(169,116,28,.12);color:var(--mid)}
-.tx-odds.bad{background:rgba(155,63,48,.1);color:var(--bad)}
+.tx-odds.good{background:rgba(63,107,74,.12);color:var(--good-ink)}
+.tx-odds.mid{background:rgba(169,116,28,.12);color:var(--mid-ink)}
+.tx-odds.bad{background:rgba(155,63,48,.1);color:var(--bad-ink)}
 .tx-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
 .tx-steps li{display:flex;gap:11px;align-items:flex-start}
 .tx-steps .n{flex:none;width:19px;height:19px;border-radius:50%;border:1px solid var(--rule-2);
@@ -1683,6 +1726,151 @@ body:has(.fx) footer{color:#9A958B}
   .tx-head h1{font-size:27px}
   .tx-card h3{font-size:23px}
   .tx-top{flex-direction:column;gap:6px}
+}
+
+/* ---- What's Next (screen 5a) ----
+   Forecasts left the Trends page and got a tab of their own. The page opens by
+   telling you what it is NOT: nothing here has happened yet. That warning is
+   the first thing in the design and the first thing in the markup. */
+.nx-warn{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;
+  align-items:start;padding:16px 18px;border:1px solid var(--rule-2);
+  border-radius:9px;background:var(--sand);margin-bottom:28px}
+.nx-warn .k{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--sand-ink);white-space:nowrap;padding-top:2px}
+.nx-warn p{margin:0;font:400 13px/1.65 var(--sans);color:var(--ink-2)}
+.nx-list{display:flex;flex-direction:column;gap:12px;margin-bottom:34px}
+.nx-card{background:var(--card);border:1px solid var(--rule-2);border-radius:9px;
+  padding:22px 24px}
+.nx-card .in{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:30px;
+  align-items:start}
+.nx-kick{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:11px}
+.nx-when{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--faint)}
+.nx-odds{padding:3px 10px;border-radius:100px;font:500 11px var(--sans)}
+.nx-odds.good{background:rgba(63,107,74,.12);color:var(--good-ink)}
+.nx-odds.mid{background:rgba(169,116,28,.12);color:var(--mid-ink)}
+.nx-odds.bad{background:rgba(155,63,48,.1);color:var(--bad-ink)}
+.nx-mine{font:400 10.5px var(--mono);color:var(--indigo)}
+.nx-card h3{margin:0 0 10px;font:400 24px/1.28 var(--serif);color:var(--ink);
+  letter-spacing:-.012em;text-wrap:pretty}
+.nx-card h3 a{color:inherit}
+.nx-card h3 a:hover{text-decoration:underline;text-underline-offset:3px}
+.nx-card .lede{margin:0 0 14px;font:400 14px/1.68 var(--sans);color:var(--ink-2);
+  max-width:62ch;text-wrap:pretty}
+.nx-counts{display:flex;flex-wrap:wrap;gap:7px}
+.nx-counts span{padding:4px 10px;border-radius:5px;background:var(--sand);
+  font:400 11.5px var(--sans);color:var(--ink-2)}
+.nx-counts span.warnk{background:rgba(169,116,28,.12);color:var(--mid-ink)}
+.nx-side .fx-lbl{margin-bottom:9px}
+.nx-side p{margin:0 0 14px;font:400 12.5px/1.62 var(--sans);color:var(--mute)}
+.nx-more{display:inline-block;margin-top:2px;font:400 12.5px var(--sans);
+  color:var(--indigo);text-decoration:underline;text-underline-offset:3px}
+.nx-far{display:flex;flex-direction:column;gap:0;margin-bottom:34px}
+.nx-far article{padding:18px 0;border-top:1px solid var(--rule)}
+.nx-far h4{margin:0 0 6px;font:400 19px/1.32 var(--serif);color:var(--ink)}
+.nx-far h4 a{color:inherit}
+.nx-far .m{font:400 11px var(--mono);color:var(--faint)}
+.nx-how{margin-top:6px;padding:20px 22px;border:1px solid var(--rule);
+  border-radius:9px;background:var(--sand)}
+.nx-how p{margin:9px 0 0;font:400 13px/1.7 var(--sans);color:var(--ink-2);max-width:74ch}
+
+/* ---- Trend detail (4a) and Forecast detail (4b) ----
+   One layout for both: a claim, a strip of counted facts under it, then the
+   argument in sections with a narrow rail. They are the same kind of page —
+   "here is a claim and everything we have behind it" — so they share the
+   skeleton and differ only in which sections they fill. */
+.dx-wrap{max-width:1180px;margin:0 auto;padding:26px 40px 54px}
+.dx-back{display:inline-block;margin-bottom:16px;font:400 12.5px var(--sans);
+  color:var(--mute)}
+.dx-back:hover{color:var(--ink)}
+.dx-kick{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px}
+.dx-tag{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.dx-h1{margin:0 0 14px;font:300 36px/1.16 var(--serif);color:var(--ink);
+  letter-spacing:-.018em;max-width:24ch;text-wrap:pretty}
+.dx-lede{margin:0 0 26px;font:400 15px/1.7 var(--sans);color:var(--ink-2);
+  max-width:70ch;text-wrap:pretty}
+.dx-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  margin-bottom:34px}
+.dx-stat{padding:16px 20px 15px}
+.dx-stat + .dx-stat{border-left:1px solid var(--rule)}
+.dx-stat .v{display:block;margin-top:7px;font:400 22px/1.15 var(--serif);color:var(--ink)}
+.dx-stat .v small{font:400 12px var(--sans);color:var(--mute)}
+.dx-stat .s{display:block;margin-top:5px;font:400 11px var(--mono);color:var(--faint)}
+.dx-grid{display:grid;grid-template-columns:minmax(0,1fr) 268px;gap:44px;align-items:start}
+.dx-sec{margin-bottom:36px}
+.dx-sec > .fx-lbl{margin-bottom:10px}
+.dx-sec h2{margin:0 0 8px;font:400 21px/1.3 var(--serif);color:var(--ink)}
+.dx-sec .note{margin:0 0 16px;font:400 13px/1.7 var(--sans);color:var(--mute);max-width:70ch}
+.dx-quote{padding:20px 22px;border-left:2px solid var(--sand-2);background:var(--sand);
+  border-radius:0 8px 8px 0;font:400 17px/1.6 var(--serif);color:var(--ink);
+  text-wrap:pretty}
+.dx-part{padding:15px 0;border-top:1px solid var(--rule)}
+.dx-part .t{display:block;font:400 16px/1.4 var(--serif);color:var(--ink)}
+.dx-part .m{display:block;margin-top:5px;font:400 11.5px var(--mono);color:var(--faint)}
+.dx-part .m b{font-weight:500}
+.dx-against{padding:17px 0;border-top:1px solid var(--rule)}
+.dx-against .t{margin:0 0 6px;font:400 16px/1.45 var(--serif);color:var(--ink)}
+.dx-against p{margin:0;font:400 13px/1.68 var(--sans);color:var(--mute);max-width:70ch}
+.dx-read{margin-top:18px;padding:15px 18px;border:1px solid var(--rule-2);
+  border-radius:8px;font:400 14px/1.6 var(--serif);color:var(--ink)}
+.dx-read b{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--faint);display:block;margin-bottom:6px}
+.dx-rows{display:flex;flex-direction:column}
+.dx-row{display:flex;align-items:baseline;gap:14px;padding:13px 0;
+  border-top:1px solid var(--rule)}
+.dx-row .t{flex:1;min-width:0;font:400 15.5px/1.42 var(--serif);color:var(--ink)}
+.dx-row .t a{color:inherit}
+.dx-row .t a:hover{text-decoration:underline;text-underline-offset:3px}
+.dx-row .flag{font:500 9.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--mid-ink);white-space:nowrap;flex:none}
+.dx-row .d{font:400 11px var(--mono);color:var(--faint);white-space:nowrap;flex:none}
+.dx-bars{display:flex;align-items:flex-end;gap:5px;height:70px;margin:14px 0 8px;
+  max-width:420px}
+.dx-bars i{flex:1;min-width:4px;background:var(--sand-2);border-radius:2px 2px 0 0}
+.dx-bars i.now{background:var(--ink)}
+.dx-barm{display:flex;justify-content:space-between;max-width:420px;
+  font:400 10.5px var(--mono);color:var(--faint);margin-bottom:9px}
+.dx-who{display:flex;flex-direction:column;gap:11px;margin-bottom:12px}
+.dx-who div{display:flex;justify-content:space-between;gap:10px;
+  font:400 12.5px var(--sans);color:var(--ink-2)}
+.dx-who div.interested span:last-child{color:var(--mid-ink)}
+.dx-who span:last-child{font-family:var(--mono);color:var(--mute)}
+.dx-rail{position:sticky;top:calc(var(--navh) + 20px)}
+.dx-box{padding:18px 20px;border:1px solid var(--rule);border-radius:9px;
+  background:var(--card);margin-bottom:16px}
+.dx-box p{margin:9px 0 0;font:400 12.5px/1.65 var(--sans);color:var(--mute)}
+.dx-box .lnk{display:inline-block;margin-top:11px;font:400 12.5px var(--sans);
+  color:var(--indigo);text-decoration:underline;text-underline-offset:3px}
+.dx-scale{margin:12px 0 8px}
+.dx-scale .track{height:7px;border-radius:4px;background:var(--rule-2);position:relative}
+.dx-scale .track i{position:absolute;top:-3px;width:3px;height:13px;border-radius:2px;
+  background:var(--ink)}
+.dx-scale .ends{display:flex;justify-content:space-between;margin-top:7px;
+  font:400 9.5px var(--mono);letter-spacing:.1em;color:var(--faint)}
+.dx-chain{counter-reset:dxc;display:flex;flex-direction:column}
+.dx-chain li{display:flex;gap:14px;padding:14px 0;border-top:1px solid var(--rule)}
+.dx-chain .n{flex:none;width:22px;height:22px;border-radius:50%;border:1px solid var(--rule-2);
+  display:grid;place-items:center;font:500 11px var(--mono);color:var(--mute)}
+.dx-chain .t{display:block;font:400 15px/1.45 var(--serif);color:var(--ink)}
+.dx-chain .t a{color:inherit}
+.dx-chain .m{display:block;margin-top:4px;font:400 11px var(--mono);color:var(--faint)}
+.dx-marks{display:flex;flex-direction:column}
+.dx-mark{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--rule);
+  font:400 13.5px/1.55 var(--sans);color:var(--ink-2)}
+.dx-mark .g{flex:none;width:16px;font-family:var(--mono);font-size:12px}
+.dx-mark.yes .g{color:var(--good-ink)} .dx-mark.no .g{color:var(--bad-ink)}
+.dx-mark.open .g{color:var(--faint)}
+@media (max-width:1000px){
+  .dx-grid{grid-template-columns:minmax(0,1fr);gap:8px}
+  .dx-rail{position:static}
+  .nx-card .in{grid-template-columns:minmax(0,1fr);gap:22px}
+}
+@media (max-width:860px){
+  .dx-wrap{padding:20px 18px 40px}
+  .dx-h1{font-size:28px;max-width:none}
+  .dx-bars{max-width:none}
+  .dx-stat + .dx-stat{border-left:0;border-top:1px solid var(--rule)}
 }
 
 /* ---- column 1 on small screens ----
@@ -1761,14 +1949,14 @@ body:has(.fx) footer{color:#9A958B}
    is drawn the way every other verdict on this page is drawn — a rust rule and
    a mono line, marginalia rather than an alarm. */
 .fx-corr{display:flex;gap:7px;align-items:baseline;padding-left:9px;
-  border-left:2px solid var(--bad);font:400 11px/1.5 var(--mono);color:var(--bad)}
+  border-left:2px solid var(--bad);font:400 11px/1.5 var(--mono);color:var(--bad-ink)}
 .fx-corr .w{font-family:var(--sans);font-size:11.5px;color:var(--ink-2)}
 .fx-hero .fx-corr{margin:14px 0 0}
 .fx-row .fx-corr{margin-top:7px}
 .rx-corr{margin:0 0 30px;padding:14px 16px;border-left:2px solid var(--bad);
   background:var(--sand)}
 .rx-corr .h{display:block;font:500 10px var(--mono);letter-spacing:.14em;
-  text-transform:uppercase;color:var(--bad);margin-bottom:7px}
+  text-transform:uppercase;color:var(--bad-ink);margin-bottom:7px}
 .rx-corr p{margin:0;font:400 13px/1.6 var(--sans);color:#3A342A}
 :root[data-mode="dark"]:not([data-skin]) .rx-corr p{color:var(--ink-2)}
 .rx-corr .m{display:block;margin-top:7px;font:400 10.5px var(--mono);color:var(--faint)}
@@ -1839,7 +2027,7 @@ body:has(.fx) footer{color:#9A958B}
 .pg-stat + .pg-stat{border-left:1px solid var(--rule);padding-left:26px}
 .pg-big{display:block;margin:10px 0 5px;font:300 34px/1 var(--serif);color:var(--ink)}
 .pg-big.sm{font-size:22px;line-height:1.2}
-.pg-big.bad{color:var(--bad)}
+.pg-big.bad{color:var(--bad-ink)}
 .pg-of{font:400 11.5px var(--mono);color:var(--mute)}
 .pg-sub{display:block;margin-top:8px;font:400 11.5px/1.55 var(--sans);color:var(--mute)}
 .pg-bars{display:flex;flex-direction:column;gap:7px;margin:11px 0 6px}
@@ -1861,13 +2049,13 @@ body:has(.fx) footer{color:#9A958B}
   font:400 11px var(--mono);color:var(--mute)}
 .pg-meta .sep{color:var(--ghost)}
 .pg-meta .fx-pips{margin-right:7px}
-.pg-delta.up{color:var(--good)} .pg-delta.down{color:var(--bad)}
+.pg-delta.up{color:var(--good-ink)} .pg-delta.down{color:var(--bad-ink)}
 .pg-stopped{margin-top:8px;font:400 11.5px var(--sans);color:var(--faint)}
 .pg-prog{display:flex;align-items:center;gap:8px;margin-top:8px;
   font:400 10.5px var(--mono);color:var(--faint)}
 .pg-prog .track{flex:1;max-width:150px;height:2px;background:var(--rule-2)}
 .pg-prog .track i{display:block;height:100%;background:var(--sand-2)}
-.pg-prog .done{color:var(--good)}
+.pg-prog .done{color:var(--good-ink)}
 /* 2b's "What changed since you saved it" */
 .pg-changed{margin-top:14px;padding:14px 16px;background:var(--sand);border-radius:7px}
 .pg-changed .k{display:block;font:500 10px var(--mono);letter-spacing:.14em;
@@ -1875,7 +2063,7 @@ body:has(.fx) footer{color:#9A958B}
 .pg-changed ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .pg-changed li{display:flex;gap:9px;font:400 12.5px/1.5 var(--sans);color:var(--ink-2)}
 .pg-changed li .m{flex:none;width:12px;font-family:var(--mono);color:var(--mute)}
-.pg-changed li.up .m{color:var(--good)} .pg-changed li.down .m{color:var(--bad)}
+.pg-changed li.up .m{color:var(--good-ink)} .pg-changed li.down .m{color:var(--bad-ink)}
 .fx .pg-act{display:inline-block;margin-top:12px;font:400 12.5px var(--sans);
   color:var(--indigo);text-decoration:underline;text-underline-offset:3px}
 /* 2c's "what you keep skipping" */
@@ -1902,6 +2090,7 @@ body:has(.fx) footer{color:#9A958B}
   <div class="links" id="navlinks">
     <a href="/" data-r="home">Feed</a>
     <a href="/trends" data-r="trends">Trends</a>
+    <a href="/next" data-r="next">What's Next</a>
     <a href="/saved" data-r="saved">Saved</a>
     <a href="/read" data-r="read">Read</a>
   </div>
@@ -1939,6 +2128,18 @@ body:has(.fx) footer{color:#9A958B}
     <div class="sug" id="searchsug"></div>
     <div class="results" id="searchres"></div>
   </div>
+</div>
+
+<!-- Phone tab bar (screen 5b). Five destinations will not fit beside the logo in
+     a 390px top bar — "What's Next" is the item that pushed it over — so on a
+     phone the nav links move to the bottom, which is where the design puts
+     them. Same five hrefs as #navlinks; route() marks both. -->
+<div class="tabbar" id="tabbar">
+  <a href="/" data-r="home">Feed</a>
+  <a href="/trends" data-r="trends">Trends</a>
+  <a href="/next" data-r="next">What's Next</a>
+  <a href="/saved" data-r="saved">Saved</a>
+  <a href="/read" data-r="read">Read</a>
 </div>
 
 <!-- Ask AI -->
@@ -2352,8 +2553,16 @@ function route(){
     history.replaceState(null, '', p);
   }
   const isHome = p === '/' || p.startsWith('/brief');
-  document.querySelectorAll('#navlinks a').forEach(a=>{
-    const on = a.dataset.r === 'home' ? isHome : p.startsWith('/'+a.dataset.r);
+  // Detail pages belong to the tab they were opened from: a trend detail is
+  // still Trends, and a forecast detail is still What's Next. Without this the
+  // whole nav goes dark the moment you open one, and the reader loses their
+  // place in the product.
+  const OWNS = {trends: /^\/trends?\b/, next: /^\/(next|signal)\b/};
+  document.querySelectorAll('#navlinks a, #tabbar a').forEach(a=>{
+    const r = a.dataset.r;
+    const on = r === 'home' ? isHome
+             : OWNS[r] ? OWNS[r].test(p)
+             : p.startsWith('/' + r);
     a.classList.toggle('active', on);
   });
   $('#fab').classList.add('hidden'); Ask.close(); Gate.close();
@@ -2362,6 +2571,7 @@ function route(){
   if (p.startsWith('/signal/')) return SignalPage.render(p.slice(8));
   if (p.startsWith('/trend/'))  return TrendPage.render(p.slice(7));
   if (p.startsWith('/trends'))  return Trends.render();
+  if (p.startsWith('/next'))    return Next.render();
   if (p.startsWith('/saved'))   return Saved.render();
   if (p.startsWith('/read'))    return ReadPage.render();
   if (p.startsWith('/profile')) return Profile.render();
@@ -2455,6 +2665,12 @@ document.addEventListener('click', e=>{
     case 'wall-close': Gate.close(); Theme.close(); break;
     case 'mode': Mode.toggle(); break;
     case 'tx-filter': Trends.filter = el.dataset.f; Trends.render(); break;
+    case 'nx-filter': Next.filter = el.dataset.f; Next.render(); break;
+    // Trend detail keeps its story sort and "show the rest" in the component
+    // rather than the URL: they are a way of reading one page, not a place.
+    case 'td-sort': TrendPage.sort = el.dataset.s; TrendPage._all = false;
+      TrendPage.render(TrendPage._t.id); break;
+    case 'td-all': TrendPage._all = true; TrendPage.render(TrendPage._t.id); break;
     // Column 1 on a phone: the lens rail / beat rail would otherwise sit as a
     // wall of controls above the thing you came to read.
     case 'fx-side': { const a = el.closest('.fx-side');
@@ -2933,14 +3149,16 @@ const Brief = { async render(){
       </div>
 
       ${(S.signals||[]).length ? `<div class="fx-sect">
-        <span class="fx-lbl">What may happen next</span>
+        <span class="fx-lbl">What's next</span>
         <div class="fx-sigs">${S.signals.slice(0,3).map(g=>`
           <button class="fx-sig" data-act="go" data-hash="/signal/${esc(g.id)}">
             <span class="t">${esc(g.title)}</span>
             <span class="p${isIn?'':' locked-teaser'}">${esc(g.prediction)}</span>
             <span class="c">${g.story_count ?? (g.stories||[]).length} stories · ${
-              Math.round(g.confidence*100)}% confidence</span></button>`).join('')}</div>
-        ${isIn ? '' : `<button class="fx-link" style="margin-top:12px"
+              ODDS(g.confidence).w.toLowerCase()}</span></button>`).join('')}</div>
+        ${isIn ? `<a class="fx-link" style="display:inline-block;margin-top:12px"
+           href="/next">See every forecast →</a>`
+         : `<button class="fx-link" style="margin-top:12px"
            data-act="unlock" data-gate="forecast">Sign in to read these</button>`}
       </div>` : ''}
 
@@ -3294,7 +3512,7 @@ const Gate = {
     save:['Save this story','Sign in to keep stories and sync them across every device you use.'],
     ask:['Ask the AI assistant','Sign in to ask questions about any story and get answers tailored to you.'],
     personalize:['Personalize your feed','Sign in and tell Descry your world once — every story will then explain what it means for you.'],
-    forecast:['See what may happen next','Descry connects today\'s stories into forward-looking predictions — the reasoning, what to watch, and the stories behind each one. Sign in to read them.'],
+    forecast:['See what happens next','Descry connects today\'s stories into forecasts — the reasoning, what to watch, and the stories behind each one. Sign in to read them.'],
     connections:['Unlock hidden connections','Descry looks for links between stories that aren\'t obvious — a supply shock here, a policy shift there. Sign in to see them.'],
     theme:['Make it yours','Sign in to choose a look for Descry and carry it to every device you use.']
   },
@@ -4042,12 +4260,6 @@ const Trends = {
     const hay = `${t.name||''} ${t.narrative||''} ${(t.sectors||[]).join(' ')} ${(t.regions||[]).join(' ')}`.toLowerCase();
     return [...ints, ...loc].some(w => w.length>2 && hay.includes(w));
   },
-  odds(c){
-    const p = Math.round((c||0)*100);
-    return p>=65 ? {w:'Likely', cls:'good'}
-         : p>=40 ? {w:'Could go either way', cls:'mid'}
-         : {w:'A long shot', cls:'bad'};
-  },
 
   async render(){
     SEO.set({title:'Trends · Descry', path:'/trends',
@@ -4090,8 +4302,8 @@ const Trends = {
         <div class="tx-head">
           <h1>${esc(head)}</h1>
           <p>A <b>trend</b> is a pattern we can count — many stories saying a similar
-             thing. A <b>forecast</b> is what those patterns together suggest comes
-             next. We show you both, and the stories underneath each.</p>
+             thing in different words. Each one below is a plain claim about the world,
+             with the count behind it and the stories you can check it against.</p>
         </div>
         <span class="fx-meta">${S.lastLoaded?'rebuilt '+FX.ago(S.lastLoaded/1000):'last 7 days'}</span>
       </div>
@@ -4110,14 +4322,12 @@ const Trends = {
                <button class="tx-more" data-act="tx-filter" data-f="all">Show every trend</button></p>`}
       </div>
 
-      <div class="tx-rule"><span class="fx-lbl">Forecasts — where these trends point together</span><i></i></div>
-      <p class="tx-note">Each forecast is built by connecting specific stories. We name
-         them, in order, so you can judge the reasoning yourself.</p>
-      <div class="tx-list">
-        ${signals.length ? signals.map(g=>this.forecast(g)).join('')
-          : `<p class="tx-empty">No forecasts are open right now. They appear once
-               several stories point the same way.</p>`}
-      </div>
+      <div class="tx-rule"><span class="fx-lbl">Where these trends point together</span><i></i></div>
+      <p class="tx-note">Forecasts have a page of their own now.${signals.length
+        ? ` ${capWord(numWord(signals.length))} ${signals.length===1?'is':'are'} open,
+            each built by connecting specific stories — named, in order, so you can judge
+            the reasoning yourself.` : ''}
+         <a class="tx-more" href="/next">See what's next →</a></p>
 
       <p class="tx-foot">Attention is measured across public coverage — how many
         independent outlets carried a story — not from what you or anyone else reads
@@ -4175,67 +4385,395 @@ const Trends = {
     </div></article>`;
   },
 
-  forecast(g){
-    const o = this.odds(g.confidence);
-    const stories = (g.stories||[]).slice(0,4);
+};
+
+/* ============ Shared-link pages: prediction & trend ============ */
+/* ============ What's Next, trend detail, forecast detail ============ */
+
+/* Shared language for a forecast's likelihood. A word first, the number second
+   — the design is explicit that "Likely" has to survive without the percentage
+   beside it, because that is what a reader actually carries away. */
+const ODDS = c => {
+  const p = Math.round((c || 0) * 100);
+  return p >= 65 ? {w:'Likely', cls:'good', p}
+       : p >= 40 ? {w:'Could go either way', cls:'mid', p}
+       : {w:'Unlikely', cls:'bad', p};
+};
+/* "By Mar 2027" from a horizon the model wrote in words ("6-9 months"). Only
+   when the horizon actually carries a number — inventing a date for "soon"
+   would be putting a false precision on the page. */
+const BY_WHEN = (h, from) => {
+  const m = String(h || '').match(/(\d+)\s*(?:-|–|to)?\s*(\d+)?\s*(month|year|week)/i);
+  if (!m) return '';
+  const n = Number(m[2] || m[1]);
+  const unit = m[3].toLowerCase();
+  const days = unit === 'year' ? n*365 : unit === 'week' ? n*7 : n*30;
+  const d = new Date(((from || Date.now()/1000) + days*86400) * 1000);
+  return 'By ' + d.toLocaleDateString('en-GB', {month:'short', year:'numeric'});
+};
+/* Does this touch what the reader told us they care about? The same free,
+   no-LLM test the feed and Trends already use, run over the item's own words. */
+const TOUCHES = text => {
+  const ctx = S.ctx || {};
+  const ints = (Array.isArray(ctx.interests) ? ctx.interests : []).map(x=>String(x).toLowerCase());
+  const loc = Object.values(ctx.location || {}).map(v=>String(v).toLowerCase()).filter(Boolean);
+  const hay = String(text || '').toLowerCase();
+  return [...ints, ...loc].some(w => w.length > 2 && hay.includes(w));
+};
+
+/* ---------------- What's Next (screen 5a) ----------------
+   Forecasts used to be the bottom half of Trends. They are their own tab now,
+   with their own warning at the top: nothing on this page has happened yet.
+
+   Two things the design shows that we deliberately do NOT draw:
+     • "3 of 4 checkpoints already happened" — we have never recorded dated
+       checkpoints against a forecast, so there is nothing to count.
+     • "19 of 26 came true" — the track record needs forecasts graded against
+       what actually happened, which we have never done either.
+   Both are omitted rather than faked. A forecasting page that invents its own
+   scoreboard is exactly the thing the design says it must not be. */
+const Next = {
+  filter: 'all',
+  async render(){
+    SEO.set({title:"What's Next · Descry", path:'/next',
+      desc:'Where things seem to be going — and how sure we are.'});
+    const v = $('#view');
+    v.innerHTML = `<div class="fx"><div class="tx-wrap"><div class="skel" style="height:420px"></div></div></div>`;
+    if (!S.signals.length) await loadRail();
+
+    const all = (S.signals || []).map(g => ({g, mine: TOUCHES(`${g.title} ${g.prediction} ${(g.affected||[]).join(' ')}`)}));
+    // "Further out" is the tail of the list — forecasts whose horizon is
+    // measured in years get a lighter treatment, as in the design.
+    const far = x => /year/i.test(x.g.horizon || '');
+    const near = all.filter(x => !far(x));
+    const distant = all.filter(far);
+    const counts = {mine: all.filter(x=>x.mine).length, all: all.length};
+    if (this.filter === 'mine' && !counts.mine) this.filter = 'all';
+    let shown = this.filter === 'mine' ? near.filter(x=>x.mine) : near.slice();
+    shown.sort(this.filter === 'soon'
+      ? (a,b) => (a.g.horizon||'zz').localeCompare(b.g.horizon||'zz')
+      : (a,b) => (b.g.confidence||0) - (a.g.confidence||0));
+
+    const changed = all.filter(x => x.g.created_at &&
+      (Date.now()/1000 - x.g.created_at) < 7*86400).length;
+    const pill = (k, label, n) => `<button class="tx-pill ${this.filter===k?'on':''}"
+        data-act="nx-filter" data-f="${k}">${label}${n!=null?' · '+n:''}</button>`;
+
+    v.innerHTML = `
+    <div class="fx"><div class="tx-wrap">
+      <div class="tx-top">
+        <div class="tx-head">
+          <h1>Where things seem to be going — and how sure we are.</h1>
+          <p>Nothing on this page has happened yet. Each one is our reading of stories
+             we have already checked. We show you the stories behind it, and what would
+             prove us wrong.</p>
+        </div>
+        <span class="fx-meta">${all.length} open${changed?` · ${changed} new this week`:''}</span>
+      </div>
+
+      <div class="nx-warn">
+        <span class="k">Read this first</span>
+        <p>A forecast is not news. It is thinking out loud, in public, with the working
+           shown. Trust it less than the Feed — and hold us to it.</p>
+      </div>
+
+      ${all.length ? `<div class="tx-pills">
+        ${counts.mine ? pill('mine','Matters to you',counts.mine) : ''}
+        ${pill('all','All',counts.all)}
+        ${pill('soon','Soonest first',null)}
+      </div>` : ''}
+
+      <div class="nx-list">
+        ${shown.length ? shown.map(x=>this.card(x)).join('')
+          : all.length ? `<p class="tx-empty">Nothing matches that filter.
+              <button class="tx-more" data-act="nx-filter" data-f="all">Show all</button></p>`
+          : `<p class="tx-empty">No forecasts are open right now. They appear once several
+               stories point the same way — run the pipeline and they build themselves.</p>`}
+      </div>
+
+      ${distant.length ? `
+        <div class="tx-rule"><span class="fx-lbl">Further out</span><i></i></div>
+        <div class="nx-far">${distant.map(({g}) => {
+          const o = ODDS(g.confidence);
+          return `<article>
+            <h4><a href="/signal/${esc(g.id)}">${esc(g.title)}</a></h4>
+            <div class="m">${esc(g.horizon||'no date given')}${
+              g.story_count?` · ${g.story_count} ${g.story_count===1?'story':'stories'}`:''} · ${o.w}</div>
+          </article>`;}).join('')}</div>` : ''}
+
+      <div class="nx-how">
+        <span class="fx-lbl">How we make these</span>
+        <p>We only build a forecast on trends we have already counted — never on how loud
+           something is online. Every one names the stories behind it. We date it, and we
+           leave it on the page whether it holds up or not.</p>
+      </div>
+
+      <p class="tx-foot">We do not yet publish a score for how often these come true.
+        Grading a forecast means going back after its date has passed and recording what
+        actually happened, and we have not been running long enough to have done that
+        honestly. When we have, it will live here — including the ones we got wrong.</p>
+    </div></div>`;
+  },
+
+  card({g, mine}){
+    const o = ODDS(g.confidence);
+    const when = BY_WHEN(g.horizon, g.created_at);
     const locked = !signedIn();
-    return `<article class="tx-card tx-fc"><div class="in">
+    const counts = [];
+    if (g.story_count) counts.push([`${g.story_count} ${g.story_count===1?'story':'stories'}`, false]);
+    if ((g.affected||[]).length) counts.push([(g.affected||[]).slice(0,2).join(', '), false]);
+    return `<article class="nx-card"><div class="in">
       <div>
-        <div class="tx-fhead">
-          <span class="fx-lbl">Forecast${g.horizon?' · next '+esc(g.horizon):''}</span>
-          <span class="tx-odds ${o.cls}">${o.w}</span>
+        <div class="nx-kick">
+          <span class="nx-when">${esc(when || g.horizon || 'no date given')}</span>
+          <span class="nx-odds ${o.cls}">${o.w}</span>
+          ${mine ? '<span class="nx-mine">matters to you</span>' : ''}
         </div>
         <h3><a href="/signal/${esc(g.id)}">${esc(g.title)}</a></h3>
         <p class="lede${locked?' locked-teaser':''}">${esc(g.prediction||'')}</p>
-        ${stories.length ? `
-          <span class="fx-lbl" style="margin-bottom:11px">The stories behind this</span>
-          <ol class="tx-steps">${stories.map((x,i)=>{
-            const b = x.credibility!=null ? FX.band(x.credibility) : null;
-            return `<li><span class="n">${i+1}</span><span>
-              <a class="t" href="/story/${esc(x.id)}">${esc(x.headline||'')}</a>
-              <span class="m">${b?`${b.name} · ${Math.round(x.credibility)}`:'not scored'}${
-                x.created_at?` · ${FX.ago(x.created_at)}`:''}</span></span></li>`;}).join('')}</ol>`
-          : locked ? `<span class="fx-lbl">The stories behind this</span>
-              <p class="tx-why" style="margin-top:9px">Built from ${g.story_count||0}
-                ${g.story_count===1?'story':'stories'}. Sign in to see which ones.</p>`
-          : ''}
+        ${counts.length?`<div class="nx-counts">${counts.map(([c,w])=>
+          `<span class="${w?'warnk':''}">${esc(c)}</span>`).join('')}</div>`:''}
       </div>
-      <div>
-        <span class="fx-lbl">How we got there</span>
-        <p class="tx-why" style="font-size:12.5px;line-height:1.6;margin-top:9px">${
-          g.chain ? esc(g.chain)
-          : locked ? 'The reasoning is held back until you sign in — it is the part worth having.'
-          : 'No reasoning was recorded for this forecast.'}</p>
-        ${(g.affected||[]).length?`<div class="tx-facts">
-          <div><span>Who it touches</span><span>${esc((g.affected||[]).slice(0,2).join(', '))}</span></div>
-          ${g.story_count?`<div><span>Stories connected</span><span>${g.story_count}</span></div>`:''}
-        </div>`:''}
-        ${g.watch ? `<div class="tx-next"><span class="k">What to watch</span>
-          <p>${esc(g.watch)}</p></div>` : ''}
+      <div class="nx-side">
+        <span class="fx-lbl">How we got here</span>
+        <p>${g.chain ? esc(String(g.chain).split(/(?<=[.!?])\s/).slice(0,2).join(' '))
+           : locked ? 'The reasoning is held back until you sign in — it is the part worth having.'
+           : 'No reasoning was recorded for this forecast.'}</p>
+        <a class="nx-more" href="/signal/${esc(g.id)}">See how we got here →</a>
       </div>
     </div></article>`;
   }
 };
 
-/* ============ Shared-link pages: prediction & trend ============ */
+/* ---------------- Trend detail (screen 4a) ----------------
+   One pattern, everything counted behind it, and the stories that argue with
+   it. "What argues against this trend" is not a rhetorical section: it lists
+   the trend's own stories whose claims came back disputed. If none did, it
+   says so rather than manufacturing a counter-argument. */
+const TrendPage = {
+  sort: 'best',
+  async render(id){
+    $('#view').innerHTML = `<div class="fx"><div class="dx-wrap"><div class="skel" style="height:320px"></div></div></div>`;
+    let t = null;
+    try { t = await api('/trend/'+id); } catch(e) {}
+    if (!t){
+      SEO.set({title:'Trend no longer available · Descry', path:'/trend/'+id,
+               robots:'noindex,follow'});
+      $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+        <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
+          This trend is no longer available.<br><br>
+          <a class="btn primary" href="/trends">See current trends</a></div></div>`;
+      return;
+    }
+    this._t = t;
+    const name = cleanName(t.name);
+    // The claim IS the first sentence of the narrative — the design writes a
+    // trend as a plain sentence about the world, not as a topic label.
+    const nar = String(t.narrative||'').trim();
+    const cut = nar.search(/[.!?](\s|$)/);
+    const claim = cut > 20 ? nar.slice(0, cut+1) : (nar || name);
+    const rest  = cut > 20 ? nar.slice(cut+1).trim() : '';
+    SEO.set({title:`${name} · Descry`, desc: SEO.clip(nar || name, 155),
+      path:'/trend/'+id, type:'article',
+      jsonld:{'@context':'https://schema.org','@graph':[
+        SEO.crumbs([['Descry','/'], ['Trends','/trends'], [name,'/trend/'+id]])]}});
+
+    const st = Trends.status({...t, story_count: t.story_count, credibility: this.cred(t)});
+    const s = Trends.strength({...t, credibility: this.cred(t)});
+    const stories = (t.stories||[]).slice();
+    const against = stories.filter(x => (x.claims_disputed||0) > 0);
+    const kinds = t.source_kinds || {};
+    const weeks = t.created_at ? Math.max(1, Math.round(
+      (Date.now()/1000 - t.created_at) / (7*86400))) : null;
+    const thisWeek = stories.filter(x => (Date.now()/1000 - (x.created_at||0)) < 7*86400).length;
+
+    const sorted = stories.slice().sort(
+      this.sort === 'new'    ? (a,b)=>(b.created_at||0)-(a.created_at||0)
+    : this.sort === 'argue'  ? (a,b)=>(b.claims_disputed||0)-(a.claims_disputed||0)
+    : (a,b)=>(b.credibility||0)-(a.credibility||0));
+    const first = sorted.slice(0, this._all ? sorted.length : 6);
+
+    $('#view').innerHTML = `
+    <div class="fx"><div class="dx-wrap">
+      <a class="dx-back" href="/trends">← Trends</a>
+      <div class="dx-kick">
+        <span class="dx-tag ${st.tone}">Trend · ${esc(st.word.toLowerCase())}</span>
+        ${t.retired_at ? '<span class="dx-tag" style="color:var(--faint)">no longer active</span>' : ''}
+      </div>
+      <h1 class="dx-h1">${esc(claim)}</h1>
+      ${rest ? `<p class="dx-lede">${esc(rest)}</p>` : ''}
+
+      <div class="dx-strip">
+        <div class="dx-stat"><span class="fx-lbl">How strong is it</span>
+          <span class="v ${s.tone}">${s.word}</span>
+          <span class="s">${esc(s.why)}</span></div>
+        <div class="dx-stat"><span class="fx-lbl">Stories behind it</span>
+          <span class="v">${t.story_count||0}</span>
+          <span class="s">${t.agree!=null
+            ? `${t.agree} fact${t.agree===1?'':'s'} agreed · ${t.disagree||0} argued over`
+            : 'none of their facts checked yet'}</span></div>
+        <div class="dx-stat"><span class="fx-lbl">Where it comes from</span>
+          <span class="v">${t.article_count||0} <small>sources</small></span>
+          <span class="s">${esc(this.kindLine(kinds)) || 'outlet mix not recorded'}</span></div>
+        <div class="dx-stat"><span class="fx-lbl">How long it has run</span>
+          <span class="v">${weeks!=null ? weeks+' <small>'+(weeks===1?'week':'weeks')+'</small>' : 'new'}</span>
+          <span class="s">${thisWeek} ${thisWeek===1?'story':'stories'} added this week</span></div>
+      </div>
+
+      <div class="dx-grid">
+        <div>
+          ${nar ? `<section class="dx-sec">
+            <span class="fx-lbl">What these stories agree on</span>
+            <p class="note">Strip out the wording and this is the part the coverage has in common.</p>
+            <div class="dx-quote">${esc(claim)}</div>
+          </section>` : ''}
+
+          <section class="dx-sec">
+            <span class="fx-lbl">What argues against this trend</span>
+            ${against.length ? `
+              <p class="note">${against.length} of the ${stories.length} stories carry a fact the
+                 sources argue over. We do not hide them, and we do not pretend they cancel out
+                 the rest either.</p>
+              ${against.slice(0,3).map(x=>`<div class="dx-against">
+                <h3 class="t"><a href="/story/${esc(x.id)}">${esc(x.headline||'')}</a></h3>
+                <p>${esc(x.credibility_note || '')}${x.claims_disputed
+                  ? `${x.credibility_note?' · ':''}${x.claims_disputed} fact${x.claims_disputed===1?'':'s'} argued over`
+                  : ''}</p></div>`).join('')}
+              <div class="dx-read"><b>Our honest read</b>${
+                against.length >= stories.length/2
+                ? 'The sources are genuinely split on this one. Treat the direction as open.'
+                : 'The direction holds up. Some of the detail underneath it does not.'}</div>`
+            : `<p class="note">Nothing in this trend has come back disputed. That is not the same
+                 as proof — it means no source we read has contradicted another yet.</p>`}
+          </section>
+
+          <section class="dx-sec">
+            <span class="fx-lbl">All ${stories.length} ${stories.length===1?'story':'stories'}</span>
+            <div class="tx-pills" style="margin:10px 0 4px">
+              <button class="tx-pill ${this.sort==='best'?'on':''}" data-act="td-sort" data-s="best">Best proof first</button>
+              <button class="tx-pill ${this.sort==='new'?'on':''}" data-act="td-sort" data-s="new">Newest</button>
+              ${against.length?`<button class="tx-pill ${this.sort==='argue'?'on':''}" data-act="td-sort" data-s="argue">Argue against</button>`:''}
+            </div>
+            <div class="dx-rows">${first.map(x=>{
+              const b = x.credibility!=null ? FX.band(x.credibility) : null;
+              return `<div class="dx-row">
+                <span class="t"><a href="/story/${esc(x.id)}">${esc(x.headline||'')}</a></span>
+                ${(x.claims_disputed||0)>0?'<span class="flag">argues against</span>':''}
+                <span class="d ${b?b.tone:''}">${b?esc(b.name)+' · '+Math.round(x.credibility):'not scored'}</span>
+                <span class="d">${x.created_at?esc(FX.ago(x.created_at)):''}</span>
+              </div>`;}).join('')}</div>
+            ${sorted.length > first.length
+              ? `<button class="tx-more" data-act="td-all" style="margin-top:14px">Show the other ${sorted.length-first.length} stories</button>` : ''}
+          </section>
+
+          ${this.growth(stories)}
+        </div>
+
+        <aside class="dx-rail">
+          ${Object.keys(kinds).length ? `<div class="dx-box">
+            <span class="fx-lbl">Who is saying it</span>
+            <div class="dx-who" style="margin-top:11px">${this.whoRows(kinds)}</div>
+            ${kinds.trade ? `<p>${kinds.trade} of these sources make money if you believe
+              this. We count them, and we tell you.</p>` : ''}
+          </div>` : ''}
+
+          ${(t.forecasts||[]).length ? `<div class="dx-box">
+            <span class="fx-lbl">Where this could lead</span>
+            <p>${(t.forecasts||[]).length===1?'One forecast is':(t.forecasts||[]).length+' forecasts are'}
+               built on this trend.</p>
+            ${(t.forecasts||[]).map(f=>{
+              const o = ODDS(f.confidence);
+              return `<div style="padding-top:11px">
+                <a class="lnk" href="/signal/${esc(f.id)}" style="text-decoration:none">
+                  <span style="font:400 14px/1.4 var(--serif);color:var(--ink)">${esc(f.title)}</span></a>
+                <div style="margin-top:4px;font:400 11px var(--mono);color:var(--faint)">${
+                  o.w.toLowerCase()}${f.horizon?' · '+esc(f.horizon):''}</div></div>`;}).join('')}
+          </div>` : ''}
+
+          ${[...(t.sectors||[]), ...(t.regions||[])].length ? `<div class="dx-box">
+            <span class="fx-lbl">What it touches</span>
+            <div class="tx-chips" style="margin-top:10px">${
+              [...(t.sectors||[]), ...(t.regions||[])].slice(0,6).map(c=>
+                `<span class="tx-chip">${esc(capWord(c))}</span>`).join('')}</div>
+          </div>` : ''}
+        </aside>
+      </div>
+    </div></div>`;
+  },
+
+  /* Mean agreement across the trend's own stories — /trend/{id} returns the
+     stories, not a pre-computed score, so it is derived here rather than
+     invented upstream. */
+  cred(t){
+    const xs = (t.stories||[]).map(x=>x.credibility).filter(v=>v!=null);
+    return xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : null;
+  },
+  kindLine(kinds){
+    const ORDER = [['primary','original document'], ['newsroom','newsroom'],
+                   ['trade','with something to gain'], ['aggregator','republisher']];
+    return ORDER.filter(([k])=>kinds[k]).slice(0,2).map(([k,w])=>
+      `${kinds[k]} ${w}${kinds[k]===1?'':'s'}`).join(' · ');
+  },
+  whoRows(kinds){
+    const ROWS = [['primary','Governments & official papers'], ['newsroom','Newsrooms'],
+                  ['trade','Companies that sell the fix'], ['aggregator','Republishers'],
+                  ['unknown','Unclassified']];
+    return ROWS.filter(([k])=>kinds[k]).map(([k,label])=>
+      `<div class="${k==='trade'?'interested':''}"><span>${label}</span><span>${kinds[k]}</span></div>`).join('');
+  },
+  /* Stories per week since the trend started. Real counts off real timestamps —
+     drawn only when there is more than one week to compare, because a single
+     bar is not a shape. */
+  growth(stories){
+    const ts = stories.map(x=>x.created_at).filter(v=>Number(v) > 0);
+    if (ts.length < 3) return '';
+    const now = Date.now()/1000;
+    const oldest = Math.min(...ts);
+    const weeks = Math.min(8, Math.max(2, Math.ceil((now - oldest)/(7*86400))));
+    if (weeks < 2) return '';
+    const buckets = new Array(weeks).fill(0);
+    ts.forEach(v=>{
+      const i = weeks - 1 - Math.floor((now - v)/(7*86400));
+      if (i >= 0 && i < weeks) buckets[i]++;
+    });
+    const max = Math.max(...buckets, 1);
+    const rising = buckets[weeks-1] >= buckets[0];
+    return `<section class="dx-sec">
+      <span class="fx-lbl">How it grew</span>
+      <div class="dx-bars">${buckets.map((n,i)=>
+        `<i class="${i===weeks-1?'now':''}" style="height:${Math.max(4, Math.round(n/max*70))}px"
+           title="${n} ${n===1?'story':'stories'}"></i>`).join('')}</div>
+      <div class="dx-barm"><span>${weeks} weeks ago</span><span>this week</span></div>
+      <p class="note">Each bar is how many stories arrived that week.${
+        rising ? ' It has not shrunk — that is why we call it growing.' : ''}</p>
+    </section>`;
+  }
+};
+
+/* ---------------- Forecast detail (screen 4b) ----------------
+   The reasoning, shown as steps you can disagree with.
+
+   Four blocks of the design are NOT drawn, all for the same reason — they need
+   records we have never kept:
+     • dated checkpoints with a met/unmet mark,
+     • "how our thinking changed" (a confidence history),
+     • "who disagrees with us" (a sourced counter-argument),
+     • "how often we get it right" (graded past forecasts).
+   Each would be a sentence we made up about our own reliability, which is the
+   one thing a forecasting page must never do. What we DO have — the stories,
+   their agreement scores, the single step of reasoning, and what to watch for —
+   is all real, and is what this page is built from. */
 const SignalPage = { async render(id){
-  $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:220px"></div></div>`;
-  // Ask the server for this specific forecast. Searching the in-memory list was
-  // the old behaviour and made every shared link look deleted, because a link
-  // usually outlives the forecast's stay in the current top-of-list set.
+  $('#view').innerHTML = `<div class="fx"><div class="dx-wrap"><div class="skel" style="height:320px"></div></div></div>`;
   let g = null;
-  try { g = await api(withUser('/signal/'+id)); }
-  catch(e){ g = (S.signals||[]).find(x=>x.id===id) || null; }   // offline/demo fallback
+  try { g = await api(withUser('/signal/'+id)); } catch(e) {}
   if (!g){
+    SEO.set({title:'Forecast no longer available · Descry',
+             path:'/signal/'+id, robots:'noindex,follow'});
     $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
       <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
-        This prediction is no longer available — forecasts are retired after 7 days.<br><br>
-        <a class="btn primary" href="/trends">See current predictions</a></div></div>`;
-    // Gone, but the URL still resolves 200 (the static host can't 404 a route it
-    // rewrites). noindex keeps a retired forecast out of the index instead of
-    // leaving a "no longer available" page ranking for its own headline.
-    SEO.set({title:'Prediction no longer available · Descry',
-             path:'/signal/'+id, robots:'noindex,follow'});
+        This forecast is no longer available.<br><br>
+        <a class="btn primary" href="/next">See what's next</a></div></div>`;
     return;
   }
   SEO.set({
@@ -4248,109 +4786,106 @@ const SignalPage = { async render(id){
        description: SEO.clip(g.prediction, 250),
        datePublished: SEO.iso(g.created_at), isAccessibleForFree: true,
        author:{'@type':'Organization', name:'Descry'}, publisher: SEO.publisher},
-      SEO.crumbs([['Descry','/'], ['Forecasts','/trends'], [g.title,'/signal/'+id]])
+      SEO.crumbs([['Descry','/'], ["What's Next",'/next'], [g.title,'/signal/'+id]])
     ]}
   });
-  const told = lastTold(g.created_at);
-  /* Forecasts are a signed-in feature, so a guest who walked here from the feed
-     gets the headline and the numbers but not the prediction — same line the
-     Foresight rail draws.
+  const o = ODDS(g.confidence);
+  const when = BY_WHEN(g.horizon, g.created_at);
+  // Same rule as the story reader: a guest who landed ON this URL reads it,
+  // because every /signal/ URL is in the sitemap and a shared forecast has to
+  // open as a forecast. The reasoning is what sign-in buys.
+  const open = signedIn() || isShared();
+  const stories = g.stories || [];
 
-     A guest who arrived ON this URL still reads it, for the reason Meter.allow
-     already spells out for a direct story entry: the page a search engine
-     indexes has to be the page it serves, every /signal/ URL is in the sitemap,
-     and a forecast someone shared has to open as a forecast rather than as a
-     sign-in form. The prediction is public content by design either way — it is
-     what og:description and the /g share card are built from. */
-  const showPrediction = signedIn() || isShared();
   $('#view').innerHTML = `
-  <div class="wrap reader">
-    <div class="crumb rise"><a href="/brief">← Brief</a> · <span class="chip ai">Prediction</span>
-      ${g.horizon?`· <span class="chip">${esc(g.horizon)}</span>`:''}
-      · <span class="chip">${Math.round(g.confidence*100)}% confidence</span>${told?`
-      · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
-    <h1 class="rise">${esc(g.title)}</h1>
-    <div class="readerbar rise" style="animation-delay:.06s">
-      <button class="btn ghost sm" data-act="copylink" data-kind="signal" data-id="${esc(g.id)}">Copy link</button>
+  <div class="fx"><div class="dx-wrap">
+    <a class="dx-back" href="/next">← What's Next</a>
+    <div class="dx-kick">
+      <span class="dx-tag" style="color:var(--faint)">Forecast · we could be wrong</span>
+      <span class="nx-odds ${o.cls}">${o.w}</span>
+      ${when?`<span class="nx-when">${esc(when)}</span>`:''}
     </div>
-    ${showPrediction ? `<p class="lede rise">${linkifyRefs(g.prediction, g.story_refs)}</p>` : ''}
-    ${signedIn() ? `
-    <div class="module glass open" style="margin-top:14px"><div class="mbody"><div class="minner">
-      <p><b style="color:var(--ai-2)">How we connected the dots:</b> ${linkifyRefs(g.chain, g.story_refs)}</p>
-      ${g.watch?`<p><b style="color:var(--warn)">What to watch:</b> ${esc(g.watch)}</p>`:''}
-      ${(g.affected||[]).length?`<p>${g.affected.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</p>`:''}
-    </div></div></div>
-    <div class="grp" style="padding:16px 0 8px">THE ${(g.stories||[]).length} STORIES BEHIND THIS</div>
-    ${(g.stories||[]).map(s=>Brief.card(s,0)).join('')}`
-    : `
-    <!-- The reasoning, watch-list and evidence are withheld server-side for every
-         guest (see _shape_signal). What varies here is the prediction itself:
-         blurred for a guest who walked in from the feed, readable for one who
-         arrived on this URL — so the teaser shows the prediction in the first
-         case and a sample of the reasoning in the second. -->
-    <div style="margin-top:16px">${lockedHTML('forecast',
-        showPrediction
-          ? `See how Descry connected ${g.story_count||0} ${g.story_count===1?'story':'stories'} to reach this, and what to watch next.`
-          : `Sign in to read this forecast — how Descry connected ${g.story_count||0} ${g.story_count===1?'story':'stories'} to reach it, and what to watch next.`,
-        showPrediction
-          ? `<p><b style="color:var(--ai-2)">How we connected the dots:</b> Descry traced the
-             link between the stories behind this prediction, what it expects next, and the
-             signals worth watching.</p>`
-          : `<p>${esc(g.prediction)}</p>`)}</div>`}
-    <p style="font-size:12px;color:var(--text-3);margin-top:16px">This prediction was made by AI by connecting stories — a lead to watch, not a fact.</p>
-  </div>`;
-}};
+    <h1 class="dx-h1">${esc(g.title)}</h1>
+    <p class="dx-lede">This is not something that has happened. It is what the stories, put
+       together, suggest is coming. Below is how we got there — and what would prove us wrong.</p>
 
-const TrendPage = { async render(id){
-  $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:220px"></div></div>`;
-  let t = null;
-  try { t = await api('/trend/'+id); } catch(e) {}
-  if (!t){
-    // Only reachable now if the trend was purged long after retirement.
-    $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
-      <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
-        This trend is no longer available.<br><br>
-        <a class="btn primary" href="/trends">See current trends</a></div></div>`;
-    SEO.set({title:'Trend no longer available · Descry',
-             path:'/trend/'+id, robots:'noindex,follow'});
-    return;
-  }
-  SEO.set({
-    title: `${cleanName(t.name)} · Trend on Descry`,
-    desc: SEO.clip(t.narrative, 155),
-    path: '/trend/'+id, type: 'article',
-    jsonld: {'@context':'https://schema.org', '@graph':[
-      {'@type':'Article', headline: SEO.clip(cleanName(t.name), 110),
-       mainEntityOfPage:{'@type':'WebPage','@id':Nav.url('/trend/'+id)},
-       description: SEO.clip(t.narrative, 250),
-       datePublished: SEO.iso(t.created_at), isAccessibleForFree: true,
-       about: (t.sectors||[]).map(x=>({'@type':'Thing', name:String(x)})),
-       author:{'@type':'Organization', name:'Descry'}, publisher: SEO.publisher},
-      SEO.crumbs([['Descry','/'], ['Trends','/trends'], [cleanName(t.name),'/trend/'+id]])
-    ]}
-  });
-  const told = lastTold(t.created_at), gone = lastTold(t.retired_at);
-  $('#view').innerHTML = `
-  <div class="wrap reader">
-    <div class="crumb rise"><a href="/trends">← Trends</a> ·
-      <span class="chip ${gone?'':(t.kind==='micro'?'ai':'accent')}">${gone?'Past trend':(t.kind==='micro'?'Picking up speed':'Big trend')}</span>${told?`
-      · <span class="chip" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
-    <h1 class="rise">${esc(cleanName(t.name))}</h1>
-    ${gone?`<div class="glass rise" style="display:flex;gap:12px;align-items:flex-start;padding:14px 16px;
-      margin:14px 0 4px;border-color:rgb(from var(--warn) r g b / .3);background:rgb(from var(--warn) r g b / .07)">
-      
-      <div style="font-size:13.5px;color:var(--text-2)">
-        <b style="color:var(--text)">No longer an active trend.</b>
-        Descry stopped tracking this ${esc(gone.rel)} because recent coverage moved on.
-        Everything below is kept exactly as it was reported at the time.</div></div>`:''}
-    <div class="readerbar rise" style="animation-delay:.06s">
-      <button class="btn ghost sm" data-act="copylink" data-kind="trend" data-id="${esc(t.id)}">Copy link</button>
+    <div class="dx-grid">
+      <div>
+        ${g.prediction ? `<section class="dx-sec">
+          <span class="fx-lbl">What we think happens</span>
+          <div class="dx-quote">${esc(g.prediction)}</div>
+        </section>` : ''}
+
+        <section class="dx-sec">
+          <span class="fx-lbl">How we got here</span>
+          ${open && stories.length ? `
+            <p class="note">${capWord(numWord(stories.length))} ${stories.length===1?'story':'stories'}, then one
+               step of reasoning. If you disagree with any step, you should disagree with the forecast.</p>
+            <ol class="dx-chain" style="list-style:none;margin:0;padding:0">${stories.map((x,i)=>{
+              const b = x.credibility!=null ? FX.band(x.credibility) : null;
+              return `<li><span class="n">${i+1}</span><span>
+                <span class="t"><a href="/story/${esc(x.id)}">${esc(x.headline||'')}</a></span>
+                <span class="m ${b?b.tone:''}">${b?esc(b.name)+' · '+Math.round(x.credibility):'not scored'}${
+                  x.created_at?` · ${FX.ago(x.created_at)}`:''}</span></span></li>`;}).join('')}</ol>`
+          : `<p class="note">Built from ${g.story_count||0}
+               ${g.story_count===1?'story':'stories'}. Sign in to see which ones.</p>`}
+        </section>
+
+        ${g.chain && open ? `<section class="dx-sec">
+          <span class="fx-lbl">The one step of reasoning</span>
+          <div class="dx-quote" style="font-size:15.5px">${esc(g.chain)}</div>
+        </section>` : ''}
+
+        ${g.watch && open ? `<section class="dx-sec">
+          <span class="fx-lbl">What would make this happen</span>
+          <p class="note">Watch for this. If it keeps happening, we are on the right track.</p>
+          <div class="dx-marks"><div class="dx-mark open"><span class="g">○</span>
+            <span>${esc(g.watch)}</span></div></div>
+        </section>` : ''}
+
+        ${(g.affected||[]).length ? `<section class="dx-sec">
+          <span class="fx-lbl">Who this lands on</span>
+          <div class="tx-chips" style="margin-top:10px">${(g.affected||[]).slice(0,6).map(a=>
+            `<span class="tx-chip">${esc(capWord(a))}</span>`).join('')}</div>
+        </section>` : ''}
+
+        <section class="dx-sec">
+          <span class="fx-lbl">What we have not recorded</span>
+          <p class="note">We do not yet publish dated checkpoints for this forecast, a history of
+             how our confidence moved, or a score for how often forecasts like it came true.
+             Those need us to go back after the date has passed and write down what actually
+             happened. We have not done that yet, so we are not going to print a number
+             suggesting otherwise.</p>
+        </section>
+      </div>
+
+      <aside class="dx-rail">
+        <div class="dx-box">
+          <span class="fx-lbl">How likely we think it is</span>
+          <div class="dx-scale">
+            <div class="track"><i style="left:calc(${Math.min(97, Math.max(1, o.p))}% - 1px)"></i></div>
+            <div class="ends"><span>VERY UNLIKELY</span><span>ALMOST CERTAIN</span></div>
+          </div>
+          <p>${o.w}${o.w==='Likely'?', not certain':''}. This is our reading of the stories
+             below, not a measurement.</p>
+          ${g.created_at?`<p style="margin-top:8px">First made ${esc(FX.ago(g.created_at))}.</p>`:''}
+        </div>
+
+        ${g.horizon?`<div class="dx-box">
+          <span class="fx-lbl">When</span>
+          <p style="margin-top:9px">${esc(when || g.horizon)}${
+            when?` — the model wrote this as “${esc(g.horizon)}”.`:''}</p>
+        </div>`:''}
+
+        <div class="dx-box">
+          <span class="fx-lbl">How to read this</span>
+          <p>A forecast is thinking out loud with the working shown. Trust it less than a
+             story on the Feed. If the stories underneath it are weak, so is this.</p>
+          <a class="lnk" href="/next">See every open forecast →</a>
+        </div>
+      </aside>
     </div>
-    <p class="lede rise">${linkifyRefs(t.narrative, t.story_refs)}</p>
-    ${(t.sectors||[]).length?`<div style="margin:12px 0">${t.sectors.map(x=>`<span class="chip">${esc(x)}</span>`).join(' ')}</div>`:''}
-    <div class="grp" style="padding:16px 0 8px">THE STORIES BEHIND THIS TREND</div>
-    ${(t.stories||[]).map(s=>Brief.card(s,0)).join('')}
-  </div>`;
+  </div></div>`;
 }};
 
 /* ================= Saved (bookmarks) ================= */

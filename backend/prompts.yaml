@@ -34,8 +34,18 @@ trend: |
   - If a trend you see is the same underlying force as an already-tracked one, reuse
     that existing name VERBATIM (so it updates in place instead of duplicating).
     Only coin a new name for a genuinely new force.
-  - New names read like sharp magazine section titles, 3-6 vivid words, SPECIFIC to
-    their items (not generic). No label prefixes like "Trend:", "Rising focus", "early signal".
+  - New names are 3-6 plain words naming the force, SPECIFIC to their items (not
+    generic). No label prefixes like "Trend:", "Rising focus", "early signal".
+  - PLAIN WORDS, NOT JARGON — the product's first rule, and it applies here. Write
+    for someone outside the industry: "free, widely used code" not "open-source
+    dependency"; "break-ins at mid-sized firms" not "ransomware in the mid-market";
+    "what the new rules cost small firms" not "SME compliance costs".
+  - The narrative MUST OPEN with one plain sentence stating the claim about the
+    world — a full sentence a reader could agree or disagree with, not a topic
+    label. "Attackers are closing the gap faster than defenders can fix things."
+    "India is making data rules faster than it is explaining them." The sentences
+    after it carry the count and where the coverage came from. That first sentence
+    is displayed on its own as the trend's claim, so it has to stand alone.
   - Produce DISTINCT trends; never two near-duplicates for the same force.
   - "members" lists the [bracket] indices of the items in that trend.
   Reply ONLY with JSON:
@@ -63,6 +73,12 @@ signals_unit: |
     Only coin a new title for a genuinely new forecast.
   - Every signal must cite 2 or more story_ids from the digests as evidence.
   - The chain must be concrete and step-by-step, not vague hand-waving.
+  - PLAIN WORDS, NOT JARGON. The title is a plain sentence saying what will happen
+    to whom: "Big buyers will start asking Indian software firms to prove how fast
+    they fix flaws", not "'Patch speed' becomes a contract term". No scare quotes
+    around an industry term — replace the term with what it means.
+  - "watch" names ONE observable thing that would show this is on track — something
+    a reader could go and check — with no date attached unless the stories gave you one.
   - Be honest about uncertainty; confidence 0-1. Do not exceed 0.85.
   Reply ONLY with JSON:
   {{"signals": [{{"title": "5-9 vivid words, no label prefixes",
@@ -210,6 +226,12 @@ signals: |
   - Every signal must cite 2 or more story_ids from the digests as evidence.
     More corroborating stories = stronger signal.
   - The chain must be concrete and step-by-step, not vague hand-waving.
+  - PLAIN WORDS, NOT JARGON. The title is a plain sentence saying what will happen
+    to whom: "Big buyers will start asking Indian software firms to prove how fast
+    they fix flaws", not "'Patch speed' becomes a contract term". No scare quotes
+    around an industry term — replace the term with what it means.
+  - "watch" names ONE observable thing that would show this is on track — something
+    a reader could go and check — with no date attached unless the stories gave you one.
   - Prefer chains supported by higher-credibility stories.
   - Be honest about uncertainty; confidence 0-1. Do not exceed 0.85.
   Reply ONLY with JSON:

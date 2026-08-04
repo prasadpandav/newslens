@@ -1086,23 +1086,65 @@ def trend_detail(trend_id: str):
         raise HTTPException(404, "trend not found")
     member_ids = set(db.uj(t["article_ids"], []))
     stories, id_head = [], {}
+    # Screen 4a needs each story's own evidence, not just its headline: the
+    # growth chart is built from created_at, "what argues against this trend"
+    # from the disputed-claim counts, and "who is saying it" from the outlet
+    # mix. All of it already exists per story — it was simply never returned.
     for s in con.execute(
             "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-            "article_ids FROM stories ORDER BY created_at DESC LIMIT 200").fetchall():
+            "created_at, updated_at, claims, merge_stats, article_ids "
+            "FROM stories ORDER BY created_at DESC LIMIT 200").fetchall():
         if member_ids & set(db.uj(s["article_ids"], [])):
-            d = dict(s)
-            del d["article_ids"]
+            d = {k: s[k] for k in ("id", "headline", "narrative", "credibility",
+                                   "credibility_note", "topic", "created_at",
+                                   "updated_at")}
+            d.update(_evidence(s))
             stories.append(d)
             id_head[s["id"]] = s["headline"]
+    # Aggregates over the trend's own stories. Summed here rather than in the
+    # client because the client only ever sees the page it is on, and "11
+    # original documents" has to be true of the whole trend.
+    kinds, agree, disagree, disputed_stories = {}, 0, 0, 0
+    for d in stories:
+        for k, v in (d.get("source_kinds") or {}).items():
+            kinds[k] = kinds.get(k, 0) + int(v or 0)
+        agree += int(d.get("claims_verified") or 0)
+        disagree += int(d.get("claims_disputed") or 0)
+        if d.get("claims_disputed"):
+            disputed_stories += 1
+    # Forecasts standing on this trend: a signal whose supporting stories
+    # overlap it. This is the real link — Foresight builds from stories, not
+    # from trend ids — so it is computed rather than stored.
+    sids = {d["id"] for d in stories}
+    forecasts = []
+    for g in con.execute("SELECT id, title, horizon, confidence, story_ids "
+                         "FROM signals ORDER BY created_at DESC LIMIT 60").fetchall():
+        shared = sids & set(db.uj(g["story_ids"], []))
+        if shared:
+            forecasts.append({"id": g["id"], "title": g["title"],
+                              "horizon": g["horizon"], "confidence": g["confidence"],
+                              "shared_stories": len(shared)})
+    forecasts.sort(key=lambda f: -f["shared_stories"])
     con.close()
     # retired_at is returned (not hidden) so the client can say plainly that the
     # trend is no longer active instead of pretending it is current.
-    return {"id": t["id"], "kind": t["kind"], "name": t["name"],
-            "narrative": linkify(t["narrative"], id_head),
-            "sectors": db.uj(t["sectors"], []),
-            "regions": db.uj(t["regions"], []), "velocity": t["velocity"],
-            "created_at": t["created_at"], "retired_at": t["retired_at"],
-            "stories": stories, "story_refs": story_refs(id_head)}
+    out = {"id": t["id"], "kind": t["kind"], "name": t["name"],
+           "narrative": linkify(t["narrative"], id_head),
+           "sectors": db.uj(t["sectors"], []),
+           "regions": db.uj(t["regions"], []), "velocity": t["velocity"],
+           "created_at": t["created_at"], "retired_at": t["retired_at"],
+           "article_count": len(member_ids), "story_count": len(stories),
+           "stories": stories, "story_refs": story_refs(id_head),
+           "forecasts": forecasts[:4]}
+    # Omitted, not zeroed: "no outlet mix recorded" and "no original documents"
+    # are different claims, and 4a prints one of them in words.
+    if kinds:
+        out["source_kinds"] = kinds
+    if agree or disagree:
+        out["agree"], out["disagree"] = agree, disagree
+    if disputed_stories:
+        out["disputed_stories"] = disputed_stories
+    return out
 
 
 @app.get("/signal/{signal_id}")
