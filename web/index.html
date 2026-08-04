@@ -1518,6 +1518,12 @@ body:has(.fx) footer{color:#9A958B}
 .rx-src:first-child{border-top:0}
 .rx-src .h{margin-left:auto;font:400 11px var(--mono);color:var(--faint);flex:none}
 .rx-src a{color:var(--indigo)}
+/* A named force this story feeds into. A subheading in the reading column, so
+   it sits one step under the beat label and above the prose — not a list row. */
+.rx-wider + .rx-wider{margin-top:26px;padding-top:24px;border-top:1px solid var(--rule)}
+.rx-wider h3{margin:0 0 12px;font:400 21px/1.32 var(--serif);color:var(--ink);
+  letter-spacing:-.01em;text-wrap:pretty}
+.rx-wider p:last-child{margin-bottom:0}
 .rx-claim{padding:12px 0;border-top:1px solid var(--rule)}
 .rx-claim .v{font:500 10.5px var(--mono);letter-spacing:.06em;margin-bottom:5px}
 .rx-claim p{font:400 14.5px/1.55 var(--sans);color:var(--ink);margin:0 0 5px}
@@ -3509,9 +3515,14 @@ async _render(id){
       <div class="v ${/disput/i.test(v.verdict)?'fx-mid':'fx-bad'}">${
         /disput/i.test(v.verdict)?'Sources disagree':'We could not check this'}</div>
       <p>${esc(v.claim||'')}</p>${v.note?`<div class="n">${esc(v.note)}</div>`:''}</div>`).join('')});
+  // The only derived beat whose content is real prose rather than a list, so it
+  // is set as prose — same serif column as What happened and Why it matters.
+  // The claim-list typography it used to borrow made a paragraph of writing read
+  // like a footnote.
   if (s.trends?.length) beats.push({id:'big', label:'The bigger picture',
-    body: s.trends.map(t=>`<div class="rx-claim"><p>${esc(cleanName(t.name))}</p>
-      <div class="n">${esc(t.narrative||'')}</div></div>`).join('')});
+    body: s.trends.map(t=>`<div class="rx-wider">
+      <h3>${esc(cleanName(t.name))}</h3>
+      ${t.narrative?`<p>${esc(t.narrative)}</p>`:''}</div>`).join('')});
   if (s.connections?.length) beats.push({id:'conn', label:'Hidden connections',
     body: signedIn()
       ? s.connections.map(c=>`<div class="rx-claim"><p>↔ ${esc(c.other_title)}</p>
