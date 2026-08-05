@@ -1127,16 +1127,62 @@ def trend_detail(trend_id: str):
         con.close()
         raise HTTPException(404, "trend not found")
     member_ids = set(db.uj(t["article_ids"], []))
+    # Membership is decided EXACTLY the way /trends counts it, because the card
+    # and the page it opens have to agree. /trends counts a story when this
+    # trend's id appears in `stories.trend_ids`; this endpoint used to match on
+    # article-id overlap instead, and the two drift apart by design:
+    #
+    #   * a trend's `article_ids` are rewritten every run — new members, and
+    #     merged trends absorbing each other's ids (see _reconcile_trends);
+    #   * a story's `article_ids` are frozen when it is written, because a story
+    #     with no new articles is skipped rather than re-told.
+    #
+    # So the trend moves and the story does not, and eventually they no longer
+    # intersect. `trend_ids` survives it: the Storyteller re-labels by
+    # `event_id`, which is stable for the life of the event.
+    #
+    # Measured on production before this change: of the 27 trends advertising a
+    # story count, 9 opened onto an empty list and only 8 had a list matching
+    # their card.
+    #
+    # Article overlap is kept, but strictly as a FALLBACK — never unioned in.
+    # Unioning re-broke the same promise from the other side: measured locally,
+    # a card reading "1 story" opened onto three, because overlap matches
+    # stories the label rule (and therefore the count) never counted.
+    #
+    # So: if the trend has labelled stories, they ARE the list, and the page
+    # matches its card exactly. Overlap only answers when nothing is labelled,
+    # which is the pre-`trend_ids` case — old trends keep showing their stories
+    # instead of going blank, and since the card reads 0 there, a non-empty list
+    # cannot contradict it.
+    #
+    # Same window and same index (stories_updated) as /trends, so both endpoints
+    # are looking at the same catalogue.
+    labelled, overlapping = [], []
+    for r in con.execute(
+            "SELECT id, trend_ids, article_ids FROM stories WHERE updated_at > ?",
+            (db.now() - 7 * 86400,)).fetchall():
+        if trend_id in db.uj(r["trend_ids"], []):
+            labelled.append(r["id"])
+        elif member_ids & set(db.uj(r["article_ids"], [])):
+            overlapping.append(r["id"])
+    picked = labelled or overlapping
+    # Two passes on purpose. The match above reads three small columns; the body
+    # below reads the heavy ones (narrative, claims, merge_stats) for matches
+    # only. The old single pass pulled all of that for 200 rows on every request
+    # regardless of how few belonged — on a 512MB box that is worth avoiding.
+    picked = picked[:200]
     stories, id_head = [], {}
     # Screen 4a needs each story's own evidence, not just its headline: the
     # growth chart is built from created_at, "what argues against this trend"
     # from the disputed-claim counts, and "who is saying it" from the outlet
     # mix. All of it already exists per story — it was simply never returned.
-    for s in con.execute(
-            "SELECT id, headline, narrative, credibility, credibility_note, topic, "
-            "created_at, updated_at, claims, merge_stats, article_ids "
-            "FROM stories ORDER BY created_at DESC LIMIT 200").fetchall():
-        if member_ids & set(db.uj(s["article_ids"], [])):
+    if picked:
+        for s in con.execute(
+                "SELECT id, headline, narrative, credibility, credibility_note, topic, "
+                "created_at, updated_at, claims, merge_stats, article_ids "
+                "FROM stories WHERE id IN (%s) ORDER BY created_at DESC LIMIT 60"
+                % ",".join("?" * len(picked)), picked).fetchall():
             d = {k: s[k] for k in ("id", "headline", "narrative", "credibility",
                                    "credibility_note", "topic", "created_at",
                                    "updated_at")}

@@ -2038,6 +2038,158 @@ body:has(.fx) footer{color:#6F6A61}
 .rx-frame .miss{margin:10px 0 0;font:400 11.5px/1.55 var(--sans);color:var(--mute)}
 .rx-frame .spread{font:400 10.5px var(--mono);color:var(--faint)}
 
+/* ============ Onboarding (screen 1a) ============
+   "Choose what you follow". The design's own two-panel layout: a fixed dark
+   brand panel stating what Descry is for, and a working panel that is the form.
+
+   The left panel is deliberately theme-INVARIANT — it stays #17150F in dark
+   mode too. It is the one surface in the product that is a poster rather than a
+   document, and the concentric rings and gold dot only read against black. Every
+   colour in the right-hand panel is tokenised, so the form itself follows the
+   reader's chosen mode. */
+.ob{padding:0}
+/* 100vw, not 96vw: the design's left panel is 0.92fr of a full 1280 and its
+   52px headline needs every pixel of that to hold "Understand the news," on one
+   line. A 4% inset cost ~24px and broke it onto three. */
+.ob-card{width:min(1280px,100vw);max-height:94vh;overflow:auto;border-radius:12px;
+  background:var(--paper);box-shadow:0 24px 70px rgba(23,21,15,.4);
+  display:grid;grid-template-columns:.92fr 1.08fr}
+.ob-left{background:#17150F;color:#F7F4EE;padding:56px 52px;
+  display:flex;flex-direction:column;justify-content:space-between;gap:40px}
+.ob-brand{display:flex;align-items:center;gap:10px}
+.ob-brand i{width:22px;height:22px;border-radius:50%;border:1.5px solid #F7F4EE;
+  display:flex;align-items:center;justify-content:center}
+.ob-brand i b{width:8px;height:8px;border-radius:50%;background:#F7F4EE}
+.ob-brand span{font:500 15px var(--serif);letter-spacing:.14em;text-transform:uppercase}
+/* Three rings and a gold centre — the lens the whole product is named for. */
+.ob-rings{width:240px;height:240px;border-radius:50%;border:1px solid rgba(247,244,238,.22);
+  display:flex;align-items:center;justify-content:center;margin-bottom:44px}
+.ob-rings i{width:168px;height:168px;border-radius:50%;border:1px solid rgba(247,244,238,.3);
+  display:flex;align-items:center;justify-content:center}
+.ob-rings i i{width:96px;height:96px;background:rgba(247,244,238,.1);
+  border:1px solid rgba(247,244,238,.45)}
+.ob-rings i i b{width:30px;height:30px;border-radius:50%;background:#C8B98F}
+.ob-left h1{margin:0 0 18px;font:300 52px/1.06 var(--serif);letter-spacing:-.015em}
+.ob-left h1 em{font-style:italic;color:#C8B98F}
+.ob-left p{margin:0;max-width:400px;font:400 15.5px/1.7 var(--sans);
+  color:rgba(247,244,238,.62);text-wrap:pretty}
+.ob-left p em{color:#F7F4EE;font-style:italic}
+.ob-note{font:400 11px var(--mono);color:rgba(247,244,238,.62);letter-spacing:.04em}
+.ob-right{background:var(--paper);padding:56px 60px;display:flex;flex-direction:column}
+.ob-steps{display:flex;align-items:center;justify-content:space-between;margin-bottom:34px}
+.ob-steps div{display:flex;gap:6px}
+.ob-steps i{width:36px;height:3px;border-radius:2px;background:var(--rule-2)}
+.ob-steps i.on{background:var(--indigo)}
+.ob-steps span{font:400 11px var(--mono);color:var(--mute)}
+.ob-right h2{margin:0 0 8px;font:400 34px/1.15 var(--serif);color:var(--ink);letter-spacing:-.01em}
+.ob-lede{margin:0 0 34px;font:400 14px/1.65 var(--sans);color:var(--mute);max-width:460px}
+.ob-lbl{display:block;font:500 10px var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--mute);margin-bottom:12px}
+.ob-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:30px}
+.fx .ob-chip{padding:8px 15px;border-radius:100px;border:1px solid var(--rule-2);
+  color:var(--ink-2);font:400 13px var(--sans);cursor:pointer}
+.fx .ob-chip:hover{border-color:var(--ink)}
+.fx .ob-chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.fx .ob-chip.add{border-style:dashed;color:var(--mute)}
+.ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 22px;margin-bottom:30px}
+.ob-grid .ob-lbl{margin-bottom:8px}
+.ob-card input,.ob-card select{width:100%;padding:12px 14px;background:var(--card);
+  border:1px solid var(--rule-2);border-radius:6px;font:400 14px var(--sans);
+  color:var(--ink);outline:none;-webkit-appearance:none;appearance:none}
+.ob-card input:focus,.ob-card select:focus{border-color:var(--indigo)}
+.ob-card input::placeholder{color:var(--ghost)}
+/* "What you will see" — the promise, written back in the reader's own words.
+   Sand panel, serif body: this is prose about them, not a form field. */
+.ob-see{padding:18px 20px;border-left:2px solid var(--sand-2);background:var(--sand);
+  border-radius:0 6px 6px 0;margin-bottom:auto}
+.ob-see .fx-h{--fx-h:17px;color:var(--sand-head);margin-bottom:7px}
+.ob-see p{margin:0;font:400 15px/1.6 var(--serif);color:var(--sand-text);text-wrap:pretty}
+.ob-see p strong{font-weight:600}
+.ob-more{margin-top:22px}
+.ob-more summary{font:400 12.5px var(--sans);color:var(--mute);cursor:pointer}
+.ob-more .row{display:flex;gap:8px;margin-top:10px}
+.ob-more .row input{flex:1}
+.ob-microrow{display:flex;align-items:center;gap:9px;margin-top:8px;
+  font:400 12.5px var(--sans);color:var(--ink-2)}
+.ob-microrow button{color:var(--mute);font-size:13px}
+.ob-act{display:flex;align-items:center;gap:18px;margin-top:30px}
+.fx .ob-go{padding:14px 30px;border:none;border-radius:100px;background:var(--indigo);
+  color:#fff;font:500 14px var(--sans);cursor:pointer}
+.fx .ob-skip{font:400 13px var(--sans);color:var(--mute);cursor:pointer}
+@media (max-width:980px){
+  .ob-card{grid-template-columns:1fr}
+  /* The poster panel collapses to a masthead — the rings and the 52px headline
+     are the first things worth losing when there is no room for both panels. */
+  .ob-left{padding:26px 24px;gap:14px}
+  .ob-rings{display:none}
+  .ob-left h1{font-size:30px;margin-bottom:10px}
+  .ob-left p,.ob-note{display:none}
+  .ob-right{padding:28px 24px}
+  .ob-right h2{font-size:26px}
+  .ob-grid{grid-template-columns:1fr}
+}
+
+/* ============ Profile (screen 6c) ============
+   "Who you are, and the lens the feed is filtered through." Three stacked cards
+   on the page's own paper: identity, the lens, and what you have read. Every
+   number here is a COUNT the reader could verify, never a score — the design
+   says so in its own subhead and the copy keeps that promise. */
+.px{max-width:880px}
+.px-card{background:var(--card);border:1px solid var(--rule);border-radius:10px;
+  padding:26px 30px 30px;margin-bottom:20px}
+.px-id{display:grid;grid-template-columns:96px 1fr auto;gap:24px;align-items:center;
+  padding:28px 30px}
+.px-av{width:96px;height:96px;border-radius:50%;object-fit:cover;
+  border:1px solid var(--rule-2);background:var(--sand)}
+.px-av.fallback{display:flex;align-items:center;justify-content:center;
+  font:300 34px var(--serif);color:var(--sand-head)}
+.px-id h1{margin:0 0 6px;font:400 34px/1.1 var(--serif);color:var(--ink);letter-spacing:-.01em}
+.px-mail{font:400 13px var(--mono);color:var(--faint);margin-bottom:12px;
+  overflow-wrap:anywhere}
+.px-tags{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.px-tag{padding:5px 12px;border-radius:100px;background:var(--sand);
+  border:1px solid var(--rule);font:400 11.5px var(--sans);color:var(--ink-2)}
+.px-side{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.fx .px-btn{padding:8px 16px;border:1px solid var(--rule-2);border-radius:100px;
+  font:400 12px var(--sans);color:var(--ink);cursor:pointer;white-space:nowrap}
+.fx .px-btn:hover{border-color:var(--ink)}
+.fx .px-link{font:400 11px var(--sans);color:var(--indigo);cursor:pointer;
+  text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.px-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:6px}
+.px-card h2{margin:0;font:400 22px var(--serif);color:var(--ink)}
+.px-say{margin:0 0 18px;font:400 12.5px/1.55 var(--sans);color:var(--faint);max-width:560px}
+.px-lens{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:22px;border-bottom:1px solid var(--rule)}
+.px-lens .px-tag{font-size:12.5px;padding:7px 15px;color:var(--sand-text)}
+.px-lens .none{font:400 13px var(--sans);color:var(--mute)}
+.px-kv{display:grid;grid-template-columns:1fr 1fr;gap:0 44px}
+.px-kv div{padding:18px 0;border-bottom:1px solid var(--rule)}
+.px-kv div:nth-last-child(-n+2){border-bottom:0}
+.px-k{display:block;font:500 9.5px var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+.px-v{font:400 15px/1.5 var(--serif);color:var(--ink)}
+.px-v.none{color:var(--mute)}
+.px-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.px-tile{padding:18px 18px 16px;background:var(--sand);border-radius:8px}
+.px-tile b{display:block;font:300 38px/1 var(--serif);color:var(--sand-text);margin-bottom:8px}
+.px-tile span{font:400 12px/1.4 var(--sans);color:var(--ink-2)}
+.px-foot{margin-top:20px;padding-top:18px;border-top:1px solid var(--rule);
+  display:flex;align-items:center;justify-content:space-between;gap:20px}
+.px-foot p{margin:0;font:400 12.5px/1.55 var(--sans);color:var(--faint);max-width:520px}
+.px-foot strong{font-weight:500;color:var(--ink)}
+@media (max-width:860px){
+  .px-id{grid-template-columns:64px 1fr;gap:16px;padding:22px}
+  .px-av{width:64px;height:64px;font-size:24px}
+  .px-id h1{font-size:26px}
+  /* The actions drop under the name rather than squeezing a third column. */
+  .px-side{grid-column:1/-1;flex-direction:row;align-items:center;gap:14px}
+  .px-card{padding:20px 22px 24px}
+  .px-kv{grid-template-columns:1fr;gap:0}
+  .px-kv div:nth-last-child(-n+2){border-bottom:1px solid var(--rule)}
+  .px-kv div:last-child{border-bottom:0}
+  .px-tiles{grid-template-columns:repeat(2,1fr)}
+  .px-foot{flex-direction:column;align-items:flex-start;gap:10px}
+}
+
 /* ============ Saved (2b) and Read (2c) ============
    Both are the mockups' own layout now: a full-width header with a stated
    purpose, then content — not the feed's ruled columns with a stats rail
@@ -2192,30 +2344,71 @@ body:has(.fx) footer{color:#6F6A61}
 </div>
 
 <!-- Personalization modal -->
-<div class="modal" id="calib" role="dialog" aria-label="Personalize">
-  <div class="mcard">
-    <h2>Calibrate your lens</h2>
-    <p class="sub">Descry explains what each story means for <b>you</b>. A few details sharpen the lens — everything is optional.</p>
-    <label>Topics you follow</label>
-    <div class="ichips" id="calints"></div>
-    <label>Profession</label>
-    <input id="calprof" placeholder="e.g. pharmacist, founder, analyst">
-    <label>Your role</label>
-    <div class="ichips" id="calrole"></div>
-    <label>City &amp; country</label>
-    <input id="calloc" placeholder="e.g. Pune, India">
-    <label>Native language</label>
-    <input id="callang" placeholder="e.g. Marathi">
-    <label>Anything specific? (optional)</label>
-    <div id="calmicro"></div>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <input id="calmk" placeholder="e.g. commute" style="flex:1">
-      <input id="calmv" placeholder="e.g. drives 40 min daily" style="flex:1.4">
-      <button class="btn ghost" onclick="Calib.addMicro()">Add</button>
+<!-- Onboarding, screen 1a: "Choose what you follow". The `fx` class is what
+     puts this inside the redesign's token scope — without it the card would
+     inherit the app's older blue palette instead of paper and ink. -->
+<div class="modal ob" id="calib" role="dialog" aria-label="Choose what you follow">
+  <div class="ob-card fx">
+    <div class="ob-left">
+      <div class="ob-brand"><i><b></b></i><span>Descry</span></div>
+      <div>
+        <div class="ob-rings" aria-hidden="true"><i><i><b></b></i></i></div>
+        <h1>Understand the news,<br><em>not just read it.</em></h1>
+        <p>Every story comes with its proof attached — who reported it, how many
+        of them agree, and what nobody can prove yet. Tell us a little and we
+        will also tell you what it means for <em>you</em>.</p>
+      </div>
+      <div class="ob-note">Free to use, always — no payment, ever.</div>
     </div>
-    <div style="display:flex;gap:10px;margin-top:26px">
-      <button class="btn primary" onclick="Calib.save()">Start understanding</button>
-      <button class="btn ghost" onclick="Calib.skip()">Skip for now</button>
+
+    <div class="ob-right">
+      <div class="ob-steps">
+        <!-- 1 signed in · 2 your lens (here) · 3 your feed. The third fills when
+             this closes and the feed reloads, so the count is not decorative. -->
+        <div><i class="on"></i><i class="on"></i><i></i></div>
+        <span>step 2 / 3 · everything optional</span>
+      </div>
+      <h2>What do you want to follow?</h2>
+      <p class="ob-lede">We never guess from what you click. You tell us, you can
+      see it, and you can change it any time — on every story.</p>
+
+      <span class="ob-lbl">Topics you follow</span>
+      <div class="ob-chips" id="calints"></div>
+
+      <div class="ob-grid">
+        <div><span class="ob-lbl">Profession</span>
+          <input id="calprof" placeholder="e.g. pharmacist, founder, analyst"></div>
+        <div><span class="ob-lbl">Your role</span>
+          <select id="calrole"></select></div>
+        <div><span class="ob-lbl">City &amp; country</span>
+          <input id="calloc" placeholder="e.g. Pune, India"></div>
+        <div><span class="ob-lbl">Read to me in</span>
+          <input id="callang" placeholder="e.g. English"></div>
+      </div>
+
+      <div class="ob-see">
+        <span class="fx-h">What you will see</span>
+        <p id="calsee"></p>
+      </div>
+
+      <!-- Not in the mockup, and kept anyway: these free-form notes are an
+           existing context field, and a form that silently stopped offering
+           them would quietly delete a reader's on the next save. Collapsed, so
+           it costs the design nothing. -->
+      <details class="ob-more">
+        <summary>Anything specific we should know?</summary>
+        <div id="calmicro"></div>
+        <div class="row">
+          <input id="calmk" placeholder="e.g. commute">
+          <input id="calmv" placeholder="e.g. drives 40 min daily">
+          <button class="px-btn" data-cal="addmicro">Add</button>
+        </div>
+      </details>
+
+      <div class="ob-act">
+        <button class="ob-go" data-cal="save">Start understanding →</button>
+        <button class="ob-skip" data-cal="skip">Skip for now</button>
+      </div>
     </div>
   </div>
 </div>
@@ -5331,36 +5524,105 @@ $('#askin').addEventListener('keydown', e=>{ if(e.key==='Enter') Ask.send(); });
 const Calib = {
   ints: [], role: '', micro: {},
   ROLES: ['Student','Employee','Manager','Executive','Business owner','Freelancer','Retired'],
+  TOPICS: ['AI','Technology','Business','World','Health','Energy','Finance','Science','India','Sports'],
+  wired: false,
   show(prefill){
     prefill = prefill || {};
     this.ints = Array.isArray(prefill.interests) ? [...prefill.interests] : [];
     this.role = prefill.role_seniority || '';
     this.micro = Object.assign({}, prefill.micro || {});
-    const opts=['AI','Technology','Business','World','Health','Energy','Finance','Science','India','Sports'];
-    $('#calints').innerHTML = opts.map(o=>
-      `<button class="chip${this.ints.includes(o)?' on':''}" onclick="Calib.tog(this,'${o}')">${o}</button>`).join('');
-    $('#calrole').innerHTML = this.ROLES.map(r=>
-      `<button class="chip${this.role.toLowerCase()===r.toLowerCase()?' on':''}" onclick="Calib.pickRole(this,'${r}')">${r}</button>`).join('');
+    /* Everything the reader already follows stays on screen even when it is not
+       one of ours — a custom interest that rendered nowhere would be silently
+       dropped by the next save, because PUT /context replaces the whole blob. */
+    this.opts = this.TOPICS.concat(this.ints.filter(i=>!this.TOPICS.includes(i)));
+    this.renderChips();
+    $('#calrole').innerHTML = ['<option value="">—</option>'].concat(this.ROLES.map(r=>
+      `<option${this.role.toLowerCase()===r.toLowerCase()?' selected':''}>${esc(r)}</option>`
+    )).join('');
     if ($('#calprof')) $('#calprof').value = prefill.profession || '';
     if ($('#calloc')) $('#calloc').value =
       [prefill.location&&prefill.location.city, prefill.location&&prefill.location.country]
         .filter(Boolean).join(', ');
-    if ($('#callang')) $('#callang').value = prefill.native_language || '';
+    /* "Read to me in" is preferred_language. native_language is a separate field
+       this form no longer asks for — see save(), which carries it through. */
+    if ($('#callang')) $('#callang').value = prefill.preferred_language || '';
     this.renderMicro();
+    this.wire();
+    this.preview();
     $('#calib').classList.add('on');
   },
-  tog(el,v){ el.classList.toggle('on');
-    this.ints.includes(v)?this.ints=this.ints.filter(x=>x!==v):this.ints.push(v); },
-  pickRole(el,v){
-    const was = this.role.toLowerCase()===v.toLowerCase();
-    document.querySelectorAll('#calrole .chip').forEach(c=>c.classList.remove('on'));
-    if(was){ this.role=''; } else { this.role=v; el.classList.add('on'); }
+  /* One delegated listener rather than inline onclick per chip. Custom topics
+     are reader-supplied text, and interpolating that into an onclick attribute
+     is exactly the HTML-injection sink the rest of this file avoids. */
+  wire(){
+    if (this.wired) return;
+    this.wired = true;
+    $('#calints').addEventListener('click', e=>{
+      const b = e.target.closest('button'); if(!b) return;
+      if (b.dataset.add !== undefined) return this.addTopic();
+      this.tog(b.dataset.t);
+    });
+    $('#calib').addEventListener('click', e=>{
+      const b = e.target.closest('[data-cal]'); if(!b) return;
+      ({save:()=>this.save(), skip:()=>this.skip(), addmicro:()=>this.addMicro()}
+        [b.dataset.cal] || (()=>{}))();
+    });
+    $('#calmicro').addEventListener('click', e=>{
+      const b = e.target.closest('[data-mk]'); if(b) this.delMicro(b.dataset.mk);
+    });
+    ['#calprof','#calloc','#callang','#calrole'].forEach(sel=>{
+      const el = $(sel); if (el) el.addEventListener('input', ()=>this.preview());
+    });
+  },
+  renderChips(){
+    $('#calints').innerHTML = this.opts.map(o=>
+      `<button class="ob-chip${this.ints.includes(o)?' on':''}" data-t="${esc(o)}">${
+        esc(o)}${this.ints.includes(o)?' ✓':''}</button>`).join('')
+      + `<button class="ob-chip add" data-add>+ add your own</button>`;
+  },
+  addTopic(){
+    const v = (prompt('What else do you follow?') || '').trim();
+    if (!v) return;
+    if (!this.opts.includes(v)) this.opts.push(v);
+    if (!this.ints.includes(v)) this.ints.push(v);
+    this.renderChips(); this.preview();
+  },
+  tog(v){
+    this.ints.includes(v) ? this.ints = this.ints.filter(x=>x!==v) : this.ints.push(v);
+    this.renderChips(); this.preview();
+  },
+  /* The design's "What you will see" panel, written from what has been entered
+     so far. It degrades a clause at a time rather than all at once, so the
+     sentence is true at every stage of filling the form in — including empty. */
+  preview(){
+    const el = $('#calsee'); if (!el) return;
+    const topic = this.ints[0] || '';
+    const role  = ($('#calrole') && $('#calrole').value) || '';
+    const prof  = ($('#calprof') && $('#calprof').value.trim()) || '';
+    const city  = (($('#calloc') && $('#calloc').value.split(',')[0]) || '').trim();
+    /* The role is a value we supply, so lower-casing it is safe and reads as
+       prose ("an executive in Thane" — the design's own phrasing). A profession
+       is whatever the reader typed, and lower-casing THAT turns "Software & IT"
+       into "software & it", so it is only ever used verbatim, and only when
+       there is no role to use instead. */
+    const who = role ? role.toLowerCase() : prof;
+    if (!topic && !who && !city){
+      el.textContent = 'Every story, with its proof attached. Tell us a little '
+        + 'and each one will also say what it means for you.';
+      return;
+    }
+    const head = topic ? `${topic} stories` : 'Every story';
+    const art  = /^[aeiou]/i.test(who) ? 'an' : 'a';
+    const whom = who ? ` for ${art} <strong>${esc(who)}${city?' in '+esc(city):''}</strong>`
+               : city ? ` for <strong>someone in ${esc(city)}</strong>` : '';
+    el.innerHTML = `“${esc(head)}, explained${whom} — what it `
+      + `costs you to act, not just the headline.”`;
   },
   renderMicro(){
     const el=$('#calmicro'); if(!el) return;
     el.innerHTML = Object.entries(this.micro).map(([k,v])=>
-      `<div class="microrow"><span><b>${esc(k)}</b>: ${esc(v)}</span>
-        <button data-mk="${esc(k)}" onclick="Calib.delMicro(this.dataset.mk)">✕</button></div>`).join('');
+      `<div class="ob-microrow"><span><b>${esc(k)}</b>: ${esc(v)}</span>
+        <button data-mk="${esc(k)}" aria-label="Remove">✕</button></div>`).join('');
   },
   addMicro(){
     const k=$('#calmk').value.trim(), v=$('#calmv').value.trim();
@@ -5381,11 +5643,15 @@ const Calib = {
         interests: this.ints,
         profession: $('#calprof').value,
         line_of_business: cur.line_of_business || '',
-        role_seniority: this.role || '',
+        role_seniority: $('#calrole').value || '',
         location: { city: loc[0]||'', region:(cur.location&&cur.location.region)||'',
                     country: loc[1]||'' },
-        native_language: $('#callang').value.trim(),
-        preferred_language: cur.preferred_language || 'English',
+        /* Screen 1a asks for "Read to me in" and not for a native language, so
+           this one is CARRIED THROUGH rather than read off the form. Omitting it
+           would not leave it alone — PUT /context replaces the whole blob, so an
+           absent field is a cleared field. */
+        native_language: cur.native_language || '',
+        preferred_language: $('#callang').value.trim() || cur.preferred_language || 'English',
         micro: this.micro,
         live_prefs: cur.live_prefs || S.live,
         /* PUT /context replaces the whole blob and ContextIn.theme defaults to
@@ -5428,83 +5694,148 @@ const Profile = {
     SEO.set({title:'Your profile · Descry', path:'/profile', robots:'noindex,follow'});
     const v = $('#view');
     if (!S.creds || !S.creds.token){
-      v.innerHTML = `<div class="wrap"><section class="glass prof-empty rise">
-        <div class="prof-av av-lg avatar-fallback"><span class="mark" aria-hidden="true"><i></i></span></div>
-        <h1>Your profile</h1>
-        <p>Sign in to personalize your feed, sync saved stories, and track
-        your reading stats across every device you use.</p>
-        <div id="prof-signin" class="prof-signin"></div></section></div>`;
+      /* Signed out. Not in mockup 6c — which draws an account that exists — but
+         it shares the page, so it uses the same paper and type rather than the
+         app's older panel styling beside it. */
+      v.innerHTML = `<div class="fx"><div class="pg px">
+        <div class="pg-head">
+          <h1>Your profile</h1>
+          <p>Sign in to set the lens your feed is filtered through, sync saved
+          stories, and keep your reading counts across every device you use.</p>
+        </div>
+        <section class="px-card"><div id="prof-signin"></div></section></div></div>`;
       Auth.renderInto($('#prof-signin'));
       return;
     }
-    v.innerHTML = `<div class="wrap"><div class="skel" style="height:130px"></div><br>
-      <div class="skel" style="height:190px"></div></div>`;
+    v.innerHTML = `<div class="fx"><div class="pg px">
+      <div class="skel" style="height:150px"></div><br>
+      <div class="skel" style="height:300px"></div></div></div>`;
     let ctx = S.ctx || {};
     try{ ctx = await api('/users/'+S.creds.user_id+'/context'); S.ctx = ctx; }catch(e){}
-    let saved = 0;
-    try{ const b = await api('/bookmarks?user_id='+S.creds.user_id); saved = (b.items||[]).length; }
+    let saved = 0, bookmarks = [];
+    try{ const b = await api('/bookmarks?user_id='+S.creds.user_id);
+         bookmarks = b.items||[]; saved = bookmarks.length; }
     catch(e){ saved = 0; }
+    /* The reading card is counted from /read, which already returns the band
+       split the design's closing sentence needs. Failure is not fatal: the card
+       degrades to the counts we do have rather than the page failing to load. */
+    let rd = null;
+    try{ rd = await api('/read?user_id='+S.creds.user_id); }catch(e){}
+    this.data = {ctx, bookmarks, read: rd && rd.items || []};
 
     const nm = esc(S.creds.name || 'Reader');
     const email = esc(S.creds.email || '');
     const avatar = S.creds.picture
-      ? `<img class="prof-av av-lg" src="${esc(S.creds.picture)}" alt="">`
-      : `<div class="prof-av av-lg avatar-fallback">${esc(Auth.initial())}</div>`;
+      ? `<img class="px-av" src="${esc(S.creds.picture)}" alt="">`
+      : `<div class="px-av fallback">${esc(Auth.initial())}</div>`;
 
     const interests = Array.isArray(ctx.interests) ? ctx.interests : [];
     const chips = interests.length
-      ? interests.map(i=>`<span class="chip accent">${esc(i)}</span>`).join('')
-      : `<span class="prof-muted">No interests set yet</span>`;
+      ? interests.map(i=>`<span class="px-tag">${esc(i)}</span>`).join('')
+      : `<span class="none">Nothing yet — set your lens and every story will say
+         what it means for you.</span>`;
     const loc = [ctx.location&&ctx.location.city, ctx.location&&ctx.location.region,
                  ctx.location&&ctx.location.country].filter(Boolean).map(esc).join(', ');
     const cap = s => String(s||'').replace(/^./,c=>c.toUpperCase());
-    const kv = (k,val)=>`<div class="kv"><span class="k">${k}</span>
-      <span class="v">${val?esc(val):'—'}</span></div>`;
+    /* "Not added yet" rather than an em-dash: the design names the gap and
+       offers the action, instead of printing a placeholder that reads as
+       "nothing goes here". */
+    const kv = (k,val)=>`<div><span class="px-k">${k}</span>${val
+      ? `<span class="px-v">${esc(val)}</span>`
+      : `<span class="px-v none">Not added yet</span>`}</div>`;
     const eng = S.eng || {};
     const hasLens = interests.length || ctx.profession;
 
-    v.innerHTML = `<div class="wrap prof">
-      <section class="glass prof-hero rise">
+    const st = (rd && rd.stats) || {};
+    const opened = st.opened || 0;
+    const strong = (st.bands && st.bands.strong) || 0;
+    const developing = this.data.read.filter(s=>FX.developing(s)).length;
+    /* Only stated when there is something to state, and always as counts out of
+       a named total — "18 of 23" is checkable, "78% high quality" is not. */
+    const summary = opened
+      ? `Of those ${opened} ${opened===1?'story':'stories'}, <strong>${strong}</strong>
+         ${strong===1?'was one':'were ones'} most sources agreed on${developing
+         ? ` and <strong>${developing}</strong> ${developing===1?'was':'were'}
+             still developing when you read ${developing===1?'it':'them'}` : ''}.`
+      : `Nothing read yet. Open a story and it will be counted here — only ever
+         counted, never scored.`;
+
+    v.innerHTML = `<div class="fx"><div class="pg px">
+      <section class="px-card px-id">
         ${avatar}
-        <div class="prof-id">
+        <div>
           <h1>${nm}</h1>
-          ${email?`<div class="prof-email">${email}</div>`:''}
-          <span class="chip trust">Signed in with Google</span>
+          ${email?`<div class="px-mail">${email}</div>`:''}
+          <div class="px-tags"><span class="px-tag">Signed in with Google</span></div>
         </div>
-        <button class="btn ghost sm prof-signout" onclick="Auth.signout()">Sign out</button>
-      </section>
-
-      <section class="glass prof-card rise" style="animation-delay:.05s">
-        <div class="prof-head">
-          <span class="prof-label">YOUR LENS</span>
-          <button class="btn ghost sm" onclick="Profile.edit()">${hasLens?'Edit':'Set up'}</button>
-        </div>
-        <div class="prof-interests">${chips}</div>
-        <div class="kvs">
-          ${kv('Profession', ctx.profession)}
-          ${kv('Business', ctx.line_of_business)}
-          ${kv('Role', cap(ctx.role_seniority))}
-          ${kv('Location', loc)}
-          ${kv('Native language', ctx.native_language)}
-          ${kv('Reads news in', ctx.preferred_language)}
+        <div class="px-side">
+          <button class="px-btn" data-prof="signout">Sign out</button>
+          <button class="px-link" data-prof="download">Download my data</button>
         </div>
       </section>
 
-      <section class="glass prof-card rise" style="animation-delay:.1s">
-        <span class="prof-label">YOUR INTELLIGENCE</span>
-        <div class="stat-grid">
-          ${this.stat('', eng.streak||1, 'day streak')}
-          ${this.stat('', eng.understood||0, 'completed')}
-          ${this.stat('', (eng.topics||[]).length, 'topics')}
-          ${this.stat('', saved, 'saved')}
+      <section class="px-card">
+        <div class="px-head">
+          <h2>Your lens</h2>
+          <button class="px-btn" data-prof="edit">${hasLens?'Edit':'Set up'}</button>
+        </div>
+        <p class="px-say">Everything you read is filtered and explained through
+        this. Change it whenever your work or your country does.</p>
+        <div class="px-lens">${chips}</div>
+        <div class="px-kv">
+          ${kv('What you work in', ctx.profession)}
+          ${kv('Business you run', ctx.line_of_business)}
+          ${kv('Your role', cap(ctx.role_seniority))}
+          ${kv('Where you live', loc)}
+          ${kv('Language you grew up with', ctx.native_language)}
+          ${kv('Language you read news in', ctx.preferred_language)}
         </div>
       </section>
-    </div>`;
+
+      <section class="px-card">
+        <h2>Your reading so far</h2>
+        <p class="px-say">Counts, not scores. Nothing here is shown to anyone else.</p>
+        <div class="px-tiles">
+          ${this.tile(eng.streak||1, 'days in a row')}
+          ${this.tile(st.finished||eng.understood||0, 'stories read to the end')}
+          ${this.tile(interests.length, 'topics you follow')}
+          ${this.tile(saved, 'saved for later')}
+        </div>
+        <div class="px-foot">
+          <p>${summary}</p>
+          <a class="px-link" href="/read">See your Read page</a>
+        </div>
+      </section>
+    </div></div>`;
+
+    v.querySelector('.px').addEventListener('click', e=>{
+      const b = e.target.closest('[data-prof]'); if(!b) return;
+      ({signout:()=>Auth.signout(), edit:()=>this.edit(), download:()=>this.download()}
+        [b.dataset.prof] || (()=>{}))();
+    });
   },
-  stat(icon,val,label){
-    return `<div class="stat"><div class="stat-ic">${icon}</div>
-      <div class="stat-n">${esc(String(val))}</div>
-      <div class="stat-l">${esc(label)}</div></div>`;
+  tile(val,label){
+    return `<div class="px-tile"><b>${esc(String(val))}</b><span>${esc(label)}</span></div>`;
+  },
+  /* Everything this account holds that the client can reach, as one JSON file.
+     Built here rather than server-side because it is exactly the three
+     responses the page already has in hand — no new endpoint, and nothing is
+     claimed to be included that isn't. */
+  download(){
+    const d = this.data || {};
+    const blob = new Blob([JSON.stringify({
+      exported_at: new Date().toISOString(),
+      account: {user_id: S.creds && S.creds.user_id, name: S.creds && S.creds.name,
+                email: S.creds && S.creds.email},
+      lens: d.ctx || {},
+      saved: d.bookmarks || [],
+      read: d.read || []
+    }, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'descry-my-data.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
   },
   edit(){ Calib.show(S.ctx || {}); }
 };

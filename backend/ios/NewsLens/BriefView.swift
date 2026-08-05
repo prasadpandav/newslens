@@ -100,6 +100,7 @@ struct BriefView: View {
                         }
                         Spacer()
                     } else {
+                        pinnedTopicBar
                         content
                     }
                 }
@@ -157,17 +158,21 @@ struct BriefView: View {
     }
 
     private var content: some View {
+      ScrollViewReader { proxy in
         ScrollView {
             // 12, not 18. Everything above the feed is preamble; on a 390pt-wide
             // phone the old stack pushed the first story card entirely off-screen.
             VStack(alignment: .leading, spacing: 12) {
+                // A zero-height anchor rather than an `.id` on the live strip:
+                // the strip draws no view at all until its first SSE card
+                // arrives, and an anchor that comes and goes is not an anchor.
+                Color.clear.frame(height: 0).id(Self.feedTop)
                 LiveHeroView(stream: live, prefs: $livePrefs) {
                     live.reconfigure(categories: livePrefs.categories)
                 }
                 header
                 if !newItems.isEmpty { newStoriesBanner }
                 if !onboarded { personalizeBanner }
-                topicBar
                 // The lead story is drawn at full weight and everything after it
                 // as a rule-separated row. That is the mockup's whole feed
                 // structure: one story you are meant to read, then a list you are
@@ -186,10 +191,21 @@ struct BriefView: View {
                 statsCard
             }
             .padding(.horizontal, 20)
+            .padding(.top, 6)      // clear of the pinned filter bar's rule
             .padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
+        // The filter is reachable from anywhere in the feed now, so changing it
+        // has to return you to the top. Without this you tap a chip 800pt down
+        // and the list re-renders above you — which looks like nothing happened.
+        .onChange(of: topic) {
+            withAnimation(BL.spring) { proxy.scrollTo(Self.feedTop, anchor: .top) }
+        }
+      }
     }
+
+    /// Scroll anchor for the head of the feed.
+    private static let feedTop = "feed-top"
 
     /// One story's tap target, with the dismiss action every list entry carries.
     private func link<V: View>(_ item: FeedItem, @ViewBuilder _ label: () -> V) -> some View {
@@ -356,15 +372,42 @@ struct BriefView: View {
         return n.isEmpty ? name : n.prefix(1).capitalized + n.dropFirst()
     }
 
-    /// The topic filter.
+    /// The topic filter, pinned under the masthead — deliberately OUTSIDE the
+    /// feed's scroll view.
     ///
-    /// The row bleeds to both screen edges by widening the scroll view and
-    /// moving the page inset onto its content — NOT by `scrollClipDisabled()`,
-    /// which was the bug behind "the chips open the story instead of
-    /// filtering". Disabling the clip lets a chip *draw* in the 20pt page
-    /// padding, but a scroll view still hit-tests only inside its own bounds:
-    /// every tap on that visible sliver fell through to the lead story's
-    /// NavigationLink below.
+    /// It used to sit in the scrolling column, and that placement was the whole
+    /// of "the chips work sometimes, and when they don't the hero story opens
+    /// instead". Two separate reasons, both structural:
+    ///
+    /// 1. **Everything above it can appear from nothing.** `LiveHeroView` draws
+    ///    no view at all until its first SSE card lands, and that card arrives
+    ///    after the feed has painted — so a ~120pt strip materialises under your
+    ///    thumb a beat after the screen looks settled, and the chip row drops by
+    ///    that much. `newStoriesBanner` (90s timer) and `personalizeBanner` do
+    ///    the same. What slides into the space the chip just left is the lead
+    ///    story's `NavigationLink`, so the tap opens a story. Giving the live
+    ///    card a fixed height fixed its 18pt internal wobble but not this.
+    /// 2. **A tap that stops a decelerating scroll view is consumed by it.**
+    ///    Flick the feed, reach for a chip before it settles, and the first tap
+    ///    only halts the scroll. That is standard iOS behaviour and it reads
+    ///    exactly like "the chip didn't register".
+    ///
+    /// Out here neither can happen: nothing above it changes size, and it is not
+    /// inside the scroller that eats the tap. It also stays reachable while the
+    /// feed is scrolled, which is what a filter is for.
+    private var pinnedTopicBar: some View {
+        // One topic is not a filter — with only "All" the bar is dead chrome.
+        Group {
+            if topics.count > 1 {
+                topicBar
+                    .padding(.vertical, 9)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(pal.hairline).frame(height: 1)
+                    }
+            }
+        }
+    }
+
     private var topicBar: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
@@ -385,11 +428,12 @@ struct BriefView: View {
                         .accessibilityAddTraits(t == topic ? [.isSelected] : [])
                     }
                 }
+                // The page inset lives on the content, so the row itself runs
+                // edge to edge and chips scroll out under the screen edge
+                // rather than stopping short of it.
                 .padding(.horizontal, 20)
                 .padding(.vertical, 2)
             }
-            // Cancels the column's inset so the row runs edge to edge.
-            .padding(.horizontal, -20)
             // Tapping a chip near the right edge used to leave the selection
             // scrolled out of sight, so the filter looked like it had done
             // nothing.

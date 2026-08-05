@@ -493,7 +493,15 @@ struct TrendCard: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(strength.word). \(strength.why)")
                 receipts
-                Text("See all \(trend.storyCount ?? trend.articleCount ?? 0) stories →")
+                // Only ever promises a number the detail page can honour.
+                // `storyCount ?? articleCount ?? 0` printed "See all 0 stories"
+                // whenever the count was zero — 0 is present, so `??` never
+                // reached the fallback — and `articleCount` is the wrong number
+                // to promise anyway: articles are not stories, and /trend/{id}
+                // lists stories. With a zero count the page falls back to
+                // article overlap and returns a number the card cannot know, so
+                // the honest CTA here simply doesn't quote one.
+                Text(seeAllLabel)
                     .font(pal.sans(14))
                     .foregroundStyle(pal.accent)
                     .padding(.top, 13)
@@ -507,6 +515,18 @@ struct TrendCard: View {
         .overlay(RoundedRectangle(cornerRadius: pal.r(10), style: .continuous)
             .stroke(pal.hairline2, lineWidth: 1))
         .opacity(isFading ? 0.74 : 1)
+    }
+
+    /// The "see all" line only ever promises a number the detail page can
+    /// honour. `storyCount ?? articleCount ?? 0` printed "See all 0 stories"
+    /// whenever the count was zero — 0 is present, so `??` never reached the
+    /// fallback — and `articleCount` was the wrong number to promise anyway:
+    /// articles are not stories, and /trend/{id} lists stories. With a zero
+    /// count that endpoint falls back to article overlap and returns a number
+    /// the card cannot know, so the honest label here quotes none.
+    private var seeAllLabel: String {
+        if let n = trend.storyCount, n > 0 { return "See all \(n) stories →" }
+        return "See the stories behind this →"
     }
 
     /// The receipts table — the argument itself, one labelled row per figure.
