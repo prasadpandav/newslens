@@ -1220,6 +1220,14 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx,.rx{
   --ink:#17150F; --ink-2:#4A4640; --mute:#7A756C; --faint:#6F6A61; --ghost:#C0BAB0;
   --paper:#F7F4EE; --card:#FFFDF9; --sand:#EFE9DC; --sand-2:#C8B98F; --sand-ink:#8A7A4E;
+  /* Sand splits by ROLE, the same way the verdict hues do. Across every mockup
+     #8A7A4E appears only at 10-13px (the mono micro-labels) and #7A6534 only on
+     a serif heading or a "your lens" pill — a hue light enough for a 10px label
+     to sit quietly is too light to carry a 19px heading. */
+  --sand-head:#7A6534;
+  /* Body text ON sand is a warm near-black, not the page's ink: #17150F on
+     #EFE9DC reads as a hole punched in the panel. */
+  --sand-text:#3A342A;
   --rule:rgba(23,21,15,.09); --rule-2:rgba(23,21,15,.14);
   --indigo:#2E4A7D;
   /* The verdict hues now come in two strengths, because the redesign's
@@ -1244,6 +1252,7 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
     --ink:#F2EEE6; --ink-2:rgba(242,238,230,.82); --mute:rgba(247,244,238,.62);
     --faint:rgba(247,244,238,.55); --ghost:rgba(247,244,238,.25);
     --paper:#12110F; --card:#171512; --sand:#1E1B16; --sand-2:#C8B98F; --sand-ink:#C8B98F;
+    --sand-head:#E8D5A8; --sand-text:rgba(242,234,218,.85);
     --rule:rgba(247,244,238,.12); --rule-2:rgba(247,244,238,.18);
     --indigo:#9DB4DC;
     /* Same split, mirrored: on black the TEXT variant is the lighter one. */
@@ -1265,6 +1274,26 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 .fx-lbl{display:block;font:500 10px var(--mono);letter-spacing:.14em;
   text-transform:uppercase;color:var(--mute)}
 .fx-meta{font:400 11px var(--mono);color:var(--mute)}
+
+/* A panel HEADING, which is not the same thing as .fx-lbl above.
+   The design has two label registers and they were collapsed onto one here.
+   `.fx-lbl` is the instrument reading — "How many sources agree", "Facts we
+   checked", "Changed overnight": a 10px mono tick that names a measurement and
+   then gets out of the way. `.fx-h` is a heading that opens a block of prose —
+   "Why this matters to you", "Proof for this page", "How we got here" — and the
+   mockups set every one of those as Newsreader 500 at 16-24px, never as a
+   micro-label. Rendering them at 10px uppercase made the most important panels
+   on the page (personal impact, the proof margin, a forecast's reasoning) open
+   with something the size of a caption.
+   Sized by role rather than one value: the mockups scale the heading to the
+   block it opens, so `--fx-h` carries the per-instance size. */
+.fx-h{display:block;font:500 var(--fx-h,17px)/1.3 var(--serif);color:var(--ink);
+  letter-spacing:normal;text-transform:none;text-wrap:balance}
+.fx-h.sm{--fx-h:17px}
+.fx-h.sand{color:var(--sand-head)}
+.fx-h.mid{color:var(--mid-ink)}
+.fx-h.good{color:var(--good-ink)}
+.fx-h.gold{color:var(--sand-2)}
 
 /* ---- corroboration: tier word first, number second (rule 1) ---- */
 .fx-pips{display:inline-flex;gap:2px;vertical-align:middle}
@@ -1371,8 +1400,8 @@ footer{text-align:center;padding:40px 20px 60px;color:var(--text-3);font-size:12
 :root[data-mode="dark"]:not([data-skin]) .fx-div{background:var(--rule)}
 .fx-why{display:flex;gap:14px;padding:15px 18px;background:var(--sand);border-radius:6px}
 .fx-why .bar{width:2px;border-radius:2px;background:var(--sand-2);flex:none}
-.fx-why .fx-lbl{color:var(--sand-ink);margin-bottom:6px}
-.fx-why p{margin:0;font:400 14.5px/1.6 var(--sans);color:var(--ink);max-width:620px;
+.fx-why .fx-h{--fx-h:19px;margin-bottom:8px}
+.fx-why p{margin:0;font:400 14.5px/1.6 var(--sans);color:var(--sand-text);max-width:620px;
   text-wrap:pretty}
 .fx-why button{font:400 14.5px var(--sans);color:var(--indigo);
   text-decoration:underline;text-underline-offset:3px}
@@ -1594,6 +1623,8 @@ body:has(.fx) footer{color:#6F6A61}
   overflow-y:auto}
 :root[data-mode="dark"]:not([data-skin]) .rx-margin{background:#171512}
 .rx-margin > p.sub{margin:0 0 24px;font:400 11px/1.55 var(--sans);color:var(--faint)}
+.rx-margin > .fx-h{--fx-h:20px;margin-bottom:8px}
+.rx-margin > .fx-h.from{--fx-h:19px;margin-bottom:12px}
 .rx-note{display:flex;gap:8px;margin-bottom:22px}
 .rx-note .tick{width:14px;height:1px;margin-top:9px;flex:none;background:var(--mute)}
 .rx-note.ok .tick{background:var(--good)} .rx-note.mid .tick{background:var(--mid)}
@@ -1616,8 +1647,8 @@ body:has(.fx) footer{color:#6F6A61}
 .rx-you{padding:16px;background:var(--card);border:1px solid rgba(23,21,15,.11);
   border-radius:8px;margin-top:26px}
 :root[data-mode="dark"]:not([data-skin]) .rx-you{border-color:var(--rule)}
-.rx-you .fx-lbl{color:var(--sand-ink);margin-bottom:8px}
-.rx-you p{margin:0 0 12px;font:400 13px/1.6 var(--sans);color:#3A342A;text-wrap:pretty}
+.rx-you .fx-h{--fx-h:17px;margin-bottom:8px}
+.rx-you p{margin:0 0 12px;font:400 13px/1.6 var(--sans);color:var(--sand-text);text-wrap:pretty}
 :root[data-mode="dark"]:not([data-skin]) .rx-you p{color:var(--ink-2)}
 
 /* ---- responsive: 1h folds the margin into a pull-up sheet; here it stacks ---- */
@@ -1714,9 +1745,8 @@ body:has(.fx) footer{color:#6F6A61}
 .tx-steps .t{display:block;font:400 13.5px/1.5 var(--sans);color:var(--ink)}
 .tx-steps .m{display:block;margin-top:3px;font:400 10.5px var(--mono);color:var(--faint)}
 .tx-next{margin-top:18px;padding:14px 16px;background:var(--sand);border-radius:7px}
-.tx-next .k{display:block;font:500 10px var(--mono);letter-spacing:.14em;
-  text-transform:uppercase;color:var(--sand-ink);margin-bottom:6px}
-.tx-next p{margin:0;font:400 13px/1.6 var(--sans);color:var(--ink-2)}
+.tx-next .fx-h{--fx-h:19px;margin-bottom:7px}
+.tx-next p{margin:0;font:400 13px/1.6 var(--sans);color:var(--sand-text)}
 .tx-empty{padding:34px 0;font:400 14px/1.7 var(--sans);color:var(--mute);max-width:52ch}
 .tx-foot{margin-top:30px;padding-top:18px;border-top:1px solid var(--rule);
   font:400 11.5px/1.7 var(--sans);color:var(--faint);max-width:760px}
@@ -1732,12 +1762,9 @@ body:has(.fx) footer{color:#6F6A61}
    Forecasts left the Trends page and got a tab of their own. The page opens by
    telling you what it is NOT: nothing here has happened yet. That warning is
    the first thing in the design and the first thing in the markup. */
-.nx-warn{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;
-  align-items:start;padding:16px 18px;border:1px solid var(--rule-2);
-  border-radius:9px;background:var(--sand);margin-bottom:28px}
-.nx-warn .k{font:500 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;
-  color:var(--sand-ink);white-space:nowrap;padding-top:2px}
-.nx-warn p{margin:0;font:400 13px/1.65 var(--sans);color:var(--ink-2)}
+.nx-warn{padding:18px 20px;border-radius:8px;background:var(--sand);margin-bottom:28px}
+.nx-warn .fx-h{--fx-h:16px;margin-bottom:9px}
+.nx-warn p{margin:0;font:400 13px/1.65 var(--sans);color:var(--sand-text)}
 .nx-list{display:flex;flex-direction:column;gap:12px;margin-bottom:34px}
 .nx-card{background:var(--card);border:1px solid var(--rule-2);border-radius:9px;
   padding:22px 24px}
@@ -1761,7 +1788,7 @@ body:has(.fx) footer{color:#6F6A61}
 .nx-counts span{padding:4px 10px;border-radius:5px;background:var(--sand);
   font:400 11.5px var(--sans);color:var(--ink-2)}
 .nx-counts span.warnk{background:rgba(169,116,28,.12);color:var(--mid-ink)}
-.nx-side .fx-lbl{margin-bottom:9px}
+.nx-side .fx-h{--fx-h:16px;margin-bottom:8px}
 .nx-side p{margin:0 0 14px;font:400 12.5px/1.62 var(--sans);color:var(--mute)}
 .nx-more{display:inline-block;margin-top:2px;font:400 12.5px var(--sans);
   color:var(--indigo);text-decoration:underline;text-underline-offset:3px}
@@ -1772,6 +1799,7 @@ body:has(.fx) footer{color:#6F6A61}
 .nx-far .m{font:400 11px var(--mono);color:var(--faint)}
 .nx-how{margin-top:6px;padding:20px 22px;border:1px solid var(--rule);
   border-radius:9px;background:var(--sand)}
+.nx-how .fx-h{--fx-h:20px}
 .nx-how p{margin:9px 0 0;font:400 13px/1.7 var(--sans);color:var(--ink-2);max-width:74ch}
 
 /* ---- Trend detail (4a) and Forecast detail (4b) ----
@@ -1800,6 +1828,10 @@ body:has(.fx) footer{color:#6F6A61}
 .dx-grid{display:grid;grid-template-columns:minmax(0,1fr) 268px;gap:44px;align-items:start}
 .dx-sec{margin-bottom:36px}
 .dx-sec > .fx-lbl{margin-bottom:10px}
+.dx-sec > .fx-h{--fx-h:22px;margin-bottom:10px}
+/* Re-stated at the same specificity as the rule above, which would otherwise
+   win on source order and force every section heading to 22px. */
+.dx-sec > .fx-h.sm{--fx-h:17px}
 .dx-sec h2{margin:0 0 8px;font:400 21px/1.3 var(--serif);color:var(--ink)}
 .dx-sec .note{margin:0 0 16px;font:400 13px/1.7 var(--sans);color:var(--mute);max-width:70ch}
 .dx-quote{padding:20px 22px;border-left:2px solid var(--sand-2);background:var(--sand);
@@ -2058,8 +2090,7 @@ body:has(.fx) footer{color:#6F6A61}
 .pg-prog .done{color:var(--good-ink)}
 /* 2b's "What changed since you saved it" */
 .pg-changed{margin-top:14px;padding:14px 16px;background:var(--sand);border-radius:7px}
-.pg-changed .k{display:block;font:500 10px var(--mono);letter-spacing:.14em;
-  text-transform:uppercase;color:var(--sand-ink);margin-bottom:9px}
+.pg-changed .fx-h{--fx-h:17px;margin-bottom:9px}
 .pg-changed ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .pg-changed li{display:flex;gap:9px;font:400 12.5px/1.5 var(--sans);color:var(--ink-2)}
 .pg-changed li .m{flex:none;width:12px;font-family:var(--mono);color:var(--mute)}
@@ -2851,7 +2882,21 @@ const FX = {
   developing(s){ return ((s.updated_at||0) - (s.created_at||0)) > 3600; },
   ago(sec){ const m=Math.floor((Date.now()/1000-(sec||0))/60);
     if(m<1) return 'just now'; if(m<60) return m+' min ago';
-    const h=Math.floor(m/60); return h<24 ? h+'h ago' : Math.floor(h/24)+'d ago'; }
+    const h=Math.floor(m/60); return h<24 ? h+'h ago' : Math.floor(h/24)+'d ago'; },
+  /* Ranking key for "Affects me directly". Mirrors the server's own foryou
+     ordering (main.py: `impact_score or (1 if personalization_relevant else 0)`)
+     rather than reimplementing a second notion of relevance: a cached score
+     wins outright because a reader actually opened that story; otherwise a
+     story whose topic or text touches the lens sorts above one that does not.
+     Topic is matched too, which is how the server's test starts. */
+  mineScore(s){
+    if (s.impact_score) return s.impact_score;
+    const ctx = S.ctx || {};
+    const ints = (Array.isArray(ctx.interests) ? ctx.interests : [])
+      .map(x=>String(x).toLowerCase()).filter(Boolean);
+    if (ints.includes(String(s.topic||'').toLowerCase())) return 1;
+    return TOUCHES(`${s.headline||''} ${s.narrative||''} ${s.topic||''}`) ? 1 : 0;
+  }
 };
 /* SHOW ME FIRST. These re-rank (and, where the label says "only", filter) the
    list client-side — no extra request. `has` drives the mockup's status dot:
@@ -2864,8 +2909,16 @@ FX.SORTS = {
     apply:l=>l.filter(s=>(s.credibility||0)<70 || FX.developing(s))
               .sort((a,b)=>(b.updated_at||0)-(a.updated_at||0)),
     has:l=>l.some(s=>(s.credibility||0)<70 || FX.developing(s))},
+  /* `impact_score` is only written once somebody has actually opened "What this
+     means for you" on a story, so on a fresh feed nearly every row is 0 and
+     sorting on it alone left the list almost exactly as it was — the control
+     looked broken because it was doing nothing. The fallback is the same free
+     test the server uses when it ranks a personalized feed itself
+     (`personalization_relevant`): does the story text touch anything in the
+     reader's lens. A real cached score still wins, because it reflects a reader
+     having opened it; unscored-but-relevant sorts above unscored-irrelevant. */
   foryou:{label:'Affects me directly',
-    apply:l=>[...l].sort((a,b)=>(b.impact_score||0)-(a.impact_score||0)),
+    apply:l=>[...l].sort((a,b)=>FX.mineScore(b)-FX.mineScore(a)),
     has:()=>hasLens()},
   /* Relative, not a fixed word count. The story prompt asks for 200-260 words,
      so any absolute threshold is either "everything" or "nothing" depending on
@@ -2969,7 +3022,7 @@ async function fxImpact(id, el){
   try{
     const r = await api('/story/'+id+'/personalize?user_id='+S.creds.user_id, {method:'POST'});
     s.impact_text = r.impact_text || ''; s.impact_score = r.impact_score || 0;
-    box.innerHTML = `<span class="fx-lbl">Why this matters to you</span><p>${
+    box.innerHTML = `<span class="fx-h sand">Why this matters to you</span><p>${
       s.impact_text ? esc(s.impact_text)
       : 'No personal angle on this one — Descry adds this when a story touches your work, city or interests.'}</p>`;
   }catch(e){
@@ -3244,7 +3297,7 @@ hero(s, lensed, isIn){
       ${FX.correction(s, true)}
       <div class="fx-stats">${stats.join('<div class="fx-div"></div>')}</div>
       <div class="fx-why"><div class="bar"></div>
-        <div><span class="fx-lbl">Why this matters to you</span>${why}</div></div>
+        <div><span class="fx-h sand">Why this matters to you</span>${why}</div></div>
     </div>
   </article>`;
 },
@@ -3912,13 +3965,13 @@ async _render(id){
       </article>
 
       <aside class="rx-margin">
-        <span class="fx-lbl">Proof for this page</span>
+        <span class="fx-h">Proof for this page</span>
         <p class="sub">${notes
           ? 'Each note below belongs to a line you are reading.'
           : 'Nothing on this story has been checked yet.'}</p>
         ${notes || ''}
         ${fromHTML ? `<div class="rx-hr"></div>
-          <span class="fx-lbl" style="margin-bottom:12px">Where it's coming from</span>
+          <span class="fx-h from">Where it's coming from</span>
           <div class="rx-from">${fromHTML}</div>` : ''}
         ${disputed.length||s.sources?.length ? `<button class="rx-link" data-act="rx-beat"
            data-to="${disputed.length?'disputed':'src'}">See all the proof →</button>` : ''}
@@ -3926,7 +3979,7 @@ async _render(id){
         <div class="rx-hr"></div>
         <div class="rx-frame" id="rx-frame">${Story.framingHTML(s)}</div>
         <div class="rx-you">
-          <span class="fx-lbl">${city?`For you, in ${esc(city)}`:'What this means for you'}</span>
+          <span class="fx-h sand">${city?`For you, in ${esc(city)}`:'What this means for you'}</span>
           ${youBody}
         </div>
       </aside>
@@ -4222,7 +4275,8 @@ const Trends = {
     if (t.kind === 'micro' || (days != null && days < 10))
       return {key:'new', word:'Newly forming',
               note: days == null ? 'just appeared'
-                    : Math.max(1,Math.round(days)) + ' days old', tone:'fx-mid'};
+                    : (d => d + (d===1 ? ' day old' : ' days old'))(
+                        Math.max(1, Math.round(days))), tone:'fx-mid'};
     // Disagreement leads when the sources really are split — either the claims
     // came back contested, or the mean agreement across its stories is low.
     if ((t.disagree||0) > 0 && (t.disagree||0) >= (t.agree||0) * 0.5)
@@ -4278,12 +4332,21 @@ const Trends = {
       fading: withStatus.filter(x=>x.st.key==='fading').length
     };
     if (this.filter==='mine' && !counts.mine) this.filter='all';
-    const shown = withStatus.filter(x =>
+    // Server order, which blends how much is behind a trend with how recently
+    // it moved (backend/app/ranking.py). It used to be re-sorted by story_count
+    // unconditionally, which discarded the recency half and left the web showing
+    // this list in a different order from the app for the same data.
+    // Fading trends sink to the end rather than being dropped — the design is
+    // explicit that a trend losing steam stays visible — which is what the app
+    // does too.
+    const cut = withStatus.filter(x =>
         this.filter==='all'  ? true
       : this.filter==='mine' ? x.mine
       : this.filter==='new'  ? x.st.key==='new'
-      : this.filter==='fading' ? x.st.key==='fading' : true)
-      .sort((a,b)=>(b.t.story_count||0)-(a.t.story_count||0));
+      : this.filter==='fading' ? x.st.key==='fading' : true);
+    const shown = this.filter === 'all'
+      ? [...cut.filter(x=>x.st.key!=='fading'), ...cut.filter(x=>x.st.key==='fading')]
+      : cut;
 
     const signals = (S.signals||[]).slice(0, 4);
     // The headline states only what we can count.
@@ -4342,7 +4405,19 @@ const Trends = {
     // The trend's own words: first sentence as the claim, the rest as the
     // explanation. Falls back to the name when there is no narrative.
     const nar = String(t.narrative||'').trim();
-    const cut = nar.search(/[.!?](\s|$)/);
+    // Not the first period: an abbreviation ("No. 1", "U.S. states", "Mr. Rao")
+    // was ending the sentence early, and one trend's whole claim rendered as
+    // "Ohio State begins at No." A real sentence end is followed by a capital
+    // or a quote, never by a digit or a lower-case letter.
+    const cut = (() => {
+      const re = /[.!?](?:\s+|$)/g;
+      let m;
+      while ((m = re.exec(nar))) {
+        const next = nar.slice(m.index + m[0].length, m.index + m[0].length + 1);
+        if (!next || /[A-Z"'\u201C\u2018]/.test(next)) return m.index;
+      }
+      return -1;
+    })();
     const claim = cut > 20 ? nar.slice(0, cut+1) : (nar || cleanName(t.name));
     const rest  = cut > 20 ? nar.slice(cut+1).trim() : '';
     const chips = [...(t.sectors||[]), ...(t.regions||[])].slice(0,4);
@@ -4441,7 +4516,19 @@ const Next = {
     v.innerHTML = `<div class="fx"><div class="tx-wrap"><div class="skel" style="height:420px"></div></div></div>`;
     if (!S.signals.length) await loadRail();
 
-    const all = (S.signals || []).map(g => ({g, mine: TOUCHES(`${g.title} ${g.prediction} ${(g.affected||[]).join(' ')}`)}));
+    // Successive pipeline runs re-emit the same forecast with a different
+    // horizon, so the raw list repeats headlines. Collapse on the title and keep
+    // the most confident of each set — the same rule the app uses, so the two
+    // clients show the same forecasts.
+    const best = new Map();
+    (S.signals || []).forEach(g => {
+      const k = String(g.title||'').toLowerCase();
+      const cur = best.get(k);
+      if (!cur || (g.confidence||0) > (cur.confidence||0)) best.set(k, g);
+    });
+    const keep = new Set(best.values());
+    const all = (S.signals || []).filter(g => keep.has(g))   // server order preserved
+      .map(g => ({g, mine: TOUCHES(`${g.title} ${g.prediction} ${(g.affected||[]).join(' ')}`)}));
     // "Further out" is the tail of the list — forecasts whose horizon is
     // measured in years get a lighter treatment, as in the design.
     const far = x => /year/i.test(x.g.horizon || '');
@@ -4450,12 +4537,20 @@ const Next = {
     const counts = {mine: all.filter(x=>x.mine).length, all: all.length};
     if (this.filter === 'mine' && !counts.mine) this.filter = 'all';
     let shown = this.filter === 'mine' ? near.filter(x=>x.mine) : near.slice();
-    shown.sort(this.filter === 'soon'
-      ? (a,b) => (a.g.horizon||'zz').localeCompare(b.g.horizon||'zz')
-      : (a,b) => (b.g.confidence||0) - (a.g.confidence||0));
+    // Default order is the server's, which blends confidence with recency. It
+    // used to be confidence desc unconditionally, which made "Most likely first"
+    // a duplicate of "All" and threw the recency half away — a nine-day-old
+    // forecast at 0.9 outranked a fresh one at 0.8 on every visit.
+    if (this.filter === 'soon')
+      shown.sort((a,b) => (a.g.horizon||'zz').localeCompare(b.g.horizon||'zz'));
+    else if (this.filter === 'likely')
+      shown.sort((a,b) => (b.g.confidence||0) - (a.g.confidence||0));
 
+    // 24 hours, not 7 days. Foresight hard-deletes a forecast a week after its
+    // last update, so a 7-day window counts the entire list and the header read
+    // "192 open · 189 new this week".
     const changed = all.filter(x => x.g.created_at &&
-      (Date.now()/1000 - x.g.created_at) < 7*86400).length;
+      (Date.now()/1000 - x.g.created_at) < 86400).length;
     const pill = (k, label, n) => `<button class="tx-pill ${this.filter===k?'on':''}"
         data-act="nx-filter" data-f="${k}">${label}${n!=null?' · '+n:''}</button>`;
 
@@ -4468,11 +4563,11 @@ const Next = {
              we have already checked. We show you the stories behind it, and what would
              prove us wrong.</p>
         </div>
-        <span class="fx-meta">${all.length} open${changed?` · ${changed} new this week`:''}</span>
+        <span class="fx-meta">${all.length} open${changed?` · ${changed} new today`:''}</span>
       </div>
 
       <div class="nx-warn">
-        <span class="k">Read this first</span>
+        <span class="fx-h sand">Read this first</span>
         <p>A forecast is not news. It is thinking out loud, in public, with the working
            shown. Trust it less than the Feed — and hold us to it.</p>
       </div>
@@ -4481,6 +4576,7 @@ const Next = {
         ${counts.mine ? pill('mine','Matters to you',counts.mine) : ''}
         ${pill('all','All',counts.all)}
         ${pill('soon','Soonest first',null)}
+        ${pill('likely','Most likely first',null)}
       </div>` : ''}
 
       <div class="nx-list">
@@ -4502,7 +4598,7 @@ const Next = {
           </article>`;}).join('')}</div>` : ''}
 
       <div class="nx-how">
-        <span class="fx-lbl">How we make these</span>
+        <span class="fx-h">How we make these</span>
         <p>We only build a forecast on trends we have already counted — never on how loud
            something is online. Every one names the stories behind it. We date it, and we
            leave it on the page whether it holds up or not.</p>
@@ -4535,7 +4631,7 @@ const Next = {
           `<span class="${w?'warnk':''}">${esc(c)}</span>`).join('')}</div>`:''}
       </div>
       <div class="nx-side">
-        <span class="fx-lbl">How we got here</span>
+        <span class="fx-h">How we got here</span>
         <p>${g.chain ? esc(String(g.chain).split(/(?<=[.!?])\s/).slice(0,2).join(' '))
            : locked ? 'The reasoning is held back until you sign in — it is the part worth having.'
            : 'No reasoning was recorded for this forecast.'}</p>
@@ -4623,13 +4719,13 @@ const TrendPage = {
       <div class="dx-grid">
         <div>
           ${nar ? `<section class="dx-sec">
-            <span class="fx-lbl">What these stories agree on</span>
+            <span class="fx-h">What these stories agree on</span>
             <p class="note">Strip out the wording and this is the part the coverage has in common.</p>
             <div class="dx-quote">${esc(claim)}</div>
           </section>` : ''}
 
           <section class="dx-sec">
-            <span class="fx-lbl">What argues against this trend</span>
+            <span class="fx-h mid">What argues against this trend</span>
             ${against.length ? `
               <p class="note">${against.length} of the ${stories.length} stories carry a fact the
                  sources argue over. We do not hide them, and we do not pretend they cancel out
@@ -4671,14 +4767,14 @@ const TrendPage = {
 
         <aside class="dx-rail">
           ${Object.keys(kinds).length ? `<div class="dx-box">
-            <span class="fx-lbl">Who is saying it</span>
+            <span class="fx-h sm">Who is saying it</span>
             <div class="dx-who" style="margin-top:11px">${this.whoRows(kinds)}</div>
             ${kinds.trade ? `<p>${kinds.trade} of these sources make money if you believe
               this. We count them, and we tell you.</p>` : ''}
           </div>` : ''}
 
           ${(t.forecasts||[]).length ? `<div class="dx-box">
-            <span class="fx-lbl">Where this could lead</span>
+            <span class="fx-h sm gold">Where this could lead</span>
             <p>${(t.forecasts||[]).length===1?'One forecast is':(t.forecasts||[]).length+' forecasts are'}
                built on this trend.</p>
             ${(t.forecasts||[]).map(f=>{
@@ -4739,7 +4835,7 @@ const TrendPage = {
     const max = Math.max(...buckets, 1);
     const rising = buckets[weeks-1] >= buckets[0];
     return `<section class="dx-sec">
-      <span class="fx-lbl">How it grew</span>
+      <span class="fx-h sm">How it grew</span>
       <div class="dx-bars">${buckets.map((n,i)=>
         `<i class="${i===weeks-1?'now':''}" style="height:${Math.max(4, Math.round(n/max*70))}px"
            title="${n} ${n===1?'story':'stories'}"></i>`).join('')}</div>
@@ -4817,7 +4913,7 @@ const SignalPage = { async render(id){
         </section>` : ''}
 
         <section class="dx-sec">
-          <span class="fx-lbl">How we got here</span>
+          <span class="fx-h">How we got here</span>
           ${open && stories.length ? `
             <p class="note">${capWord(numWord(stories.length))} ${stories.length===1?'story':'stories'}, then one
                step of reasoning. If you disagree with any step, you should disagree with the forecast.</p>
@@ -4837,7 +4933,7 @@ const SignalPage = { async render(id){
         </section>` : ''}
 
         ${g.watch && open ? `<section class="dx-sec">
-          <span class="fx-lbl">What would make this happen</span>
+          <span class="fx-h good">What would make this happen</span>
           <p class="note">Watch for this. If it keeps happening, we are on the right track.</p>
           <div class="dx-marks"><div class="dx-mark open"><span class="g">○</span>
             <span>${esc(g.watch)}</span></div></div>
@@ -4987,7 +5083,7 @@ const PG = {
     // server computed — never a list of things we did not observe.
     const c = s.correction;
     const changed = !(opts.savedAt && c) ? '' : `<div class="pg-changed">
-      <span class="k">What changed since you saved it</span>
+      <span class="fx-h">What changed since you saved it</span>
       <ul><li class="down"><span class="m">~</span><span>${esc(c.note||'')}</span></li></ul>
     </div>`;
 

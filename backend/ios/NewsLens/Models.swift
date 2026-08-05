@@ -90,7 +90,7 @@ enum LiveCategory: String, CaseIterable, Identifiable, Hashable {
 
 struct FeedResponse: Codable { var items: [FeedItem] }
 
-struct FeedItem: Codable, Identifiable, Hashable {
+struct FeedItem: Codable, Identifiable, Hashable, EvidenceCarrying {
     var id: String
     var headline: String
     var narrative: String
@@ -105,15 +105,63 @@ struct FeedItem: Codable, Identifiable, Hashable {
     var imageUrl: String?
     // Optional: only /feed and /stories return it; /signals & /trend stories omit it.
     var createdAt: Double?
+    /// Bumped when a developing storyline is retold. `updated_at != created_at`
+    /// is the whole basis of the "Developing · still unfolding" kicker.
+    var updatedAt: Double?
+
+    // Evidence counts. The server has been sending these since the redesign
+    // (see `_evidence` in main.py) and the app simply never decoded them —
+    // which is why the cards had a percentage and no facts behind it. Every one
+    // is Optional because the server OMITS a key it cannot compute rather than
+    // sending a zero; see the note on `EvidenceCarrying`.
+    var claimsVerified: Int?
+    var claimsDisputed: Int?
+    var claimsUnverified: Int?
+    var claimsTotal: Int?
+    var sourceCount: Int?
+    var sourceKinds: [String: Int]?
+    var sourcePrimary: Int?
+    var conflicts: Int?
+    /// Present only on stories whose own corroboration actually fell, or where
+    /// a checked fact became argued over. Absent means "nothing to report",
+    /// never "stable" — so nothing is drawn either way.
+    var correction: Correction?
 
     enum CodingKeys: String, CodingKey {
-        case id, headline, narrative, credibility, topic
+        case id, headline, narrative, credibility, topic, conflicts, correction
         case credibilityNote = "credibility_note"
         case impactText = "impact_text"
         case impactScore = "impact_score"
         case imageUrl = "image_url"
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case claimsVerified = "claims_verified"
+        case claimsDisputed = "claims_disputed"
+        case claimsUnverified = "claims_unverified"
+        case claimsTotal = "claims_total"
+        case sourceCount = "source_count"
+        case sourceKinds = "source_kinds"
+        case sourcePrimary = "source_primary"
     }
+}
+
+/// "Fewer sources agree now" — computed server-side from `story_history`.
+///
+/// Never called a retraction, here or in the strings the server sends: we can
+/// observe OUR corroboration falling; we cannot observe a publisher withdrawing
+/// anything, and the two are not the same claim.
+struct Correction: Codable, Hashable {
+    var kind: String
+    var note: String?
+    var from: Double?
+    var to: Double?
+
+    private static let headings = [
+        "weakened":    "Fewer sources agree now",
+        "contested":   "A fact we checked is now argued over",
+        "conflicting": "Outlets now report different numbers",
+    ]
+    var heading: String { Self.headings[kind] ?? Self.headings["weakened"]! }
 }
 
 // MARK: - Trends
@@ -126,14 +174,38 @@ struct Trend: Codable, Identifiable, Hashable {
     var name: String
     var narrative: String
     var sectors: [String]?
+    var regions: [String]?
     var velocity: Double?
     var articleCount: Int?
     var createdAt: Double?
+    var updatedAt: Double?
+    /// Mean agreement across the trend's stories in the feed window. `nil` —
+    /// not 0 — when no scored story carries this trend, so the card can say
+    /// "not enough to judge yet" instead of reporting a zero as a finding.
+    var credibility: Double?
+    var storyCount: Int?
+    /// Sums of the per-claim verdicts on the stories underneath. Sent only when
+    /// claims were actually checked: 0/0 would read as "nobody agrees" when it
+    /// means "we haven't checked".
+    var agree: Int?
+    var disagree: Int?
+    /// How many of this trend's stories have since had their own corroboration
+    /// fall. Only ever a positive count — absent means "none had enough history
+    /// to tell", which is far commoner than "none weakened".
+    var weakenedCount: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, narrative, sectors, velocity
+        case id, kind, name, narrative, sectors, regions, velocity, credibility, agree, disagree
         case articleCount = "article_count"
+        case storyCount = "story_count"
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case weakenedCount = "weakened_count"
+    }
+
+    /// Everything this trend says about itself, for the free relevance test.
+    var lensText: String {
+        ([name, narrative] + (sectors ?? []) + (regions ?? [])).joined(separator: " ")
     }
 }
 
@@ -162,6 +234,11 @@ struct Signal: Codable, Identifiable, Hashable {
     var storyCount: Int?
 
     var isLocked: Bool { locked == true }
+
+    /// Everything this forecast says about itself, for the free relevance test.
+    var lensText: String {
+        ([title, prediction] + (affected ?? [])).joined(separator: " ")
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, title, prediction, chain, watch, affected, horizon, confidence, stories, locked
@@ -257,7 +334,7 @@ struct AskResponse: Codable {
 
 // MARK: - Story detail
 
-struct StoryDetail: Codable {
+struct StoryDetail: Codable, EvidenceCarrying {
     var id: String
     var headline: String
     var narrative: String
@@ -272,10 +349,39 @@ struct StoryDetail: Codable {
     var impactScore: Int?
     var imageUrl: String?
     var createdAt: Double?
+    var updatedAt: Double?
     /// "Why it matters", stored separately from the storyline. Absent/empty on
     /// stories written before the split — callers fall back to the old
     /// first-paragraph/rest division of `narrative`.
     var whyMatters: String?
+    /// The storyline cut into its natural sections, each with a label written
+    /// for THIS story ("Why the gap closed"). `nil` — not `[]` — on stories
+    /// written before beats existed, and the reader falls back to paragraphs
+    /// for those. That distinction is why this must not be defaulted.
+    var beats: [Beat]?
+    /// Which sentence the writer produced for each checked claim, verified
+    /// server-side to occur verbatim in the prose. This is what lets the reader
+    /// mark a line and attach a verdict to it honestly.
+    var anchors: [Anchor]?
+    var claimsVerified: Int?
+    var claimsDisputed: Int?
+    var claimsUnverified: Int?
+    var claimsTotal: Int?
+    var sourceCount: Int?
+    var sourceKinds: [String: Int]?
+    var sourcePrimary: Int?
+    var conflicts: Int?
+    var correction: Correction?
+
+    struct Beat: Codable, Hashable {
+        var label: String
+        var text: String
+    }
+    struct Anchor: Codable, Hashable {
+        /// Index into `claims.verdicts`.
+        var claim: Int
+        var quote: String
+    }
 
     struct Claims: Codable {
         var claims: [String]?
@@ -312,11 +418,45 @@ struct StoryDetail: Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, headline, narrative, credibility, claims, topic, sources, trends, connections
+        case beats, anchors, conflicts, correction
         case credibilityNote = "credibility_note"
         case impactText = "impact_text"
         case impactScore = "impact_score"
         case imageUrl = "image_url"
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
         case whyMatters = "why_matters"
+        case claimsVerified = "claims_verified"
+        case claimsDisputed = "claims_disputed"
+        case claimsUnverified = "claims_unverified"
+        case claimsTotal = "claims_total"
+        case sourceCount = "source_count"
+        case sourceKinds = "source_kinds"
+        case sourcePrimary = "source_primary"
     }
+
+    /// The reader's sections. Beats when the story has them; otherwise the old
+    /// paragraph split, so a story written before beats existed still reads as
+    /// a sectioned page rather than one undifferentiated block.
+    var readerBeats: [Beat] {
+        if let beats, !beats.isEmpty { return beats }
+        let paras = narrative.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !paras.isEmpty else { return [] }
+        // One generic label is unavoidable here — there is nothing story-specific
+        // to name these with, which is exactly what beats added.
+        return [Beat(label: "What happened", text: paras.joined(separator: "\n\n"))]
+    }
+
+    var verdicts: [Verdict] {
+        if let v = claims?.verdicts, !v.isEmpty { return v }
+        // Claims extracted but never checked: they are still real claims, and
+        // saying "we could not check this" about them is truthful. Inventing a
+        // verdict would not be.
+        return (claims?.claims ?? []).map {
+            Verdict(claim: $0, verdict: "unverified", note: "Not yet assessed")
+        }
+    }
+
+    var proofNotes: [ProofNote] { verdicts.map(ProofNote.init) }
 }

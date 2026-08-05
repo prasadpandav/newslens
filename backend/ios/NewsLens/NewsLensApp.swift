@@ -47,20 +47,24 @@ struct RootTabs: View {
     @EnvironmentObject var api: APIClient
 
     var body: some View {
-        // On iOS 26 the system tab bar renders in Liquid Glass automatically.
+        // The design's five tabs, in its order and its words: Feed, Trends,
+        // What's Next, Saved, Read. Profile is not among them — it moved to the
+        // account button in the feed's masthead, which is where the web portal
+        // keeps it too. Five is already the most a 390pt bar can label; a sixth
+        // would truncate all of them.
         TabView {
             BriefView()
-                .tabItem { Label("Brief", systemImage: "sun.max") }
+                .tabItem { Label("Feed", systemImage: "newspaper") }
             TrendsView()
                 .tabItem { Label("Trends", systemImage: "chart.line.uptrend.xyaxis") }
+            NextView()
+                .tabItem { Label("What's Next", systemImage: "arrow.turn.up.right") }
             SavedView()
                 .tabItem { Label("Saved", systemImage: "bookmark") }
             ReadView()
                 .tabItem { Label("Read", systemImage: "checkmark.circle") }
-            ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
         }
-        .tint(pal.accent)
+        .tint(pal.text)
         .task {
             await api.loadBookmarks()
             await api.loadReadStories()

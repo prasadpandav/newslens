@@ -9,6 +9,20 @@ extension Color {
             traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
         })
     }
+
+    /// The design tokens are written as hex in the mockups and in the web
+    /// portal's CSS. Transcribing them into `Color(red:green:blue:)` decimals
+    /// by hand is where a palette silently drifts from its source, so they are
+    /// carried across as the same literals.
+    static func hex(_ rgb: UInt32) -> Color {
+        Color(red:   Double((rgb >> 16) & 0xFF) / 255,
+              green: Double((rgb >>  8) & 0xFF) / 255,
+              blue:  Double( rgb        & 0xFF) / 255)
+    }
+    /// Translucent ink (`rgba(23,21,15,a)`) — rules and edges on light paper.
+    static func ink(_ alpha: Double) -> Color { hex(0x17150F).opacity(alpha) }
+    /// Translucent paper (`rgba(247,244,238,a)`) — the same, on night paper.
+    static func paper(_ alpha: Double) -> Color { hex(0xF7F4EE).opacity(alpha) }
 }
 
 // MARK: - Skins
@@ -72,6 +86,34 @@ struct Palette {
     var accent: Color, ai: Color
     var trust: Color, warning: Color, breaking: Color, prediction: Color
 
+    // MARK: Redesign tokens
+    //
+    // The paper design splits what used to be two text tiers into four, and —
+    // the part that is easy to miss — splits each verdict colour by ROLE. In
+    // the mockups `#A9741C` appears 41 times as a fill and never once as
+    // `color:`; the text beside those fills is `#8A5A18`. A hue bright enough
+    // to read as a 5px pip is not legible as 11px type, so `warning` (text) and
+    // `midFill` (pip) are deliberately different values rather than one colour
+    // used twice. Same for good and bad.
+
+    /// Third text tier — the prose inside a card, one step quieter than `text2`.
+    /// A distinct token because the mockups use `#4A4640` for a lead card's
+    /// paragraph and `#5C574F` for the smaller cards and the explainer notes.
+    var text3: Color = .secondary
+    /// Fourth tier — captions, meta lines. Between `text3` and `faint`.
+    var mute: Color = .secondary
+    /// Fifth tier — the quietest type that still has to be readable.
+    var faint: Color = .secondary
+    /// Non-text greys: separator dots, empty pips, disabled marks.
+    var ghost: Color = .secondary.opacity(0.5)
+    /// The "Why this matters to you" panel: warm fill, its edge, its label, and
+    /// the body text inside it — which is darker than `text2`, because it sits
+    /// on sand rather than paper.
+    var sand: Color = .clear, sandEdge: Color = .clear, sandInk: Color = .primary
+    var sandText: Color = .primary
+    /// Fill-only variants of the three verdict colours (pips, bars, ticks).
+    var goodFill: Color = .green, midFill: Color = .orange, badFill: Color = .red
+
     /// Corner radius for content cards. The two editorial skins are near-square;
     /// Signal is fully square, which is one of its stated design goals.
     var radius: CGFloat = 18
@@ -91,8 +133,48 @@ struct Palette {
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
+    /// The verdict colour for TYPE. Breakpoints are the agreement scale's, not
+    /// their own set — see `AgreementBand`, which owns the thresholds and the
+    /// words. Two ladders that drift apart would let a row read "Some sources
+    /// agree" in the colour of "Most".
     func credColor(_ score: Double) -> Color {
-        score >= 75 ? trust : score >= 50 ? warning : breaking
+        switch AgreementBand.of(score).tone {
+        case .good: return trust
+        case .mid:  return warning
+        case .bad:  return breaking
+        }
+    }
+
+    /// The same verdict as a FILL — pips, bars, ticks. Brighter than
+    /// `credColor`, which is why the two exist.
+    func credFill(_ score: Double) -> Color {
+        switch AgreementBand.of(score).tone {
+        case .good: return goodFill
+        case .mid:  return midFill
+        case .bad:  return badFill
+        }
+    }
+
+    // MARK: Typography
+    //
+    // The design names three families: Newsreader for headlines and prose, IBM
+    // Plex Sans for the interface, IBM Plex Mono for figures and labels. None
+    // ship with iOS, so each maps to the system face closest in intent — New
+    // York (`.serif`), SF Pro, SF Mono. Sizes are the mockups' own pixel values;
+    // SwiftUI scales `Font.system(size:)` with Dynamic Type, so they still grow
+    // with the reader's text-size setting.
+
+    /// Headlines and body prose.
+    func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+    /// Interface text — buttons, labels, meta lines.
+    func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight)
+    }
+    /// Figures, kickers and the small capitalised labels.
+    func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
     }
 
     /// Scale a hand-tuned corner radius to the skin. Views carry radii chosen for
@@ -120,33 +202,53 @@ struct Palette {
 
     // MARK: Skin definitions
 
-    /// The existing Descry look, unchanged — light/dark adaptive.
+    /// Descry — ink on paper. The same token set the web portal's `.fx`/`.rx`
+    /// pages declare, value for value, so a story looks like itself on both.
+    /// Light/dark adaptive: the design has a night paper (`#12110F`), it is not
+    /// a light-only look.
     static let descry = Palette(
         skin: .default,
-        ink:  Color(light: Color(red: 0.965, green: 0.973, blue: 0.988),
-                    dark:  Color(red: 0.027, green: 0.043, blue: 0.078)),
-        ink2: Color(light: .white,
-                    dark:  Color(red: 0.043, green: 0.067, blue: 0.125)),
-        surface:  Color(light: .white, dark: Color.white.opacity(0.045)),
-        surface2: Color(light: Color.black.opacity(0.05), dark: Color.white.opacity(0.07)),
-        hairline:  Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.08)),
-        hairline2: Color(light: Color.black.opacity(0.15), dark: Color.white.opacity(0.14)),
-        text:  Color(light: Color(red: 0.086, green: 0.106, blue: 0.149), dark: Color(red: 0.910, green: 0.925, blue: 0.957)),
-        text2: Color(light: Color(red: 0.35, green: 0.39, blue: 0.47),
-                     dark:  Color(red: 0.604, green: 0.647, blue: 0.722)),
-        accent: Color(light: Color(red: 0.13, green: 0.42, blue: 0.90),
-                      dark:  Color(red: 0.302, green: 0.624, blue: 1.0)),
-        ai: Color(light: Color(red: 0.40, green: 0.27, blue: 0.92),
-                  dark:  Color(red: 0.486, green: 0.361, blue: 1.0)),
-        trust: Color(light: Color(red: 0.02, green: 0.59, blue: 0.41),
-                     dark:  Color(red: 0.239, green: 0.863, blue: 0.592)),
-        warning: Color(light: Color(red: 0.72, green: 0.46, blue: 0.02),
-                       dark:  Color(red: 1.0, green: 0.761, blue: 0.302)),
-        breaking: Color(light: Color(red: 0.83, green: 0.15, blue: 0.24),
-                        dark:  Color(red: 1.0, green: 0.365, blue: 0.451)),
-        prediction: Color(light: Color(red: 0.49, green: 0.23, blue: 0.93),
-                          dark:  Color(red: 0.706, green: 0.549, blue: 1.0)),
-        radius: 18, serifBody: false, ambientGlow: true, cardShadow: true)
+        // --paper / --card
+        ink:  Color(light: .hex(0xF7F4EE), dark: .hex(0x12110F)),
+        ink2: Color(light: .hex(0xFFFDF9), dark: .hex(0x171512)),
+        surface:  Color(light: .hex(0xFFFDF9), dark: .hex(0x171512)),
+        // --sand: the tint behind "Why this matters to you" and other insets.
+        surface2: Color(light: .hex(0xEFE9DC), dark: .hex(0x1E1B16)),
+        // --rule / --rule-2
+        hairline:  Color(light: .ink(0.09), dark: .paper(0.12)),
+        hairline2: Color(light: .ink(0.14), dark: .paper(0.18)),
+        // --ink / --ink-2
+        text:  Color(light: .hex(0x17150F), dark: .hex(0xF2EEE6)),
+        text2: Color(light: .hex(0x4A4640), dark: Color.hex(0xF2EEE6).opacity(0.82)),
+        // --indigo: the one link colour. There is no second accent hue in this
+        // design, so `ai` is not a violet any more — it is the same indigo, and
+        // `aiGradient` collapses to a flat fill (see the initialiser's note).
+        accent: Color(light: .hex(0x2E4A7D), dark: .hex(0x9DB4DC)),
+        ai:     Color(light: .hex(0x2E4A7D), dark: .hex(0x9DB4DC)),
+        // --good-ink / --mid-ink / --bad-ink. These are the TEXT variants; the
+        // brighter fills are `goodFill`/`midFill`/`badFill` below.
+        trust:    Color(light: .hex(0x3F6B4A), dark: .hex(0x8FBA98)),
+        warning:  Color(light: .hex(0x8A5A18), dark: .hex(0xE2B96A)),
+        breaking: Color(light: .hex(0x9B3F30), dark: .hex(0xD8927D)),
+        // Forecasts are drawn in the same ink as everything else — the design
+        // has no purple, and a lone violet on paper reads as a different app.
+        prediction: Color(light: .hex(0x2E4A7D), dark: .hex(0x9DB4DC)),
+        text3: Color(light: .hex(0x5C574F), dark: Color.hex(0xF2EEE6).opacity(0.72)),
+        mute:  Color(light: .hex(0x7A756C), dark: .paper(0.62)),
+        faint: Color(light: .hex(0x6F6A61), dark: .paper(0.55)),
+        ghost: Color(light: .hex(0xC0BAB0), dark: .paper(0.25)),
+        sand:     Color(light: .hex(0xEFE9DC), dark: .hex(0x1E1B16)),
+        sandEdge: .hex(0xC8B98F),
+        // #7A6534 — the label on a sand panel, and the "your lens" / "near you"
+        // pill text. Darker than the old #8A7A4E, which the mockups only use
+        // for one strength label and never for a heading.
+        sandInk:  Color(light: .hex(0x7A6534), dark: .hex(0xC8B98F)),
+        sandText: Color(light: .hex(0x3A342A), dark: .paper(0.85)),
+        goodFill: Color(light: .hex(0x3F6B4A), dark: .hex(0x7AA884)),
+        midFill:  Color(light: .hex(0xA9741C), dark: .hex(0xD2A54F)),
+        badFill:  Color(light: .hex(0x9B3F30), dark: .hex(0xC87F6A)),
+        // Paper doesn't glow and doesn't float: the cards are ruled, not raised.
+        radius: 10, serifBody: false, ambientGlow: false, cardShadow: false)
 
     /// "The Journal" — ink on cream paper, one carmine accent. A fixed palette,
     /// not a light/dark pair: a picked skin is a deliberate look, which is the
@@ -169,6 +271,19 @@ struct Palette {
         warning:  Color(red: 0.361, green: 0.329, blue: 0.290),
         breaking: Color(red: 0.557, green: 0.169, blue: 0.118),
         prediction: Color(red: 0.098, green: 0.082, blue: 0.067),
+        // Journal is a single-ink look, so its four text tiers are one hue at
+        // four weights rather than four hues. Its verdict FILLS are the only
+        // place it admits colour beyond carmine, and only because an all-ink
+        // pip row cannot say which of five pips are lit.
+        mute:  Color(red: 0.361, green: 0.329, blue: 0.290),
+        faint: Color(red: 0.451, green: 0.420, blue: 0.376),
+        ghost: Color(red: 0.788, green: 0.757, blue: 0.698),
+        sand:     Color(red: 0.937, green: 0.918, blue: 0.867),
+        sandEdge: Color(red: 0.784, green: 0.725, blue: 0.561),
+        sandInk:  Color(red: 0.361, green: 0.329, blue: 0.290),
+        goodFill: Color(red: 0.098, green: 0.082, blue: 0.067),
+        midFill:  Color(red: 0.451, green: 0.420, blue: 0.376),
+        badFill:  Color(red: 0.557, green: 0.169, blue: 0.118),
         radius: 3, serifBody: true, ambientGlow: false, cardShadow: false)
 
     /// "The Signal" — Swiss instrument. Zero radius, zero shadow, zero gradient;
@@ -189,6 +304,17 @@ struct Palette {
         warning:  Color(red: 0.431, green: 0.427, blue: 0.400),
         breaking: Color(red: 0.847, green: 0.216, blue: 0.110),
         prediction: Color(red: 0.071, green: 0.071, blue: 0.063),
+        // Signal holds vermilion back for alerts, so a lit pip is ink and an
+        // unlit one is the grey track — the count is read from position, not hue.
+        mute:  Color(red: 0.431, green: 0.427, blue: 0.400),
+        faint: Color(red: 0.529, green: 0.525, blue: 0.494),
+        ghost: Color(red: 0.867, green: 0.863, blue: 0.831),
+        sand:     Color(red: 0.071, green: 0.071, blue: 0.063).opacity(0.05),
+        sandEdge: Color(red: 0.071, green: 0.071, blue: 0.063),
+        sandInk:  Color(red: 0.071, green: 0.071, blue: 0.063),
+        goodFill: Color(red: 0.071, green: 0.071, blue: 0.063),
+        midFill:  Color(red: 0.431, green: 0.427, blue: 0.400),
+        badFill:  Color(red: 0.847, green: 0.216, blue: 0.110),
         radius: 0, serifBody: false, ambientGlow: false, cardShadow: false)
 
     static func of(_ skin: DescrySkin) -> Palette {
@@ -364,15 +490,20 @@ struct Chip: View {
 
     var body: some View {
         let c = color ?? pal.text2
-        // Signal's tags are solid ink blocks with the paper knocked out of them,
-        // not tinted capsules; the other two skins keep the tinted pill.
-        let square = pal.skin == .signal
+        // The paper design's chip is an outline that fills solid when it is on:
+        // a low-alpha tint is not a strong enough "selected" state at 12.5px,
+        // and it was the thing the topic filter was reported for. Journal keeps
+        // the same rule; the pill just squares off.
         return Text(text)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(shape.fill(filled ? (square ? c : c.opacity(0.16)) : pal.surface2))
-            .overlay(shape.stroke(filled ? c.opacity(square ? 1 : 0.4) : pal.hairline, lineWidth: 1))
-            .foregroundStyle(filled ? (square ? pal.ink : c) : pal.text2)
+            .font(pal.sans(13.5, filled ? .medium : .regular))
+            .padding(.horizontal, 13).padding(.vertical, 7)
+            .background(shape.fill(filled ? c : .clear))
+            .overlay(shape.stroke(filled ? c : pal.hairline2, lineWidth: 1))
+            .foregroundStyle(filled ? pal.ink : pal.text2)
+            // The whole pill is the target, not just the glyphs. Without this
+            // the unfilled chip's fill is `.clear` and therefore not
+            // hit-testable, so taps landing in the padding do nothing.
+            .contentShape(shape)
     }
 
     private var shape: AnyShape {
@@ -525,7 +656,7 @@ struct TrustRing: View {
             Circle().stroke(pal.surface2, lineWidth: 4.5)
             Circle()
                 .trim(from: 0, to: animated ? score / 100 : 0)
-                .stroke(pal.credColor(score),
+                .stroke(pal.credFill(score),
                         style: StrokeStyle(lineWidth: 4.5,
                                            lineCap: pal.radius == 0 ? .butt : .round))
                 .rotationEffect(.degrees(-90))
@@ -544,13 +675,12 @@ struct TrustRing: View {
 struct TrustMeter: View {
     var score: Double
 
-    /// Mirrors BL.credColor's own breakpoints, so the word and the bar's color
-    /// never disagree. Replaces the card's old standalone "Highly corroborated"
-    /// chip — that only ever appeared above 85 and left every other card's bar
-    /// unlabeled; this labels all of them and lives right on the number it explains.
-    private var label: String {
-        score >= 75 ? "Highly corroborated" : score >= 50 ? "Developing story" : "Limited corroboration"
-    }
+    /// The agreement scale's own sentence — "Most sources agree", not "Highly
+    /// corroborated". The design bans that vocabulary outright, and a screen
+    /// still using it beside one that doesn't reads as two different products.
+    /// Screens redesigned onto the paper layout use `AgreementLine` instead;
+    /// this keeps the rest of the app saying the same thing in the meantime.
+    private var label: String { AgreementBand.of(score).name }
     @Environment(\.palette) private var pal
 
     var body: some View {
@@ -564,7 +694,8 @@ struct TrustMeter: View {
                     // Same bug as TrustRing's track: a hardcoded white bar is
                     // invisible in light mode and on both paper skins.
                     bar.fill(pal.surface2)
-                    bar.fill(pal.credColor(score))
+                    // Fill, not text colour — a bar is a fill. See Palette.
+                    bar.fill(pal.credFill(score))
                         .frame(width: geo.size.width * score / 100)
                 }
             }
