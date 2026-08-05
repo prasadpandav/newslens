@@ -1,4 +1,11 @@
 # Topic -> list of RSS/Atom feeds. Add or remove freely; this is the main tuning knob.
+india:
+  - https://feeds.feedburner.com/ndtvnews-top-stories
+  - https://www.thehindubusinessline.com/rssfeeds/
+  - https://www.thehindu.com/news/national/feeder/default.rss
+  - https://theprint.in/feed/
+  - https://www.hindustantimes.com/rss/topnews/rssfeed.xml
+  - https://www.hindustantimes.com/feeds/rss/trending/rssfeed.xml
 world:
   # PRIMARY — the Commission's own press corner, not a wire report of it.
   - https://ec.europa.eu/commission/presscorner/api/rss?language=en
@@ -7,6 +14,10 @@ world:
 business:
   - https://feeds.bbci.co.uk/news/business/rss.xml
   - https://www.cnbc.com/id/10001147/device/rss/rss.html
+  - https://feeds.bbci.co.uk/news/business/economy/rss.xml
+  - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/business.xml
+  - https://indianexpress.com/section/explained/explained-economics/feed/
+
 # Finance is India-weighted by design (markets, economy, corporate + CFO desk),
 # with two global feeds for international context. Note this is the largest topic
 # by feed count, so it contributes the most articles per Scout run.
@@ -20,7 +31,6 @@ finance:
   - https://www.sebi.gov.in/sebirss.xml
   # global
   - https://www.cnbc.com/id/10000664/device/rss/rss.html
-  - https://feeds.bbci.co.uk/news/business/economy/rss.xml
   # India — markets & money
   - https://www.livemint.com/rss/money
   - https://www.livemint.com/rss/companies
@@ -31,7 +41,6 @@ finance:
   # India — CNBC TV18 (economy / market / business / latest)
   - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/economy.xml
   - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml
-  - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/business.xml
   - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/latest.xml
   # India — ET CFO desk (corporate finance / strategy / CFO tech)
   - https://cfo.economictimes.indiatimes.com/rss/lateststories
@@ -39,9 +48,20 @@ finance:
   - https://cfo.economictimes.indiatimes.com/rss/strategy-operations
   - https://cfo.economictimes.indiatimes.com/rss/cfo-tech
   - https://cfo.economictimes.indiatimes.com/rss/corporate-finance
-sports:
-  - https://feeds.bbci.co.uk/sport/rss.xml
-  - https://www.espn.com/espn/rss/news
+  - https://www.hindustantimes.com/feeds/rss/business/your-money/rssfeed.xml
+  - https://www.hindustantimes.com/feeds/rss/infographic/money/rssfeed.xml
+local:
+  # Thane. The Indian Express Thane feed below still returns 200 and 16 items,
+  # but its newest entry is dated June 2023 — the feed is abandoned, so every
+  # item fails the 12h freshness gate and it contributes nothing. Left in place
+  # (it costs one fetch) in case it ever revives; FPJ is what actually carries
+  # Thane today. Remove the dead one whenever you like.
+  - https://www.freepressjournal.in/stories.rss?section=thane
+  - https://indianexpress.com/section/cities/thane/feed/
+  - https://www.thehindu.com/news/cities/mumbai/feeder/default.rss
+  - https://indianexpress.com/section/cities/pune/feed/
+  - https://www.hindustantimes.com/feeds/rss/cities/mumbai-news/rssfeed.xml
+  - https://www.hindustantimes.com/feeds/rss/cities/pune-news/rssfeed.xml
 technology:
   # PRIMARY — the advisory itself, from the agency that issued it.
   - https://www.cisa.gov/cybersecurity-advisories/all.xml
@@ -52,20 +72,28 @@ technology:
   - https://www.wired.com/feed/rss
   - https://www.engadget.com/rss.xml
   - https://www.technologyreview.com/feed/
+  - https://www.hindustantimes.com/feeds/rss/technology/rssfeed.xml
+
 ai:
   - https://the-decoder.com/feed/
   - https://techcrunch.com/category/artificial-intelligence/feed/
   - https://venturebeat.com/category/ai/feed/
   - https://arstechnica.com/ai/feed/
   - https://www.technologyreview.com/topic/artificial-intelligence/feed/
+  - https://indianexpress.com/section/technology/artificial-intelligence/feed/
 science:
   - https://www.sciencedaily.com/rss/all.xml
+
+sports:
+  - https://indianexpress.com/section/sports/cricket/feed/
+  - https://www.hindustantimes.com/feeds/rss/cricket/rssfeed.xml
+  - https://indianexpress.com/section/sports/cricket-world-cup/feed/
+  - https://www.hindustantimes.com/feeds/rss/sports/commonwealth-games/rssfeed.xml
+  - https://feeds.bbci.co.uk/sport/rss.xml
+  - https://www.espn.com/espn/rss/news
+  - https://www.hindustantimes.com/feeds/rss/car-bike/rssfeed.xml
 health:
   - https://feeds.bbci.co.uk/news/health/rss.xml
-india:
-  - https://feeds.feedburner.com/ndtvnews-top-stories
-  - https://www.thehindubusinessline.com/rssfeeds/
-  - https://www.thehindu.com/news/national/feeder/default.rss
-  - https://theprint.in/feed/
+
 energy:
   - https://www.rechargenews.com/rss

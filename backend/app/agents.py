@@ -3,6 +3,7 @@
 Each agent is a small class with .run(con) that reads and writes SQLite.
 Prompts come from prompts.yaml. The LLM client handles mock/real providers.
 """
+import heapq
 import json
 import math
 import re
@@ -271,9 +272,13 @@ class Scout:
                         con.execute(
                             "INSERT INTO articles (id,url,title,summary,source,topic,"
                             "published,entities,fetched_at,image_url,image_width,"
-                            "image_height) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                            "image_height,place) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (db.new_id(), link, title, summary, source, topic,
-                             pub, "", db.now(), img, iw, ih))
+                             pub, "", db.now(), img, iw, ih,
+                             # From the FEED url, not the article's: a city feed
+                             # is what tells us the coverage area, and the
+                             # article's own link often carries no city at all.
+                             place_for_url(url)))
                         added += 1
                     except Exception:
                         pass  # duplicate url
@@ -338,6 +343,52 @@ def _terms(raw):
         if isinstance(item, str) and item.strip():
             out.append(item.strip())
     return list(dict.fromkeys(out))
+
+
+#: URL-substring -> place name, from sources.yaml. Read once; the file is small
+#: and does not change between runs.
+_PLACES = None
+
+
+def place_for_url(url):
+    """Which place a feed URL covers, or "" when we have no mapping for it.
+
+    Longest key first, so a specific city path wins over a broader one from the
+    same publisher. Returns "" rather than guessing: an unmapped local feed is
+    honestly "Local" with no city named, which is better than naming the wrong
+    one — the whole point of the field is that a reader in Delhi is not told
+    Thane news is theirs.
+    """
+    global _PLACES
+    if _PLACES is None:
+        doc = yaml.safe_load(config.SOURCES_FILE.read_text()) or {}
+        raw = doc.get("places") or {}
+        _PLACES = sorted(((k.lower(), v) for k, v in raw.items()),
+                         key=lambda kv: -len(kv[0]))
+    u = (url or "").lower()
+    for key, place in _PLACES:
+        if key in u:
+            return place
+    return ""
+
+
+def _place_of(arts):
+    """The place a story is about: the commonest place among its articles.
+
+    Commonest rather than first, because one event is often carried by several
+    city feeds and the one that filed first is not necessarily the one it
+    happened in. Ties break toward the earliest article, which is stable across
+    runs so a story does not change city on a retell. "" when no article carries
+    a place — most stories are not local at all.
+    """
+    counts = {}
+    for a in arts:
+        p = (a["place"] if "place" in a.keys() else "") or ""
+        if p:
+            counts[p] = counts.get(p, 0) + 1
+    if not counts:
+        return ""
+    return max(counts.items(), key=lambda kv: kv[1])[0]
 
 
 def entity_terms(blob, *keys):
@@ -698,32 +749,68 @@ class ConnectionFinder:
     """Pairs of dissimilar stories that share entities/sectors -> LLM traces
     the second-order chain between them."""
 
-    MAX_PAIRS = 12  # budget guard
+    MAX_PAIRS = 12  # LLM budget guard — NOT a memory guard, see MAX_ARTICLES
 
     def run(self, con):
+        # This stage is inherently O(n²) in articles, which is why `n` has a hard
+        # ceiling and the per-article work is done ONCE rather than per pair.
+        #
+        # It OOM-killed the 512MB instance repeatedly. Every article in a 7-day
+        # window was loaded (production ingests ~2,300 per 72h, so n ≈ 5,000 →
+        # ~13 million pairs), and inside the pair loop each side re-ran `_tf()`
+        # (builds a term dict) and `entity_terms()` (which json.loads the blob) —
+        # four parses per pair, ~50 million allocations — while `cands`
+        # accumulated a tuple holding two full row objects for every pair that
+        # shared any entity. All of it to choose twelve pairs. Adding four feeds
+        # grew n by enough that the process stopped surviving the stage: the
+        # pipeline reached `trends` and died before `stories` on every run.
+        #
+        # Three changes, none of which alter which pairs are considered best:
+        #   1. only articles that CAN match are read — the candidate test needs a
+        #      shared entity, so an article with no entities blob is dead weight;
+        #   2. tf-vector and entity set are computed once per article;
+        #   3. the top pairs are kept in a bounded heap instead of a list that
+        #      grows with the square of the corpus.
         rows = con.execute(
-            "SELECT id,title,summary,entities FROM articles WHERE fetched_at > ?",
-            (db.now() - 7 * 86400,)).fetchall()
+            "SELECT id,title,summary,entities FROM articles "
+            "WHERE fetched_at > ? AND entities IS NOT NULL AND entities != '' "
+            "ORDER BY fetched_at DESC LIMIT ?",
+            (db.now() - 7 * 86400, config.CONNECTIONS_MAX_ARTICLES)).fetchall()
+        docs = []
+        for r in rows:
+            ents = set(entity_terms(r["entities"]))
+            if ents:
+                docs.append((r["id"], _tf((r["title"] or "") + (r["summary"] or "")),
+                             ents, r))
         # Incremental: never re-evaluate a pair we've already asked the LLM about.
         seen_pairs = set()
         for r in con.execute("SELECT article_a, article_b FROM connections").fetchall():
             seen_pairs.add(frozenset((r["article_a"], r["article_b"])))
-        cands = []
-        for i in range(len(rows)):
-            for k in range(i + 1, len(rows)):
-                a, b = rows[i], rows[k]
-                if frozenset((a["id"], b["id"])) in seen_pairs:
+        # (count, tiebreak, a, b), smallest-first: the heap never holds more than
+        # MAX_PAIRS entries, so peak memory no longer depends on how many pairs
+        # happen to share an entity.
+        best, tie = [], 0
+        for i in range(len(docs)):
+            a_id, a_tf, a_ents, a = docs[i]
+            for k in range(i + 1, len(docs)):
+                b_id, b_tf, b_ents, b = docs[k]
+                if frozenset((a_id, b_id)) in seen_pairs:
                     continue
-                surface = cosine(_tf(a["title"] + a["summary"]),
-                                 _tf(b["title"] + b["summary"]))
-                if surface > 0.3:
+                # Entity overlap first: a set intersection on pre-built sets is
+                # far cheaper than the cosine, and it rejects most pairs.
+                shared = a_ents & b_ents
+                if not shared:
+                    continue
+                if cosine(a_tf, b_tf) > 0.3:
                     continue  # obviously related; trends handle those
-                shared = set(entity_terms(a["entities"])) & set(entity_terms(b["entities"]))
-                if shared:
-                    cands.append((len(shared), a, b))
-        cands.sort(key=lambda x: -x[0])
+                tie += 1
+                if len(best) < self.MAX_PAIRS:
+                    heapq.heappush(best, (len(shared), tie, a, b))
+                elif len(shared) > best[0][0]:
+                    heapq.heapreplace(best, (len(shared), tie, a, b))
+        cands = sorted(best, key=lambda x: -x[0])
         made = 0
-        for _, a, b in cands[: self.MAX_PAIRS]:
+        for _, _tie, a, b in cands:
             out = llm.complete_json("connection", prompt(
                 "connection",
                 a=f"{a['title']} — {a['summary'][:200]}",
@@ -742,7 +829,9 @@ class ConnectionFinder:
             if conf >= 0.6:
                 made += 1
         con.commit()
-        db.log_run(con, "connections", "ok", f"{made} connections from {len(cands)} candidates")
+        db.log_run(con, "connections", "ok",
+           f"{made} connections from {len(cands)} pairs kept "
+           f"of {tie} scanned over {len(docs)} articles")
         return made
 
 
@@ -1305,7 +1394,7 @@ class Storyteller:
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
                     "connection_ids=?,updated_at=?,event_id=?,image_url=?,"
-                    "merge_stats=?,beats=?,anchors=?"
+                    "merge_stats=?,beats=?,anchors=?,place=?"
                     + (",framing=NULL" if drop_framing else "") + " WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
@@ -1313,6 +1402,7 @@ class Storyteller:
                      db.now(), event_id, images.best_of(arts), db.j(bstats),
                      db.j(beats) if beats else None,
                      db.j(anchors) if anchors else None,
+                     _place_of(arts),
                      mine["id"]))
                 self._record_history(con, mine["id"], event_id, score, len(ids),
                                      verdicts, bstats)
@@ -1324,14 +1414,16 @@ class Storyteller:
                 con.execute(
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
-                    "created_at,updated_at,event_id,image_url,merge_stats,beats,anchors) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "created_at,updated_at,event_id,image_url,merge_stats,beats,anchors,"
+                    "place) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
                      db.j(ids), db.j(sorted(evt_tids)), db.j(conn_ids),
                      db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats),
                      db.j(beats) if beats else None,
-                     db.j(anchors) if anchors else None))
+                     db.j(anchors) if anchors else None,
+                     _place_of(arts)))
                 self._record_history(con, sid, event_id, score, len(ids),
                                      verdicts, bstats)
                 new_ct += 1

@@ -680,10 +680,13 @@ nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:20px;
    bug; the invisible one was just how it surfaced. */
 .logo{display:flex;align-items:center;gap:9px;color:var(--text);
   font:500 14px var(--font-ed);letter-spacing:.14em;text-transform:uppercase}
-.logo .mark{width:18px;height:18px;border-radius:50%;
-  border:1.5px solid currentColor;display:flex;align-items:center;
-  justify-content:center;flex-shrink:0}
-.logo .mark i{width:6px;height:6px;border-radius:50%;background:currentColor;display:block}
+/* The product's actual mark: a ring broken at the top right, a dot in the
+   break, and a four-point sparkle at the centre — the app icon reduced to what
+   still reads at 18px. It used to be a plain bordered circle with a dot in the
+   middle, which is not a logo this product uses anywhere. The ring and dot keep
+   the brand's own colours; only the sparkle takes `currentColor`, so the mark
+   still sits correctly on both light paper and the dark nav. */
+.logo .mark{width:19px;height:19px;flex-shrink:0;display:block}
 nav .links{display:flex;gap:4px;margin-left:8px}
 nav .links a{padding:7px 14px;border-radius:10px;color:var(--text-2);font-weight:500;font-size:14px;transition:all .2s}
 nav .links a:hover{color:var(--text);background:var(--surface-2)}
@@ -2057,9 +2060,7 @@ body:has(.fx) footer{color:#6F6A61}
 .ob-left{background:#17150F;color:#F7F4EE;padding:56px 52px;
   display:flex;flex-direction:column;justify-content:space-between;gap:40px}
 .ob-brand{display:flex;align-items:center;gap:10px}
-.ob-brand i{width:22px;height:22px;border-radius:50%;border:1.5px solid #F7F4EE;
-  display:flex;align-items:center;justify-content:center}
-.ob-brand i b{width:8px;height:8px;border-radius:50%;background:#F7F4EE}
+.ob-brand svg{width:23px;height:23px;display:block}
 .ob-brand span{font:500 15px var(--serif);letter-spacing:.14em;text-transform:uppercase}
 /* Three rings and a gold centre — the lens the whole product is named for. */
 .ob-rings{width:240px;height:240px;border-radius:50%;border:1px solid rgba(247,244,238,.22);
@@ -2269,7 +2270,7 @@ body:has(.fx) footer{color:#6F6A61}
 <body>
 
 <nav>
-  <a class="logo" href="/"><span class="mark" aria-hidden="true"><i></i></span>Descry</a>
+  <a class="logo" href="/"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="dm-ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5A8CFA"/><stop offset="1" stop-color="#805CF5"/></linearGradient></defs><path d="M16.9 4.4A9 9 0 1 0 20.4 10" fill="none" stroke="url(#dm-ring)" stroke-width="2.6" stroke-linecap="round"/><circle cx="19.2" cy="5.2" r="2.1" fill="#38D48C"/><path d="M12 6.4c.7 3.3 1.3 3.9 4.6 4.6-3.3.7-3.9 1.3-4.6 4.6-.7-3.3-1.3-3.9-4.6-4.6 3.3-.7 3.9-1.3 4.6-4.6z" fill="currentColor"/></svg>Descry</a>
   <div class="links" id="navlinks">
     <a href="/" data-r="home">Feed</a>
     <a href="/trends" data-r="trends">Trends</a>
@@ -2350,7 +2351,7 @@ body:has(.fx) footer{color:#6F6A61}
 <div class="modal ob" id="calib" role="dialog" aria-label="Choose what you follow">
   <div class="ob-card fx">
     <div class="ob-left">
-      <div class="ob-brand"><i><b></b></i><span>Descry</span></div>
+      <div class="ob-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.9 4.4A9 9 0 1 0 20.4 10" fill="none" stroke="#8AA9FF" stroke-width="2.6" stroke-linecap="round"/><circle cx="19.2" cy="5.2" r="2.1" fill="#38D48C"/><path d="M12 6.4c.7 3.3 1.3 3.9 4.6 4.6-3.3.7-3.9 1.3-4.6 4.6-.7-3.3-1.3-3.9-4.6-4.6 3.3-.7 3.9-1.3 4.6-4.6z" fill="#F7F4EE"/></svg><span>Descry</span></div>
       <div>
         <div class="ob-rings" aria-hidden="true"><i><i><b></b></i></i></div>
         <h1>Understand the news,<br><em>not just read it.</em></h1>
@@ -2546,6 +2547,15 @@ const cleanName = s => String(s??'').replace(/^(early signal:|rising focus:|tren
    text is shown to the reader. */
 const topicLabel = t => { t = String(t||''); return t.toLowerCase()==='ai' ? 'AI'
   : t.charAt(0).toUpperCase() + t.slice(1).toLowerCase(); };
+/* What to call a story's section. A local story is labelled with the CITY it
+   covers, because "Local" on its own is a promise the word cannot keep — it
+   means Thane to one reader and nowhere to another. Falls back to the topic
+   when the feed has no place mapped (see sources.yaml `places`), which is
+   honest: "Local" with no city named, rather than the wrong city. */
+const storyLabel = s => (s && s.place) ? s.place : topicLabel(s && s.topic);
+/* The reader's own city, from the lens they set. Used to put their local news
+   first and to say "Local · Thane" on the filter. */
+const myCity = () => ((S.ctx && S.ctx.location && S.ctx.location.city) || '').trim();
 /* "Last told" — created_at doubles as the retelling time when a developing
    story is refreshed with new facts (see agents.py Storyteller), so this one
    timestamp covers both a story's debut and its latest retelling. */
@@ -3271,6 +3281,16 @@ const Brief = { async render(){
 
   const topics = ['all', ...new Set(S.stories.map(s=>s.topic).filter(Boolean))];
   let list = S.stories.filter(s=>S.topic==='all'||s.topic===S.topic);
+  /* Local news is only local if it is YOUR city. The `local:` feeds cover
+     several cities, so on that filter the reader's own city floats to the top
+     and everything else keeps the server's order underneath — a stable partition
+     rather than a re-sort, so nothing else about the ranking changes. Stories
+     with no place mapped stay where they are. */
+  if (S.topic === 'local' && myCity()){
+    const mine = myCity().toLowerCase();
+    const isMine = s => (s.place||'').toLowerCase() === mine;
+    list = list.filter(isMine).concat(list.filter(s=>!isMine(s)));
+  }
   const diff = fxDiff(S.stories);
   const mode = FX.SORTS[S.fxsort] ? S.fxsort : '';
   if (mode) list = FX.SORTS[mode].apply(list);
@@ -3306,7 +3326,9 @@ const Brief = { async render(){
         <div class="fx-topics">${topics.map(t=>
           `<button class="fx-topic${t===S.topic?' on':''}" data-act="topic"
             data-topic="${esc(t)}" aria-pressed="${t===S.topic}"
-            >${esc(t==='all'?'All':topicLabel(t))}</button>`).join('')}</div>
+            >${esc(t==='all' ? 'All'
+              : t==='local' && myCity() ? 'Local · '+myCity()
+              : topicLabel(t))}</button>`).join('')}</div>
       </div>` : ''}
 
       <div class="${topics.length > 2 ? 'fx-sect' : ''}">
@@ -3482,7 +3504,7 @@ hero(s, lensed, isIn){
     <div class="fx-hero-in">
       <div class="fx-kicker">
         ${FX.developing(s) ? '<span class="dev">Developing</span><span class="sep"></span>' : ''}
-        <span class="rest">${esc(topicLabel(s.topic))} · ${FX.mins(s)} min read · updated ${
+        <span class="rest">${esc(storyLabel(s))} · ${FX.mins(s)} min read · updated ${
           FX.ago(s.updated_at || s.created_at)}</span>
       </div>
       <h2><a href="/story/${esc(s.id)}">${esc(s.headline)}</a></h2>
@@ -3539,7 +3561,7 @@ card(s,i,opts){
          ${lead?'':'loading="lazy" '}decoding="async" referrerpolicy="no-referrer"></div>` : '';
   return `<a class="scard glass rise${s.image_url?' has-img':''}${lead?' lead':''}" style="animation-delay:${.1+Math.min(i,8)*.05}s" href="/story/${s.id}">
     <div class="scard-body">
-    <div class="top"><span class="chip">${esc(topicLabel(s.topic))}</span>${cred>=85?'<span class="chip trust">Nearly all sources agree</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
+    <div class="top"><span class="chip">${esc(storyLabel(s))}</span>${cred>=85?'<span class="chip trust">Nearly all sources agree</span>':''}${told?`<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>`:''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred>=75?'var(--trust)':cred>=50?'var(--warn)':'var(--breaking)'}"></i></div>
       <span class="tv">${cred}%</span>${impact}${readBtn}</div>

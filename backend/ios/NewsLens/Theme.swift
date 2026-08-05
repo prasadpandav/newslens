@@ -529,14 +529,78 @@ struct Chip: View {
 
 struct DescryMark: View {
     var size: CGFloat = 18
+    /// Draw in the brand's own colours rather than inheriting the page's ink.
+    /// The masthead sets this false so the lockup stays monochrome next to the
+    /// wordmark; anywhere the mark stands alone it should be the real logo.
+    var tinted: Bool = false
+
+    /// The app icon, reduced to the three things that survive at 18pt: the ring
+    /// BROKEN at the top right, the dot sitting in that break, and the
+    /// four-point star at the centre. An earlier version of this drew a closed
+    /// circle with a dot in the middle — a mark the product does not use.
+    private let gap: (start: Double, end: Double) = (-58, 8)   // degrees
 
     var body: some View {
         ZStack {
-            Circle().strokeBorder(lineWidth: size / 12)
-            Circle().frame(width: size / 3, height: size / 3)
+            Circle()
+                .trim(from: gap.end / 360, to: 1 + gap.start / 360)
+                .stroke(ringStyle, style: StrokeStyle(lineWidth: size * 0.115, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .padding(size * 0.058)
+            Star(points: 4, inner: 0.30)
+                .fill(starStyle)
+                .frame(width: size * 0.42, height: size * 0.42)
+            Circle()
+                .fill(dotStyle)
+                .frame(width: size * 0.16, height: size * 0.16)
+                .offset(x: size * 0.335, y: -size * 0.315)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)   // the wordmark or page title names it
+    }
+
+    private var ringStyle: AnyShapeStyle {
+        tinted ? AnyShapeStyle(LinearGradient(
+            colors: [Color(red: 0.35, green: 0.55, blue: 0.98),
+                     Color(red: 0.50, green: 0.36, blue: 0.96)],
+            startPoint: .topLeading, endPoint: .bottomTrailing))
+        : AnyShapeStyle(.foreground)
+    }
+    private var starStyle: AnyShapeStyle {
+        tinted ? AnyShapeStyle(Color.white) : AnyShapeStyle(.foreground)
+    }
+    private var dotStyle: AnyShapeStyle {
+        tinted ? AnyShapeStyle(Color(red: 0.22, green: 0.83, blue: 0.55))
+               : AnyShapeStyle(.foreground)
+    }
+}
+
+/// An n-pointed star with concave sides — the icon's sparkle, not a polygon
+/// star. `inner` is how far the waist pulls in toward the centre.
+struct Star: Shape {
+    var points: Int = 4
+    var inner: CGFloat = 0.30
+
+    func path(in rect: CGRect) -> Path {
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let r = min(rect.width, rect.height) / 2
+        var p = Path()
+        let step = .pi * 2 / Double(points)
+        for i in 0..<points {
+            let a = step * Double(i) - .pi / 2
+            let tip = CGPoint(x: c.x + cos(a) * r, y: c.y + sin(a) * r)
+            let nextA = a + step
+            let nextTip = CGPoint(x: c.x + cos(nextA) * r, y: c.y + sin(nextA) * r)
+            // The waist between two tips, pulled in — this is what gives the
+            // sparkle its concave edges instead of a flat-sided polygon.
+            let midA = a + step / 2
+            let waist = CGPoint(x: c.x + cos(midA) * r * inner,
+                                y: c.y + sin(midA) * r * inner)
+            if i == 0 { p.move(to: tip) }
+            p.addQuadCurve(to: nextTip, control: waist)
+        }
+        p.closeSubpath()
+        return p
     }
 }
 

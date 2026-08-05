@@ -47,7 +47,27 @@ struct BriefView: View {
     /// as long as the backend keeps sending lower-case categories. It does
     /// today; one capitalised feed key would silently empty the screen.
     private var filtered: [FeedItem] {
-        topic == "all" ? items : items.filter { $0.topic.lowercased() == topic }
+        let base = topic == "all" ? items
+                 : items.filter { $0.topic.lowercased() == topic }
+        // Local news is only local if it is YOUR city. The `local:` feeds cover
+        // several cities, so on that filter the reader's own floats to the top
+        // and the rest keep the server's order underneath — a stable partition,
+        // not a re-sort, so nothing else about the ranking changes. Stories with
+        // no place mapped stay where they are.
+        guard topic == "local", let city = myCity else { return base }
+        let mine = base.filter { $0.place?.lowercased() == city }
+        return mine + base.filter { $0.place?.lowercased() != city }
+    }
+    /// The reader's own city, lower-cased, or nil when they have not set one.
+    private var myCity: String? {
+        let c = (savedContext?.location.city ?? "").trimmingCharacters(in: .whitespaces)
+        return c.isEmpty ? nil : c.lowercased()
+    }
+    /// "Local · Thane" once the reader has told us where they are, "Local" until
+    /// then — never a city we only inferred.
+    private var localChipLabel: String {
+        let c = (savedContext?.location.city ?? "").trimmingCharacters(in: .whitespaces)
+        return c.isEmpty ? "Local" : "Local · \(c)"
     }
     /// Already-saved preferences, so re-opening "Personalize" edits (not resets) them.
     private var savedContext: UserContext? {
@@ -420,7 +440,12 @@ struct BriefView: View {
                             // The selected chip takes the ink colour rather
                             // than the accent so the filter never competes
                             // with a link.
-                            Chip(text: t == "all" ? "All" : t.topicLabel,
+                            // "Local" alone is a promise the word cannot keep
+                            // — it means a different city to every reader — so
+                            // the chip names theirs when we know it.
+                            Chip(text: t == "all" ? "All"
+                                     : t == "local" ? localChipLabel
+                                     : t.topicLabel,
                                  color: pal.text, filled: t == topic)
                         }
                         .buttonStyle(.plain)
@@ -525,7 +550,7 @@ struct StoryKicker: View {
                 Text("Developing · still unfolding")
                     .foregroundStyle(pal.breaking)
             } else {
-                Text("\(item.topic.topicLabel) · \(item.readingMinutes) min read"
+                Text("\(item.sectionLabel) · \(item.readingMinutes) min read"
                      + (item.updatedAt ?? item.createdAt != nil
                         ? " · \(Ago.short(item.updatedAt ?? item.createdAt))" : ""))
                     .foregroundStyle(pal.faint)

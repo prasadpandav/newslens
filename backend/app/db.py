@@ -251,6 +251,36 @@ def connect():
             con.execute("ALTER TABLE stories ADD COLUMN framing TEXT")
         except sqlite3.OperationalError:
             pass
+        # ---- local news knows where it is ----
+        # The `local:` topic in feeds.yaml carries city feeds (Thane, Mumbai,
+        # Pune). A topic label alone cannot keep the promise "local" makes: the
+        # word means a different city to every reader, and to most readers it
+        # means nowhere. Scout stamps the article with the place its feed covers
+        # and the Storyteller carries the commonest one onto the story, so a
+        # client can name the city and put the reader's own city first.
+        # NULL everywhere else, which is exactly right — a world story has no
+        # place, and that is different from a local story whose feed we have no
+        # mapping for (also NULL, and shown as plain "Local").
+        for tbl in ("articles", "stories"):
+            try:
+                con.execute(f"ALTER TABLE {tbl} ADD COLUMN place TEXT")
+            except sqlite3.OperationalError:
+                pass
+        # ---- indexes the query planner was missing ----
+        # `connections` had none at all, and the Storyteller asks it
+        # "WHERE article_a IN (...) OR article_b IN (...)" ONCE PER STORY. That
+        # is a full table scan per story, over a table that only ever grows
+        # (every evaluated pair is kept, including rejections, so it is never
+        # pruned). Two single-column indexes rather than one composite: an OR
+        # across two columns cannot use a composite, but SQLite will happily use
+        # one index per branch and union the results.
+        con.execute("CREATE INDEX IF NOT EXISTS connections_a ON connections(article_a)")
+        con.execute("CREATE INDEX IF NOT EXISTS connections_b ON connections(article_b)")
+        # `runs` grows forever and /admin/usage reads it newest-first, which was
+        # a scan plus a temp B-tree for the sort on every admin page load.
+        con.execute("CREATE INDEX IF NOT EXISTS runs_created ON runs(created_at)")
+        # Small today, but it is read per user and has no index at all.
+        con.execute("CREATE INDEX IF NOT EXISTS feedback_user ON feedback(user_id)")
         # ---- forecasts stop being destroyed ----
         # Foresight used to DELETE a forecast a week after its last update. That
         # is the one thing that made a track record impossible: "we said this,

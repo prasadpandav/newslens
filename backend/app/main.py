@@ -436,7 +436,7 @@ def list_bookmarks(user_id: str, authorization: str = Header("")):
     _auth(con, user_id, authorization)
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.image_url, s.created_at, s.updated_at,
+                  s.topic, s.place, s.image_url, s.created_at, s.updated_at,
                   s.article_ids, s.claims, s.merge_stats,
                   b.created_at AS saved_at, b.credibility_at_save,
                   r.progress AS progress, r.completed_at AS completed_at,
@@ -534,7 +534,7 @@ def list_read(user_id: str, authorization: str = Header("")):
     _auth(con, user_id, authorization)
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.image_url, s.created_at, s.updated_at,
+                  s.topic, s.place, s.image_url, s.created_at, s.updated_at,
                   s.article_ids, s.claims, s.merge_stats, s.framing,
                   r.created_at AS read_at, r.progress, r.completed_at,
                   r.beat AS stopped_at,
@@ -656,7 +656,7 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # via GET /read, and un-marking (DELETE /read) brings a story back.
     rows = con.execute(
         """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
-                  s.topic, s.image_url, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
+                  s.topic, s.place, s.image_url, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
                   s.claims, s.merge_stats,
                   COALESCE(f.impact_text, '')  AS impact_text,
                   COALESCE(f.impact_score, 0)  AS impact_score
@@ -1158,15 +1158,26 @@ def trend_detail(trend_id: str):
     #
     # Same window and same index (stories_updated) as /trends, so both endpoints
     # are looking at the same catalogue.
-    labelled, overlapping = [], []
-    for r in con.execute(
-            "SELECT id, trend_ids, article_ids FROM stories WHERE updated_at > ?",
-            (db.now() - 7 * 86400,)).fetchall():
-        if trend_id in db.uj(r["trend_ids"], []):
-            labelled.append(r["id"])
-        elif member_ids & set(db.uj(r["article_ids"], [])):
-            overlapping.append(r["id"])
-    picked = labelled or overlapping
+    #
+    # The label match is done by SQLite, not by Python. `trend_ids` is a JSON
+    # array of quoted ids, so matching '%"<id>"%' against the text is exact —
+    # ids are 12 hex characters and the quotes stop a prefix from matching — and
+    # it keeps the row out of Python entirely. The first cut of this endpoint
+    # pulled every row in the window back and ran json.loads on TWO columns per
+    # row on every request, which made the trend page slower than the trends
+    # list it opens from.
+    window = db.now() - 7 * 86400
+    picked = [r["id"] for r in con.execute(
+        "SELECT id FROM stories WHERE updated_at > ? AND trend_ids LIKE ?",
+        (window, f'%"{trend_id}"%')).fetchall()]
+    # Fallback only when nothing is labelled — the pre-`trend_ids` case. This is
+    # the expensive shape (json per row), so it runs for old trends only, never
+    # on the normal path.
+    if not picked and member_ids:
+        picked = [r["id"] for r in con.execute(
+            "SELECT id, article_ids FROM stories WHERE updated_at > ?",
+            (window,)).fetchall()
+            if member_ids & set(db.uj(r["article_ids"], []))]
     # Two passes on purpose. The match above reads three small columns; the body
     # below reads the heavy ones (narrative, claims, merge_stats) for matches
     # only. The old single pass pulled all of that for 200 rows on every request

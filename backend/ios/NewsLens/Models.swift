@@ -97,6 +97,16 @@ struct FeedItem: Codable, Identifiable, Hashable, EvidenceCarrying {
     var credibility: Double
     var credibilityNote: String?
     var topic: String
+    /// The city a local story covers, from the feed it came from. Absent on
+    /// every non-local story, and absent on a local story whose feed has no
+    /// place mapped — see `places` in sources.yaml. Never guessed: naming the
+    /// wrong city is worse than naming none, because "Local" is a promise about
+    /// where the reader is.
+    var place: String?
+    /// What to call this story's section: the city when we know it, the topic
+    /// otherwise. "Local" alone means Thane to one reader and nowhere to
+    /// another, so a story that has a place is labelled with it.
+    var sectionLabel: String { place?.isEmpty == false ? place! : topic.topicLabel }
     var impactText: String?
     var impactScore: Int?
     /// Publisher artwork, URL only — the app loads it straight from their CDN.
@@ -128,7 +138,7 @@ struct FeedItem: Codable, Identifiable, Hashable, EvidenceCarrying {
     var correction: Correction?
 
     enum CodingKeys: String, CodingKey {
-        case id, headline, narrative, credibility, topic, conflicts, correction
+        case id, headline, narrative, credibility, topic, place, conflicts, correction
         case credibilityNote = "credibility_note"
         case impactText = "impact_text"
         case impactScore = "impact_score"

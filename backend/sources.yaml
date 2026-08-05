@@ -66,3 +66,21 @@ kinds:
   aggregator:
     - sciencedaily.com      # republishes institutional press releases
     - feedburner.com
+
+# Which place a `local:` feed covers. "Local" is a promise about WHERE, and a
+# topic label alone cannot keep it: the same word means Thane to one reader and
+# nothing at all to another. Scout stamps each article with the place its feed
+# covers, the Storyteller carries the commonest one onto the story, and the
+# clients use it both to say which city a story is about and to put the reader's
+# own city first.
+#
+# Keys are matched as substrings of the feed URL, longest first, so a more
+# specific path wins over a broader one. A feed with no entry here still works —
+# its stories are simply "Local" with no place named, which is honest.
+places:
+  "indianexpress.com/section/cities/thane": Thane
+  "indianexpress.com/section/cities/pune": Pune
+  "thehindu.com/news/cities/mumbai": Mumbai
+  "hindustantimes.com/feeds/rss/cities/mumbai-news": Mumbai
+  "hindustantimes.com/feeds/rss/cities/pune-news": Pune
+  "freepressjournal.in/stories.rss?section=thane": Thane

@@ -219,6 +219,13 @@ FULLTEXT_MAX_BYTES = int(os.environ.get("FULLTEXT_MAX_BYTES", "1500000"))
 # page, or a feed host serving something other than XML is enough to OOM-kill
 # the 512MB instance before feedparser ever sees the bytes.
 RSS_MAX_BYTES = int(os.environ.get("RSS_MAX_BYTES", "5000000"))
+# Ceiling on how many articles ConnectionFinder pairs up. That stage compares
+# every article against every other, so its cost is QUADRATIC in this number:
+# 600 is ~180k pairs, while the unbounded 7-day window it used to read had grown
+# to ~5,000 articles (~13 million pairs) and OOM-killed the instance on every
+# run — the pipeline reached `trends` and never got to `stories`. Raise this
+# only with the square in mind: doubling it quadruples the work.
+CONNECTIONS_MAX_ARTICLES = int(os.environ.get("CONNECTIONS_MAX_ARTICLES", "600"))
 # Hard cap on the merged-fact brief handed to the LLM (token control).
 BRIEF_MAX_CHARS = int(os.environ.get("BRIEF_MAX_CHARS", "2600"))
 # How long story_history is kept. It is the only append-only table in the
