@@ -79,12 +79,18 @@ signals_unit: |
     around an industry term — replace the term with what it means.
   - "watch" names ONE observable thing that would show this is on track — something
     a reader could go and check — with no date attached unless the stories gave you one.
+  - "falsifier" names ONE observable thing that would show this is WRONG. Not the
+    absence of "watch" ("the clause never appears"), but a different event that
+    would positively kill it: a ruling, a standard, a reversal, a competing
+    standard published by someone else. If you cannot name one, return "" — an unfalsifiable forecast is
+    worth knowing about, and we would rather print nothing than invent a test.
   - Be honest about uncertainty; confidence 0-1. Do not exceed 0.85.
   Reply ONLY with JSON:
   {{"signals": [{{"title": "5-9 vivid words, no label prefixes",
      "prediction": "one sentence: what may happen",
      "chain": "the step-by-step causal reasoning",
      "watch": "the leading indicator a reader should watch",
+     "falsifier": "one observable thing that would show this is wrong, or \"\"",
      "affected": ["who/what is affected"], "horizon": "e.g. 2-8 weeks",
      "confidence": 0.0, "story_ids": ["...", "..."]}}]}}
 
@@ -232,6 +238,11 @@ signals: |
     around an industry term — replace the term with what it means.
   - "watch" names ONE observable thing that would show this is on track — something
     a reader could go and check — with no date attached unless the stories gave you one.
+  - "falsifier" names ONE observable thing that would show this is WRONG. Not the
+    absence of "watch" ("the clause never appears"), but a different event that
+    would positively kill it: a ruling, a standard, a reversal, a competing
+    standard published by someone else. If you cannot name one, return "" — an unfalsifiable forecast is
+    worth knowing about, and we would rather print nothing than invent a test.
   - Prefer chains supported by higher-credibility stories.
   - Be honest about uncertainty; confidence 0-1. Do not exceed 0.85.
   Reply ONLY with JSON:
@@ -239,6 +250,7 @@ signals: |
      "prediction": "one sentence: what may happen",
      "chain": "the step-by-step causal reasoning",
      "watch": "the leading indicator a reader should watch",
+     "falsifier": "one observable thing that would show this is wrong, or \"\"",
      "affected": ["who/what is affected"], "horizon": "e.g. 2-8 weeks",
      "confidence": 0.0, "story_ids": ["...", "..."]}}]}}
 

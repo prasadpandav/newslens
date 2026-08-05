@@ -29,6 +29,16 @@ struct NextView: View {
     @EnvironmentObject var api: APIClient
 
     @State private var signals: [Signal] = []
+    /// Derived ONCE per load, not per render.
+    ///
+    /// These were computed properties, and `deduped` walked all ~200 forecasts
+    /// building a dictionary and a Set every time it was read. `mine`, `changed`,
+    /// `pool`, `near`, `distant` and `countLine` each read it, so a single pass
+    /// over `body` ran the dedupe six times — and `body` re-runs whenever the
+    /// SSE stream, a bookmark or the scene phase changes. `Lens.touches` was
+    /// lower-casing every forecast's text on each of those passes too.
+    @State private var deduped: [Signal] = []
+    @State private var mine: [Signal] = []
     @State private var loading = true
     @State private var error: String?
     @State private var showAsk = false
@@ -46,7 +56,7 @@ struct NextView: View {
     /// the recency half of the server's rank — a nine-day-old forecast at 0.9
     /// outranked a fresh one at 0.8 — and made the "Most likely first" pill a
     /// duplicate of "All".
-    private var deduped: [Signal] {
+    private static func collapse(_ signals: [Signal]) -> [Signal] {
         var best: [String: Signal] = [:]
         for s in signals {
             let key = s.title.lowercased()
@@ -56,13 +66,10 @@ struct NextView: View {
         let keep = Set(best.values.map(\.id))
         return signals.filter { keep.contains($0.id) }
     }
-    private var mine: [Signal] { deduped.filter { Lens.touches($0.lensText) } }
     /// Written in the last day. NOT "in the last week": forecasts are deleted
     /// after seven days, so a seven-day window counts the whole list and the
     /// header read "192 open · 189 new".
-    private var changed: [Signal] {
-        deduped.filter { ($0.createdAt ?? 0) > Date().timeIntervalSince1970 - 86_400 }
-    }
+    @State private var changed: [Signal] = []
 
     private var pool: [Signal] { cut == .mine ? mine : deduped }
     private var near: [Signal] {
@@ -117,27 +124,16 @@ struct NextView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("What's Next")
-                .font(pal.serif(24))
-                .foregroundStyle(pal.text)
-            Spacer()
-            Text(countLine)
-                .font(pal.mono(12.5))
-                .foregroundStyle(pal.faint)
+        PageHeader(title: "What's Next", subtitle: countLine) {
             Button { showAsk = true } label: {
                 Image(systemName: "sparkle")
-                    .font(.system(size: 13))
+                    .font(.system(size: 15))
                     .foregroundStyle(pal.text2)
-                    .padding(.leading, 10)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Ask about what's next")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 4)
-        .padding(.bottom, 14)
-        .overlay(alignment: .bottom) { Rectangle().fill(pal.hairline).frame(height: 1) }
     }
 
     private var countLine: String {
@@ -362,7 +358,13 @@ struct NextView: View {
 
     private func load() async {
         do {
-            signals = try await api.fetchSignals()
+            let fresh = try await api.fetchSignals()
+            let collapsed = Self.collapse(fresh)
+            let dayAgo = Date().timeIntervalSince1970 - 86_400
+            signals = fresh
+            deduped = collapsed
+            mine = collapsed.filter { Lens.touches($0.lensText) }
+            changed = collapsed.filter { ($0.createdAt ?? 0) > dayAgo }
             error = nil
         } catch {
             self.error = "The server may be waking up. Pull to try again."
@@ -395,6 +397,7 @@ struct ForecastCard: View {
             ?? "no date given"
     }
     private var mix: SourceMix { SourceMix(signal.stories) }
+    private var hasFalsifier: Bool { signal.falsifier?.isEmpty == false }
     /// Newest first, capped — forecasts here cite as many as 39 stories.
     private var chain: [FeedItem] {
         Array(signal.stories.sorted { ($0.createdAt ?? 0) > ($1.createdAt ?? 0) }.prefix(3))
@@ -472,7 +475,7 @@ struct ForecastCard: View {
             .padding(.bottom, 20)
 
             sureness
-            if !signal.watch.isEmpty { toWatch }
+            if signal.falsifier?.isEmpty == false || !signal.watch.isEmpty { toWatch }
         }
     }
 
@@ -531,22 +534,29 @@ struct ForecastCard: View {
         .padding(.bottom, 11)
     }
 
-    /// The mockup titles this "What would stop it" — a falsifier. Our `watch`
-    /// field is the opposite: the signals prompt asks for "ONE observable thing
-    /// that would show this is ON TRACK". Printing a confirming indicator under
-    /// a heading that promises a disproof would invert what the model wrote, so
-    /// the heading matches the data. Making it a real falsifier is a prompt
-    /// change, and would only apply to forecasts written after it.
+    /// The mockup titles this "What would stop it" — a disproof. For a long time
+    /// we had nothing to put under that heading: `watch` is the opposite, a
+    /// confirming indicator, and printing it there would have inverted what the
+    /// model wrote. The prompt now asks for a real falsifier as a separate
+    /// field, so the heading follows the data: a forecast that has one says what
+    /// would stop it, and one that does not still shows what to watch.
     private var toWatch: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("What to watch")
+            Text(hasFalsifier ? "What would stop it" : "What to watch")
                 .font(pal.serif(15, .medium))
                 .foregroundStyle(paper)
-            Text(signal.watch)
+            Text(hasFalsifier ? signal.falsifier! : signal.watch)
                 .font(pal.sans(14))
                 .lineSpacing(5)
                 .foregroundStyle(paper.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
+            if hasFalsifier, !signal.watch.isEmpty {
+                Text("On track if: \(signal.watch)")
+                    .font(pal.sans(13))
+                    .lineSpacing(4)
+                    .foregroundStyle(paper.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(15)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,5 +1,7 @@
 # Topic -> list of RSS/Atom feeds. Add or remove freely; this is the main tuning knob.
 world:
+  # PRIMARY — the Commission's own press corner, not a wire report of it.
+  - https://ec.europa.eu/commission/presscorner/api/rss?language=en
   - https://feeds.bbci.co.uk/news/world/rss.xml
   - https://www.aljazeera.com/xml/rss/all.xml
 business:
@@ -9,6 +11,13 @@ business:
 # with two global feeds for international context. Note this is the largest topic
 # by feed count, so it contributes the most articles per Scout run.
 finance:
+  # PRIMARY — the regulator publishing the document itself, not a report of it.
+  # `kinds.primary` in sources.yaml was empty, so every trend and story reported
+  # "0 original documents" and the reader's "Where it's coming from" panel had
+  # nothing but newsrooms in it. These are the cheapest honest way to change
+  # that: a central bank and a market regulator saying something first-hand.
+  - https://rbi.org.in/pressreleases_rss.xml
+  - https://www.sebi.gov.in/sebirss.xml
   # global
   - https://www.cnbc.com/id/10000664/device/rss/rss.html
   - https://feeds.bbci.co.uk/news/business/economy/rss.xml
@@ -34,6 +43,8 @@ sports:
   - https://feeds.bbci.co.uk/sport/rss.xml
   - https://www.espn.com/espn/rss/news
 technology:
+  # PRIMARY — the advisory itself, from the agency that issued it.
+  - https://www.cisa.gov/cybersecurity-advisories/all.xml
   - https://feeds.bbci.co.uk/news/technology/rss.xml
   - https://www.theverge.com/rss/index.xml
   - https://feeds.arstechnica.com/arstechnica/index

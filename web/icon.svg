@@ -1,35 +1,18 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4D9FFF"/>
-      <stop offset="100%" stop-color="#7C5CFF"/>
-    </linearGradient>
-    <linearGradient id="spark" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#C9DEFF"/>
-    </linearGradient>
-    <radialGradient id="glowTR" cx="82%" cy="12%" r="55%">
-      <stop offset="0%" stop-color="#4D9FFF" stop-opacity="0.28"/>
-      <stop offset="100%" stop-color="#4D9FFF" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="glowBL" cx="14%" cy="90%" r="60%">
-      <stop offset="0%" stop-color="#7C5CFF" stop-opacity="0.24"/>
-      <stop offset="100%" stop-color="#7C5CFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0B1226"/>
-      <stop offset="100%" stop-color="#070B14"/>
-    </linearGradient>
-  </defs>
-  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
-  <rect width="1024" height="1024" rx="224" fill="url(#glowTR)"/>
-  <rect width="1024" height="1024" rx="224" fill="url(#glowBL)"/>
-  <!-- corroboration ring: open arc, gap at top-right -->
-  <path d="M 782.4 439.5 A 280 280 0 1 1 584.5 241.6"
-        fill="none" stroke="url(#ring)" stroke-width="88" stroke-linecap="round"/>
-  <!-- live signal dot in the gap -->
-  <circle cx="710" cy="314" r="36" fill="#3DDC97"/>
-  <!-- AI sparkle at the center -->
-  <path d="M512 348 C534 466 558 490 676 512 C558 534 534 558 512 676 C490 558 466 534 348 512 C466 490 490 466 512 348 Z"
-        fill="url(#spark)"/>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Descry">
+  <!-- The Descry mark: one ring, one dot — an aperture. To descry is to make
+       something out at a distance, which is what the product does to a story.
+
+       Identical geometry to `.logo .mark` in index.html, `DescryMark` in the
+       iOS app, and backend/ios/AppIcon/make_icon.py, which renders the app icon
+       from these same ratios: outer diameter 0.605 of the canvas, stroke a
+       ninth of that, dot a third of it. The stroke is one optical size heavier
+       than the 18px nav mark so the tab favicon still reads at 16px.
+
+       Replaces a blue-and-violet gradient sparkle that predated the paper
+       redesign — the product had one identity on screen and a different one in
+       the browser tab and on the home screen. -->
+  <rect width="1024" height="1024" fill="#F7F4EE"/>
+  <circle cx="512" cy="512" r="275.3" fill="none" stroke="#17150F" stroke-width="68.8"/>
+  <circle cx="512" cy="512" r="103.2" fill="#17150F"/>
 </svg>

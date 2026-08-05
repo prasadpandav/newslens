@@ -19,6 +19,22 @@ struct LiveHeroView: View {
     @State private var showConfig = false
     private let tick = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
+    /// The strip is a FIXED height, and this is why it matters far more than it
+    /// looks. Cards differ: one title wraps to two lines and the next does not,
+    /// one carries a "BREAKING" flag and a subtitle and the next carries
+    /// neither. Sized to their content, the strip changed height every time it
+    /// auto-advanced — and it sits above the greeting, the topic chips and the
+    /// lead story, so the entire feed slid up and down by ~18pt every six
+    /// seconds, animated.
+    ///
+    /// Measured: the topic chip row moved from y=419.7 to y=401.3 on its own,
+    /// 10s after the feed painted. That is the whole of "the chips work
+    /// sometimes and sometimes the hero story opens instead" — the chip is
+    /// simply not where the finger is going by the time the touch lands, and
+    /// what slides into its place is the hero story's tap target.
+    private static let cardHeight: CGFloat = 76
+    private static let dotsHeight: CGFloat = 5
+
     /// Cards allowed by the user's config, ordered breaking → events → scores → markets.
     private var visible: [LiveCard] {
         let allowed = Set(prefs.categories)
@@ -35,9 +51,14 @@ struct LiveHeroView: View {
             VStack(alignment: .leading, spacing: 8) {
                 header
                 heroCard(current)
+                    .frame(height: Self.cardHeight)
                     .id(current.id)   // drives the cross-fade between cards
                     .transition(.opacity)
-                if cards.count > 1 { dots(cards.count) }
+                // Always laid out, so the strip's height does not depend on how
+                // many cards happen to be live at this instant.
+                dots(cards.count)
+                    .frame(height: Self.dotsHeight)
+                    .opacity(cards.count > 1 ? 1 : 0)
             }
             .padding(.top, 2)
             .onReceive(tick) { _ in advance(cards.count) }
@@ -148,13 +169,16 @@ struct LiveHeroCard: View {
                     Text("BREAKING").font(.caption2.weight(.bold)).kerning(1)
                         .foregroundStyle(pal.breaking)
                 }
+                // Exactly two lines, always: `lineLimit(2)` alone lets a short
+                // title render one line tall and take 18pt out of the strip.
                 Text(card.title)
                     .font(.subheadline.weight(.semibold))
-                    .lineLimit(2).multilineTextAlignment(.leading)
-                if !card.subtitle.isEmpty {
-                    Text(card.subtitle)
-                        .font(.caption2).foregroundStyle(pal.text2).lineLimit(1)
-                }
+                    .lineLimit(card.type == "breaking" ? 1 : 2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+                Text(card.subtitle)
+                    .font(.caption2).foregroundStyle(pal.text2)
+                    .lineLimit(1, reservesSpace: true)
+                    .opacity(card.subtitle.isEmpty ? 0 : 1)
             }
             Spacer(minLength: 0)
             if card.storyID?.isEmpty == false {
@@ -162,8 +186,8 @@ struct LiveHeroCard: View {
                     .font(.caption2).foregroundStyle(pal.text2)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: pal.r(14), style: .continuous)
             .fill(pal.surface)
             .overlay(RoundedRectangle(cornerRadius: pal.r(14), style: .continuous)

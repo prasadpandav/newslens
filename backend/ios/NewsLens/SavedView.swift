@@ -8,18 +8,35 @@ struct SavedView: View {
     @State private var items: [FeedItem] = []
     @State private var loading = true
 
+    /// "12 saved · 3 moved since you saved them" — the design's Saved page is
+    /// about what CHANGED while you were away, so the header counts that rather
+    /// than just the pile.
+    private var countLine: String {
+        guard !items.isEmpty else { return loading ? "reading…" : "nothing saved" }
+        let moved = items.filter { $0.correction != nil }.count
+        var line = "\(items.count) saved"
+        if moved > 0 { line += " · \(moved) moved since" }
+        return line
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
                 InkBackground()
+                VStack(spacing: 0) {
+                PageHeader(title: "Saved", subtitle: countLine)
                 if loading {
+                    Spacer()
                     ProgressView().tint(pal.accent)
+                    Spacer()
                 } else if items.isEmpty {
+                    Spacer()
                     ContentUnavailableView {
                         Label("Nothing saved yet", systemImage: "bookmark")
                     } description: {
                         Text("Tap the bookmark on any story to keep it here for later.")
                     }
+                    Spacer()
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 14) {
@@ -33,8 +50,9 @@ struct SavedView: View {
                     }
                     .scrollIndicators(.hidden)
                 }
+                }
             }
-            .navigationTitle("Saved")
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: FeedItem.self) { StoryDetailView(storyID: $0.id) }
             .task { await load() }
             .refreshable { await load() }

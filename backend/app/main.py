@@ -86,13 +86,35 @@ async def _log_heavy_requests(request: Request, call_next):
 def _require_admin(authorization: str = "", token: str = ""):
     """Gate for /admin/*: the API is public, so admin actions (pipeline runs,
     intel wipes, usage internals) need ADMIN_TOKEN — via Authorization: Bearer
-    or ?token= for curl convenience. No token configured = admin disabled."""
+    or ?token= for curl convenience. No token configured = admin disabled.
+
+    The three ways this can fail used to return one identical message. Opening
+    /admin/usage in a browser sends no credential at all, and answering that
+    with "bad admin token" says the token you did not send is wrong — which
+    reads as "my token stopped working" and sends you looking in the wrong
+    place. Each cause now names itself. Saying "you sent nothing" leaks
+    nothing: it is what `WWW-Authenticate` is for, and the header is sent too
+    so a browser can offer to log in.
+    """
     if not config.ADMIN_TOKEN:
         raise HTTPException(403, "admin endpoints are disabled — set ADMIN_TOKEN "
                                  "in the environment to enable them")
-    supplied = token or authorization.removeprefix("Bearer ").strip()
-    if not secrets.compare_digest(supplied, config.ADMIN_TOKEN):
-        raise HTTPException(401, "bad admin token")
+    # Stripped on BOTH sides. A token pasted into Render's environment editor
+    # very often carries a trailing newline or space, and one copied into a URL
+    # can arrive with %20 on the end; either produced a mismatch that looked
+    # exactly like a wrong password.
+    supplied = (token or authorization.removeprefix("Bearer ")).strip()
+    if not supplied:
+        raise HTTPException(
+            401,
+            "no admin token supplied — send `Authorization: Bearer <ADMIN_TOKEN>` "
+            "or ?token=<ADMIN_TOKEN>. The admin console at /admin does this for you.",
+            headers={"WWW-Authenticate": 'Bearer realm="descry-admin"'})
+    # compare_digest raises TypeError on a non-ASCII str, which turned a wrong
+    # password into a 500. Compare bytes so any token value is answerable.
+    if not secrets.compare_digest(supplied.encode("utf-8"),
+                                  config.ADMIN_TOKEN.strip().encode("utf-8")):
+        raise HTTPException(401, "admin token does not match the one set on this server")
 
 # One pipeline at a time — shared guard for scheduled AND manual runs.
 _pipeline_lock = threading.Lock()
@@ -114,6 +136,17 @@ def _start():
     # sliver behind). See diag.py for why this matters on a 512MB instance
     # where an OOM-SIGKILL leaves no traceback.
     diag.start_heartbeat()
+    # Say once, at boot, what state admin auth is in. Every /admin/* failure is
+    # otherwise diagnosed by guessing, and a short token on a public API is a
+    # standing invitation — it is guessable at internet scale and there is no
+    # rate limit in front of it.
+    if not config.ADMIN_TOKEN:
+        diag.checkpoint("ADMIN_TOKEN is not set — /admin/* endpoints are disabled")
+    elif len(config.ADMIN_TOKEN) < config.ADMIN_TOKEN_MIN_LEN:
+        diag.checkpoint(
+            f"ADMIN_TOKEN is only {len(config.ADMIN_TOKEN)} characters — "
+            f"use at least {config.ADMIN_TOKEN_MIN_LEN} "
+            "(`python -c \"import secrets;print(secrets.token_urlsafe(32))\"`)")
     # Interval jobs otherwise fire first at startup+interval; with frequent redeploys
     # that clock keeps resetting and a run may never happen. Kick the first run ~2 min
     # after boot, then every interval. coalesce + a wide misfire grace mean a busy or
@@ -995,7 +1028,13 @@ def _shape_signal(g, story_of, authed=True):
     if authed:
         out.update({"chain": linkify(g["chain"], id_head),
                     "watch": linkify(g["watch"], id_head),
+                    # Omitted, not empty-stringed, when the model could not name
+                    # one: absent means "we have no disproof for this", which the
+                    # clients print as its own honest line.
                     "stories": stories, "story_refs": story_refs(id_head)})
+        fals = (g["falsifier"] if "falsifier" in g.keys() else "") or ""
+        if fals.strip():
+            out["falsifier"] = linkify(fals, id_head)
     else:
         out.update({"chain": "", "watch": "", "stories": [], "story_refs": []})
     return out
@@ -1015,11 +1054,14 @@ def signals(user_id: str = "", authorization: str = Header("")):
     Anonymous callers get the hook only — see _shape_signal."""
     con = db.connect()
     authed = _is_authed(con, user_id, authorization)
-    # Defensive cap, same reasoning as /trends: Foresight already prunes this
+    # Defensive cap, same reasoning as /trends: Foresight already retires this
     # table to WINDOW_DAYS, so 200 is generous headroom, not a normal-path limit.
+    # retired_at IS NULL: forecasts past their window are kept now rather than
+    # deleted (so a track record can one day be built from them), which means
+    # this list has to say out loud that it wants the open ones.
     rows = ranking.sort_by_rank(
         [dict(r) for r in con.execute(
-            "SELECT * FROM signals "
+            "SELECT * FROM signals WHERE retired_at IS NULL "
             "ORDER BY updated_at DESC LIMIT 200").fetchall()],
         impact_of=lambda g: g["confidence"] or 0.0)
     # One batched lookup for every story any signal in this list references,
@@ -1118,7 +1160,8 @@ def trend_detail(trend_id: str):
     sids = {d["id"] for d in stories}
     forecasts = []
     for g in con.execute("SELECT id, title, horizon, confidence, story_ids "
-                         "FROM signals ORDER BY created_at DESC LIMIT 60").fetchall():
+                         "FROM signals WHERE retired_at IS NULL "
+                         "ORDER BY created_at DESC LIMIT 60").fetchall():
         shared = sids & set(db.uj(g["story_ids"], []))
         if shared:
             forecasts.append({"id": g["id"], "title": g["title"],
@@ -1341,6 +1384,7 @@ def sitemap():
                                   "ORDER BY created_at DESC LIMIT 500").fetchall()]
     rows += [(f"{base}/signal/{r['id']}", r["created_at"], "daily", "0.6")
              for r in con.execute("SELECT id, created_at FROM signals "
+                                  "WHERE retired_at IS NULL "
                                   "ORDER BY created_at DESC LIMIT 500").fetchall()]
     con.close()
     # The two hubs, first and highest priority: they are the entry points that

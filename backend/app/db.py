@@ -251,6 +251,33 @@ def connect():
             con.execute("ALTER TABLE stories ADD COLUMN framing TEXT")
         except sqlite3.OperationalError:
             pass
+        # ---- forecasts stop being destroyed ----
+        # Foresight used to DELETE a forecast a week after its last update. That
+        # is the one thing that made a track record impossible: "we said this,
+        # and here is what happened" needs the row to still exist after its date
+        # has passed, and every run was throwing that evidence away. Retirement
+        # is now a stamp, exactly as it already is for trends — NULL = open.
+        #
+        # `outcome`/`settled_at`/`outcome_note` are where a grading pass will
+        # write what actually happened. Nothing writes them yet, and no client
+        # counts them: a forecast with outcome NULL is "not yet judged", which is
+        # the honest state and the one every existing row is in.
+        # `falsifier` is a separate column from `watch` rather than a rewrite of
+        # it. The design's forecast page asks "what would stop it"; the prompt has
+        # always asked for the opposite — one thing that would show the forecast
+        # is ON TRACK. Both are worth printing, and they are not interchangeable,
+        # so old rows keep their confirming indicator under a heading that says
+        # so, and rows written from now on can carry a real disproof as well.
+        for col in ("retired_at REAL", "outcome TEXT",
+                    "settled_at REAL", "outcome_note TEXT", "falsifier TEXT"):
+            try:
+                con.execute(f"ALTER TABLE signals ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        # /signals reads open forecasts newest-first on every request, and
+        # retired rows now accumulate instead of being deleted.
+        con.execute("CREATE INDEX IF NOT EXISTS signals_open "
+                    "ON signals(retired_at, updated_at)")
         # COMMIT THE MIGRATION before flipping the flag. Without this the DDL
         # above sits in this connection's open transaction: it is visible here,
         # so a PRAGMA check passes, but no OTHER connection can see the new

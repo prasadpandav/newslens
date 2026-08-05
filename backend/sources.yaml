@@ -1,5 +1,11 @@
 # Source reputation tiers used by the Verifier. 1 = wire/major, 4 = unknown.
-tier1: [reuters.com, apnews.com, bbc.co.uk, bbc.com]
+# The document publishers below are tier 1 for the same reason they are `primary`
+# in `kinds`: a regulator's own directive is not a report about an event, it IS
+# the event. Left unlisted they would have scored tier 4 — the same as an unknown
+# blog — and a story resting on a central bank's own release would have come out
+# LESS corroborated than a wire write-up of it.
+tier1: [reuters.com, apnews.com, bbc.co.uk, bbc.com,
+        cisa.gov, rbi.org.in, sebi.gov.in, ec.europa.eu]
 tier2: [aljazeera.com, cnbc.com, theverge.com, arstechnica.com, thehindu.com, sciencedaily.com]
 tier3: [ndtv.com, feedburner.com, rechargenews.com]
 # anything unlisted = tier 4
@@ -12,12 +18,13 @@ tier3: [ndtv.com, feedburner.com, rechargenews.com]
 # perfectly reputable.
 #
 #   primary     publishes the underlying document itself — regulators, courts,
-#               CERTs, statistical agencies, company filings. We currently
-#               ingest NONE of these, so this list is deliberately EMPTY rather
-#               than padded with newsrooms to make the number look better. The
-#               UI shows the real breakdown instead of forcing an "N primary"
-#               figure. Adding a few primary feeds is the cheapest honest way to
-#               raise corroboration scores.
+#               CERTs, statistical agencies, company filings. This list was empty
+#               for a long time, which was honest but meant every trend and story
+#               reported "0 original documents" and the reader's "Where it's
+#               coming from" panel showed newsrooms and nothing else. Four
+#               genuine document publishers are now ingested (see feeds.yaml) and
+#               listed here. Still no newsroom is ever added to this list to make
+#               the number look better — a wire report OF a filing is a newsroom.
 #   newsroom    independent editorial organisations.
 #   trade       industry/sector press — covers an industry it is part of and
 #               partly funded by, so an "interested party" in the design's sense.
@@ -26,7 +33,11 @@ tier3: [ndtv.com, feedburner.com, rechargenews.com]
 #
 # Unlisted hosts resolve to "unknown" — never silently counted as a newsroom.
 kinds:
-  primary: []
+  primary:
+    - cisa.gov              # US CERT advisories — the advisory itself
+    - rbi.org.in            # Reserve Bank of India press releases and directions
+    - sebi.gov.in           # Indian market regulator orders and circulars
+    - ec.europa.eu          # European Commission press corner
   newsroom:
     - bbc.co.uk
     - bbc.com

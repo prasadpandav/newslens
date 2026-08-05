@@ -89,7 +89,14 @@ BREAKING_WINDOW_HOURS = float(os.environ.get("BREAKING_WINDOW_HOURS", "6"))
 
 # Required for /admin/* endpoints (pipeline runs, intel rebuild, usage). With no
 # token set, admin endpoints refuse — the API is public, so they must never be open.
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+# Stripped: a value pasted into a hosting dashboard routinely arrives with a
+# trailing newline, and the resulting mismatch is indistinguishable from a wrong
+# password.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+#: Below this many characters an admin token is guessable at internet scale.
+#: Warned about at startup rather than enforced — refusing to boot over it would
+#: take the whole API down for a problem that only affects /admin/*.
+ADMIN_TOKEN_MIN_LEN = 24
 # Comma-separated CORS origin allowlist for browsers; * = any (beta default).
 ALLOWED_ORIGINS = [o.strip() for o in
                    os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]

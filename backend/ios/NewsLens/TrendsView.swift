@@ -21,20 +21,15 @@ struct TrendsView: View {
     enum Cut: String, CaseIterable { case lens, all, strongest, fading, newest }
     @State private var cut: Cut = .all
 
-    private var all: [Trend] { trends.filter { $0.kind == "macro" } }
-    private var mine: [Trend] { all.filter { Lens.touches($0.lensText) } }
-    private var faded: [Trend] { all.filter { TrendStatus.of($0).kind == .fading } }
-    /// Trends holding stories whose own corroboration has since fallen.
-    ///
-    /// NOT `updated_at` within a week, which was the first attempt: every trend
-    /// is re-synthesised on every pipeline run, so that read "40 running · 40
-    /// changed this week" — a count of the list's own length dressed up as
-    /// news. `weakened_count` is the only genuine "this moved" signal the
-    /// server sends, and it is only present when it is non-zero.
-    private var weakened: [Trend] {
-        all.filter { ($0.weakenedCount ?? 0) > 0 }
-    }
-
+    /// Derived ONCE per load. These were computed properties, and every one of
+    /// them re-filtered the whole list — `faded` running `TrendStatus.of` per
+    /// trend, `mine` lower-casing each trend's text — on every read. `shown`,
+    /// `ordered`, `countLine`, the pills and the section rule each read several
+    /// of them, so one pass over `body` filtered the catalogue a dozen times.
+    @State private var all: [Trend] = []
+    @State private var mine: [Trend] = []
+    @State private var faded: [Trend] = []
+    @State private var weakened: [Trend] = []
     /// The list as shown. "Strongest" and "Newest" re-rank; "Your lens" and
     /// "Fading" filter. Default order is the server's ranking, which already
     /// blends recency with how much is behind each trend.
@@ -52,7 +47,8 @@ struct TrendsView: View {
     /// the end of the default list instead of interleaved with live ones.
     private var ordered: [Trend] {
         guard cut == .all else { return shown }
-        return shown.filter { TrendStatus.of($0).kind != .fading } + faded
+        let fadedIDs = Set(faded.map(\.id))
+        return shown.filter { !fadedIDs.contains($0.id) } + faded
     }
 
     var body: some View {
@@ -94,17 +90,7 @@ struct TrendsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Trends")
-                    .font(pal.serif(24))
-                    .foregroundStyle(pal.text)
-                Text(countLine)
-                    .font(pal.mono(13))
-                    .foregroundStyle(pal.faint)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
+        PageHeader(title: "Trends", subtitle: countLine) {
             Button { showAsk = true } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "sparkle").font(.system(size: 11))
@@ -117,10 +103,6 @@ struct TrendsView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Ask about these trends")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 4)
-        .padding(.bottom, 14)
-        .overlay(alignment: .bottom) { Rectangle().fill(pal.hairline).frame(height: 1) }
     }
 
     /// "9 running · 4 match your lens · 2 changed this week". Each clause is
@@ -284,7 +266,16 @@ struct TrendsView: View {
     }
 
     private func load() async {
-        trends = (try? await api.fetchTrends()) ?? []
+        let fresh = (try? await api.fetchTrends()) ?? []
+        let macro = fresh.filter { $0.kind == "macro" }
+        trends = fresh
+        all = macro
+        mine = macro.filter { Lens.touches($0.lensText) }
+        faded = macro.filter { TrendStatus.of($0).kind == .fading }
+        // `weakened_count` is the only genuine "this moved" signal the server
+        // sends (every trend is re-synthesised each run, so `updated_at` would
+        // read "40 running · 40 changed this week" — the list's own length).
+        weakened = macro.filter { ($0.weakenedCount ?? 0) > 0 }
         loading = false
     }
 }

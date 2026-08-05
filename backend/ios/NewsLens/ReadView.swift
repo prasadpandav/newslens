@@ -9,18 +9,32 @@ struct ReadView: View {
     @State private var items: [FeedItem] = []
     @State private var loading = true
 
+    /// "8 read · 4 topics" — the design's Read page is an information diet, not
+    /// a score, so it counts what you have heard rather than how often.
+    private var countLine: String {
+        guard !items.isEmpty else { return loading ? "reading…" : "nothing read yet" }
+        let topics = Set(items.map { $0.topic.lowercased() }).count
+        return "\(items.count) read · \(topics) \(topics == 1 ? "topic" : "topics")"
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
                 InkBackground()
+                VStack(spacing: 0) {
+                PageHeader(title: "Read", subtitle: countLine)
                 if loading {
+                    Spacer()
                     ProgressView().tint(pal.accent)
+                    Spacer()
                 } else if items.isEmpty {
+                    Spacer()
                     ContentUnavailableView {
                         Label("Nothing read yet", systemImage: "checkmark.circle")
                     } description: {
                         Text("Stories you open or mark as read will show up here, out of your main feed.")
                     }
+                    Spacer()
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 14) {
@@ -44,8 +58,9 @@ struct ReadView: View {
                     }
                     .scrollIndicators(.hidden)
                 }
+                }
             }
-            .navigationTitle("Read")
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: FeedItem.self) { StoryDetailView(storyID: $0.id) }
             .task { await load() }
             .refreshable { await load() }

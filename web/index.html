@@ -4932,6 +4932,14 @@ const SignalPage = { async render(id){
           <div class="dx-quote" style="font-size:15.5px">${esc(g.chain)}</div>
         </section>` : ''}
 
+        ${g.falsifier && open ? `<section class="dx-sec">
+          <span class="fx-h mid">What would stop it</span>
+          <p class="note">If this happens, we were wrong. We would rather name it now than
+             explain it afterwards.</p>
+          <div class="dx-marks"><div class="dx-mark open"><span class="g">○</span>
+            <span>${esc(g.falsifier)}</span></div></div>
+        </section>` : ''}
+
         ${g.watch && open ? `<section class="dx-sec">
           <span class="fx-h good">What would make this happen</span>
           <p class="note">Watch for this. If it keeps happening, we are on the right track.</p>

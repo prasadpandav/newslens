@@ -218,7 +218,16 @@ struct Signal: Codable, Identifiable, Hashable {
     var title: String
     var prediction: String
     var chain: String
+    /// A CONFIRMING indicator — "one observable thing that would show this is on
+    /// track". Not a disproof, which is why it is never printed under a heading
+    /// that promises one.
     var watch: String
+    /// A disproof: one observable thing that would show the forecast is wrong.
+    /// Optional and often absent — the prompt only started asking for it
+    /// recently, and it returns "" when it cannot name one honestly, which the
+    /// server omits rather than sending as empty. Absent means "we have no
+    /// disproof for this", and that is worth saying out loud.
+    var falsifier: String?
     var affected: [String]?
     var horizon: String?
     var confidence: Double
@@ -241,7 +250,8 @@ struct Signal: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, prediction, chain, watch, affected, horizon, confidence, stories, locked
+        case id, title, prediction, chain, watch, falsifier, affected, horizon
+        case confidence, stories, locked
         case storyRefs = "story_refs"
         case createdAt = "created_at"
         case storyCount = "story_count"

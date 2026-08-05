@@ -511,6 +511,100 @@ struct Chip: View {
     }
 }
 
+// MARK: - The Descry mark
+//
+// One ring, one dot — an aperture. To descry is to make something out at a
+// distance, which is what the product does to a story.
+//
+// It exists as a view rather than as three hand-drawn ZStacks because it was
+// drawn ad hoc in the feed masthead and nowhere else, so four of the five tabs
+// carried no identity at all and the app icon was still a blue-and-violet
+// gradient sparkle from before the redesign. The same ratios are in
+// `web/icon.svg`, `.logo .mark` in web/index.html, and
+// backend/ios/AppIcon/make_icon.py — change one and the others are wrong.
+//
+// Ratios are the design's own 18pt mark: the stroke is a twelfth of the outer
+// diameter, the dot a third of it. Takes the surrounding foreground colour, so
+// it inverts on a dark panel without a second asset.
+
+struct DescryMark: View {
+    var size: CGFloat = 18
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(lineWidth: size / 12)
+            Circle().frame(width: size / 3, height: size / 3)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)   // the wordmark or page title names it
+    }
+}
+
+/// Mark plus wordmark. The masthead lockup — the feed's, and the only place the
+/// word is set, because repeating it on all five tabs reads as branding rather
+/// than as a masthead.
+struct DescryLockup: View {
+    @Environment(\.palette) private var pal
+    var size: CGFloat = 18
+
+    var body: some View {
+        HStack(spacing: size * 0.44) {
+            DescryMark(size: size)
+            Text("DESCRY")
+                .font(pal.serif(size * 0.78, .medium))
+                .kerning(size * 0.109)      // .14em
+        }
+        .foregroundStyle(pal.text)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Descry")
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The header every tab except the feed wears: the mark, the page's own name in
+/// the editorial serif, a counted line under it, and whatever the screen needs
+/// on the right. One rule under it, as the design draws every page head.
+struct PageHeader<Trailing: View>: View {
+    @Environment(\.palette) private var pal
+
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 9) {
+                    DescryMark(size: 15)
+                        .foregroundStyle(pal.text)
+                    Text(title)
+                        .font(pal.serif(24))
+                        .foregroundStyle(pal.text)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                if let subtitle {
+                    Text(subtitle)
+                        .font(pal.mono(13))
+                        .foregroundStyle(pal.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+            trailing
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 14)
+        .overlay(alignment: .bottom) { Rectangle().fill(pal.hairline).frame(height: 1) }
+    }
+}
+
+extension PageHeader where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil) {
+        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
 // MARK: - Wrapping chip row
 
 /// A left-aligned row that wraps onto new lines instead of squeezing its

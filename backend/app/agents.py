@@ -1144,7 +1144,16 @@ class Storyteller:
         # the same event_id (they would never match each other, since `prior` is
         # read once up front). Consolidating first also gives the story the whole
         # event, not one trend's slice of it.
-        by_event, event_trend = {}, {}
+        # EVERY theme an event belongs to, not just the first one to claim it.
+        # This used to be `setdefault(key, t)` — "first theme wins the label" —
+        # which wrote one trend id onto the story and silently dropped the rest.
+        # `trend_ids` is a list precisely because an event can sit in two themes,
+        # and /trends counts a trend's stories by looking for its id in there:
+        # every theme that lost the race ended up reporting `story_count: 0`
+        # while holding a dozen articles, so its card said "no scored story this
+        # week" and its "See all N stories" page came back empty. 26 of 40 live
+        # macro trends were in that state.
+        by_event, event_trends = {}, {}
         for t in trends:
             tids = db.uj(t["article_ids"], [])
             if not tids:
@@ -1154,7 +1163,9 @@ class Storyteller:
                     % ",".join("?" * len(tids)), tids).fetchall():
                 key = r["group_id"] or r["id"]
                 by_event.setdefault(key, set()).add(r["id"])
-                event_trend.setdefault(key, t)   # first theme wins the label
+                seen = event_trends.setdefault(key, [])
+                if not any(x["id"] == t["id"] for x in seen):
+                    seen.append(t)
         # Orphan articles (not in any trend) become stories too — but near-duplicates
         # from different sources are merged into ONE story per group_id, so the same
         # event isn't storied (and LLM-called) once per source.
@@ -1167,8 +1178,30 @@ class Storyteller:
                 # same dict rejoins those halves instead of emitting a second
                 # group under an event_id a trend group already owns.
                 by_event.setdefault(o["group_id"] or o["id"], set()).add(o["id"])
-        groups = [(event_trend.get(k), sorted(v), k) for k, v in by_event.items()]
-        for trend, ids, event_id in groups:
+        # Repair pass for stories written under the old "first theme wins" rule.
+        # It cannot heal itself in the loop below: a story with no new articles
+        # is skipped before it is ever rewritten, so a trend that lost the race
+        # would report story_count 0 for as long as its coverage stayed quiet.
+        # This is a pure label fix — no LLM, no re-telling, and it only ever adds
+        # ids, so a story never loses a theme it already carried.
+        relabelled = 0
+        for p in prior:
+            if not p["eid"]:
+                continue
+            want = {t["id"] for t in event_trends.get(p["eid"], [])}
+            if want and not want <= p["tids"]:
+                p["tids"] |= want
+                con.execute("UPDATE stories SET trend_ids=? WHERE id=?",
+                            (db.j(sorted(p["tids"])), p["id"]))
+                relabelled += 1
+        if relabelled:
+            con.commit()
+
+        groups = [(event_trends.get(k, []), sorted(v), k) for k, v in by_event.items()]
+        for evt_trends, ids, event_id in groups:
+            # The first theme still names the story's topic; all of them label it.
+            trend = evt_trends[0] if evt_trends else None
+            evt_tids = {t["id"] for t in evt_trends}
             if new_ct + upd_ct >= self.MAX_PER_RUN:
                 break
             if not ids:
@@ -1254,7 +1287,7 @@ class Storyteller:
                 # gives a retell bounded credit instead (see ranking.STALE_FLOOR).
                 # `trend` is None for an orphan event, which can now match a prior
                 # story by event_id — so guard the union instead of indexing None.
-                tids = mine["tids"] | ({trend["id"]} if trend else set())
+                tids = mine["tids"] | evt_tids
                 # A cached framing spectrum describes the outlets that had
                 # covered the event when it was classified. If a NEW OUTLET has
                 # since joined, that picture is stale — drop it so the next
@@ -1295,7 +1328,7 @@ class Storyteller:
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
-                     db.j(ids), db.j([trend["id"]] if trend else []), db.j(conn_ids),
+                     db.j(ids), db.j(sorted(evt_tids)), db.j(conn_ids),
                      db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats),
                      db.j(beats) if beats else None,
                      db.j(anchors) if anchors else None))
@@ -1329,7 +1362,8 @@ class Storyteller:
             con.commit()
         con.commit()
         db.log_run(con, "storyteller", "ok",
-                   f"{new_ct} new + {upd_ct} updated stories, {absorbed} absorbed")
+                   f"{new_ct} new + {upd_ct} updated stories, {absorbed} absorbed"
+                   + (f", {relabelled} relabelled" if relabelled else ""))
         return new_ct + upd_ct
 
 
@@ -1374,9 +1408,18 @@ class Foresight:
             (db.now() - self.WINDOW_DAYS * 86400,)).fetchall()
         # Age out stale forecasts every run (instead of wiping all of them), so
         # a run that produces nothing new still leaves recent forecasts intact.
+        #
+        # RETIRED, NOT DELETED. This used to be `DELETE FROM signals`, which
+        # destroyed every forecast a week after its last update — and with it any
+        # possibility of ever saying "we said 26 things, 19 happened". A forecast
+        # whose horizon is "18 months" was being thrown away 17 months before
+        # anyone could tell whether it was right. Retirement takes it off
+        # /signals (same rule trends already use) and keeps the row, so the
+        # record accumulates from today forward instead of being erased daily.
         pruned = con.execute(
-            "DELETE FROM signals WHERE updated_at < ?",
-            (db.now() - self.WINDOW_DAYS * 86400,)).rowcount
+            "UPDATE signals SET retired_at = ? "
+            "WHERE retired_at IS NULL AND updated_at < ?",
+            (db.now(), db.now() - self.WINDOW_DAYS * 86400)).rowcount
         if len(stories) < 4:
             con.commit()
             db.log_run(con, "foresight", "ok",
@@ -1386,8 +1429,8 @@ class Foresight:
         # Show the LLM what is already forecast so it reuses titles verbatim
         # instead of re-wording the same forecast (which defeats dedupe).
         existing_titles = [r["title"] for r in con.execute(
-            "SELECT title FROM signals ORDER BY confidence DESC, created_at DESC "
-            "LIMIT 30").fetchall()]
+            "SELECT title FROM signals WHERE retired_at IS NULL "
+            "ORDER BY confidence DESC, created_at DESC LIMIT 30").fetchall()]
         existing_txt = "\n".join(f"- {t}" for t in existing_titles) or "(none yet)"
         fresh, calls, failed = [], 0, 0
         # One call per unit: within-domain foresight for each topic.
@@ -1430,7 +1473,8 @@ class Foresight:
         existing = [{"id": r["id"], "title": r["title"], "vec": _tf(r["title"] or ""),
                      "story_ids": db.uj(r["story_ids"], [])}
                     for r in con.execute(
-                        "SELECT id, title, story_ids FROM signals").fetchall()]
+                        "SELECT id, title, story_ids FROM signals "
+                        "WHERE retired_at IS NULL").fetchall()]
         new_ct = upd_ct = 0
         for sig in fresh:
             sids = [i for i in sig.get("story_ids", []) if i in valid]
@@ -1447,10 +1491,11 @@ class Foresight:
                 union = sorted(set(match["story_ids"]) | set(sids))
                 con.execute(
                     "UPDATE signals SET title=?, prediction=?, chain=?, watch=?, "
-                    "affected=?, horizon=?, confidence=?, story_ids=?, updated_at=? "
-                    "WHERE id=?",
+                    "falsifier=?, affected=?, horizon=?, confidence=?, story_ids=?, "
+                    "updated_at=?, retired_at=NULL WHERE id=?",
                     (sig.get("title", match["title"]), sig.get("prediction", ""),
                      sig.get("chain", ""), sig.get("watch", ""),
+                     sig.get("falsifier", ""),
                      db.j(sig.get("affected", [])), sig.get("horizon", ""), conf,
                      db.j(union), db.now(), match["id"]))
                 match["story_ids"] = union
@@ -1462,11 +1507,12 @@ class Foresight:
                 # Explicit column list: a bare VALUES(...) is positional over
                 # every column, so it broke the moment updated_at was added.
                 con.execute(
-                    "INSERT INTO signals (id,title,prediction,chain,watch,affected,"
-                    "horizon,confidence,story_ids,created_at,updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO signals (id,title,prediction,chain,watch,falsifier,"
+                    "affected,horizon,confidence,story_ids,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (nid, sig.get("title", "Signal"), sig.get("prediction", ""),
                      sig.get("chain", ""), sig.get("watch", ""),
+                     sig.get("falsifier", ""),
                      db.j(sig.get("affected", [])), sig.get("horizon", ""), conf,
                      db.j(sids), db.now(), db.now()))
                 existing.append({"id": nid, "title": sig.get("title", "Signal"),

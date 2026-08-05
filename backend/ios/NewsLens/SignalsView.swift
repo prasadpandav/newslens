@@ -140,7 +140,7 @@ struct SignalDetailView: View {
 
                     if signal.isLocked { locked } else { thread }
 
-                    if !signal.watch.isEmpty { toWatch }
+                    if signal.falsifier?.isEmpty == false || !signal.watch.isEmpty { toWatch }
                     if let affected = signal.affected, !affected.isEmpty { lands(affected) }
                     trackRecord
                     Text("This forecast was written by a machine from stories we had already checked. The likelihood is how strongly those stories point the same way — not a measurement of how often we are right.")
@@ -306,18 +306,27 @@ struct SignalDetailView: View {
 
     // MARK: - Blocks
 
-    /// `watch` is a confirming indicator, not a falsifier — see the note in
-    /// NextView. The heading says what the field actually holds.
+    /// The design's "What would stop it". Printed as a disproof when the
+    /// forecast carries one, and as the confirming indicator it actually has
+    /// otherwise — see the note in NextView.
     private var toWatch: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("What to watch")
+        let disproof = signal.falsifier?.isEmpty == false
+        return VStack(alignment: .leading, spacing: 9) {
+            Text(disproof ? "What would stop it" : "What to watch")
                 .font(.system(size: 16, weight: .medium, design: .serif))
                 .foregroundStyle(paper)
-            Text(signal.watch)
+            Text(disproof ? signal.falsifier! : signal.watch)
                 .font(.system(size: 14))
                 .lineSpacing(5)
                 .foregroundStyle(paper.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
+            if disproof, !signal.watch.isEmpty {
+                Text("On track if: \(signal.watch)")
+                    .font(.system(size: 13))
+                    .lineSpacing(4)
+                    .foregroundStyle(paper.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

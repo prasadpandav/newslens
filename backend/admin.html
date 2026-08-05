@@ -209,9 +209,17 @@ async function login(){
   TOKEN = pw;
   const r = await adminGet('/admin/usage');
   if(r.status===200){ sessionStorage.setItem('descry_admin', pw); enter(); }
-  else if(r.status===401) $('#loginerr').textContent='Wrong password — check the ADMIN_TOKEN value on Render.';
-  else if(r.status===403) $('#loginerr').textContent='Admin is disabled on the server. Set ADMIN_TOKEN in Render → Environment, then sign in.';
-  else $('#loginerr').textContent='Could not reach the server (error '+r.status+'). Try again in a moment.';
+  else {
+    // Show what the server actually said. The three admin failures used to
+    // arrive as one message, so "wrong password" was printed even when the
+    // real cause was that admin is off or the value carries a stray newline.
+    let detail = '';
+    try { detail = (await r.json()).detail || ''; } catch(e) {}
+    $('#loginerr').textContent =
+        r.status===401 ? (detail || 'Wrong password — check the ADMIN_TOKEN value on Render.')
+      : r.status===403 ? (detail || 'Admin is disabled on the server. Set ADMIN_TOKEN in Render → Environment, then sign in.')
+      : 'Could not reach the server (error '+r.status+'). Try again in a moment.';
+  }
 }
 function signout(){ TOKEN=''; sessionStorage.removeItem('descry_admin');
   $('#dash').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#pw').value=''; }

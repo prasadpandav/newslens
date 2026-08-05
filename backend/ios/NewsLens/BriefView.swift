@@ -218,16 +218,7 @@ struct BriefView: View {
     /// improvement.
     private var masthead: some View {
         HStack {
-            HStack(spacing: 8) {
-                ZStack {
-                    Circle().stroke(pal.text, lineWidth: 1.5).frame(width: 16, height: 16)
-                    Circle().fill(pal.text).frame(width: 5, height: 5)
-                }
-                Text("DESCRY")
-                    .font(pal.serif(14, .medium))
-                    .kerning(1.96)          // .14em at 14px
-                    .foregroundStyle(pal.text)
-            }
+            DescryLockup()
             Spacer()
             Button { showAsk = true } label: {
                 HStack(spacing: 5) {
@@ -469,51 +460,10 @@ struct BriefView: View {
 }
 
 // MARK: - Story card
-
-/// Publisher artwork for a story. URL only — nothing is cached to disk by us
-/// beyond URLSession's own handling, and the bytes never touch the backend.
-///
-/// Collapses to zero height when there is no image OR when loading fails:
-/// these URLs are hotlinked from publisher CDNs, some of which 404, block
-/// hotlinking, or are unreachable on a given network, and an empty grey box
-/// in the middle of a card reads as a bug. Text-only is the honest fallback.
-struct StoryImage: View {
-    @Environment(\.palette) private var pal
-
-    let urlString: String?
-    var height: CGFloat = 168
-    /// Fixed width for the list thumbnail; nil means "as wide as offered".
-    var width: CGFloat? = nil
-    /// The lead story's photograph runs edge to edge under the card's top
-    /// corners rather than floating inside the padding, so it is clipped by the
-    /// card and takes no rounding of its own.
-    var squareTop: Bool = false
-    @State private var failed = false
-
-    var body: some View {
-        if let s = urlString, !s.isEmpty, let url = URL(string: s), !failed {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                case .failure:
-                    // Collapse on the next layout pass rather than showing a gap.
-                    Color.clear.onAppear { failed = true }
-                case .empty:
-                    Rectangle().fill(pal.surface2)
-                @unknown default:
-                    Color.clear
-                }
-            }
-            .frame(maxWidth: width ?? .infinity)
-            .frame(width: width, height: height)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: squareTop ? 0 : pal.r(7),
-                                        style: .continuous))
-            .accessibilityHidden(true)   // decorative; the headline carries meaning
-        }
-    }
-}
+//
+// `StoryImage` moved to ImageLoader.swift, where it decodes at the size it is
+// drawn instead of handing a 1024px publisher JPEG to the main thread for an
+// 84pt thumbnail.
 
 // MARK: - The kicker
 //
