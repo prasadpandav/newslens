@@ -674,19 +674,34 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # still wins (it reflects an actual reader having opened it), unscored-but-
     # relevant stories rank above unscored-irrelevant ones, exactly the
     # ordering the LLM score used to approximate at proactive-batch cost.
-    ctx = None
-    if sort == "foryou":
-        u = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
-        ctx = db.uj(u["context"] if u else "{}")
+    # The reader's lens is loaded for EVERY sort now, not just `foryou`. The
+    # default feed used to ignore it, which is the whole of "half my feed is
+    # sports and I never chose sports" — see RANK_INTEREST_BOOST.
+    u = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
+    ctx = db.uj(u["context"] if u else "{}")
+    interests = {str(i).lower() for i in (ctx.get("interests") or []) if str(i).strip()}
     items = [dict(r) for r in rows]
     if sort == "foryou":
         impact_of = lambda it: it["impact_score"] or (
             1 if personalization_relevant(ctx, it) else 0)
     else:
-        # How many outlets corroborate the story — the same "how big is this"
-        # proxy trends use (velocity), damped because a developing storyline's
-        # count is unbounded.
-        impact_of = lambda it: ranking.damped(len(db.uj(it["article_ids"], [])))
+        def impact_of(it):
+            # How many outlets corroborate the story — the same "how big is
+            # this" proxy trends use (velocity), damped because a developing
+            # storyline's count is unbounded.
+            base = ranking.damped(len(db.uj(it["article_ids"], [])))
+            # The reader's chosen topics lead. Matched on `topic` alone, not on
+            # the full relevance test personalization_relevant() runs: that one
+            # regexes every headline and narrative, and this path sorts up to
+            # 1000 rows on every feed request.
+            if interests and (it["topic"] or "").lower() in interests:
+                base *= config.RANK_INTEREST_BOOST
+            # Then corroboration — the number the card actually prints. Without
+            # this a story scored 10 and a story scored 98 ranked identically
+            # whenever both had one source, which is most of the catalogue.
+            cred = max(0.0, min(float(it["credibility"] or 0), 100.0))
+            return base * (config.RANK_CRED_FLOOR
+                           + cred / 100.0 * config.RANK_CRED_WEIGHT)
     items = ranking.sort_by_rank(items, impact_of)[:100]
     # After the slice, so the correction lookup covers the 100 rows actually
     # being sent rather than the whole 1000-row candidate pool.

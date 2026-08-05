@@ -57,6 +57,7 @@ local:
   # (it costs one fetch) in case it ever revives; FPJ is what actually carries
   # Thane today. Remove the dead one whenever you like.
   - https://www.freepressjournal.in/stories.rss?section=thane
+  - https://timesofindia.indiatimes.com/rssfeeds/3831863.cms
   - https://indianexpress.com/section/cities/thane/feed/
   - https://www.thehindu.com/news/cities/mumbai/feeder/default.rss
   - https://indianexpress.com/section/cities/pune/feed/

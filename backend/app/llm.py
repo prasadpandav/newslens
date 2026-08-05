@@ -229,6 +229,61 @@ class RateLimited(Exception):
     pass
 
 
+#: (provider, model) -> parameters that model has told us it will not accept.
+#: Learned from its own 400s and remembered for the life of the process, so the
+#: cost of discovering an incompatibility is one request, not one per call.
+_unsupported: dict[tuple, set] = {}
+
+#: The four shapes an OpenAI-compatible API uses to name the offending field.
+_BAD_PARAM_RE = re.compile(
+    r"Unsupported value: '([A-Za-z_]+)'"
+    r"|Unsupported parameter: '([A-Za-z_]+)'"
+    r"|Unrecognized request argument supplied: ([A-Za-z_]+)"
+    r"|'([A-Za-z_]+)' is not supported")
+
+#: Never strip these — without them there is no request left to make.
+_ESSENTIAL = {"model", "messages"}
+
+
+def _post_chat(url, key, body, timeout, provider, model):
+    """POST to an OpenAI-compatible /chat/completions, adapting to the model.
+
+    Models differ in which optional parameters they accept, and they say so with
+    a 400 rather than by ignoring the field. `gpt-5.6-luna` rejects any
+    `temperature` other than the default, which failed EVERY OpenAI call in the
+    pipeline — and the log said only "Client error '400 Bad Request'", because
+    httpx's message does not include the response body where the actual reason
+    was. So: strip what this model has already refused, and when it refuses
+    something new, learn it and retry once without it.
+    """
+    key_ = (provider, model)
+    sent = {k: v for k, v in body.items() if k not in _unsupported.get(key_, ())}
+    for _ in range(3):          # at most a couple of parameters to discover
+        r = httpx.post(url, headers={"Authorization": f"Bearer {key}"},
+                       json=sent, timeout=timeout)
+        if r.status_code == 429:
+            raise RateLimited()
+        if r.status_code != 400:
+            if r.status_code >= 400:
+                # Carry the body: a bare status line is not a diagnosis.
+                raise RuntimeError(f"{provider} {r.status_code}: {r.text[:300]}")
+            return r
+        detail = ""
+        try:
+            detail = (r.json().get("error") or {}).get("message") or ""
+        except ValueError:
+            detail = r.text[:300]
+        m = _BAD_PARAM_RE.search(detail)
+        param = next((g for g in (m.groups() if m else ()) if g), None)
+        if not param or param in _ESSENTIAL or param not in sent:
+            raise RuntimeError(f"{provider} 400: {detail[:300]}")
+        _unsupported.setdefault(key_, set()).add(param)
+        sent.pop(param, None)
+        _note("param_dropped", provider, None,
+              f"{model} rejected '{param}' — retrying without it")
+    raise RuntimeError(f"{provider} 400: {detail[:300]}")
+
+
 def _record(provider, tokens):
     usage["calls"] += 1
     usage["tokens"] += tokens
@@ -243,17 +298,14 @@ def _call(provider, prompt, task=None):
     if provider == "groq":
         if not config.GROQ_API_KEY:
             raise RuntimeError("no groq key")
-        r = httpx.post(
+        r = _post_chat(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
-            json={"model": model,
-                  "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.4,
-                  "response_format": {"type": "json_object"}},
-            timeout=timeout)
-        if r.status_code == 429:
-            raise RateLimited()
-        r.raise_for_status()
+            config.GROQ_API_KEY,
+            {"model": model,
+             "messages": [{"role": "user", "content": prompt}],
+             "temperature": 0.4,
+             "response_format": {"type": "json_object"}},
+            timeout, "groq", model)
         data = r.json()
         _record("groq", data.get("usage", {}).get("total_tokens", 0))
         return data["choices"][0]["message"]["content"]
@@ -275,13 +327,7 @@ def _call(provider, prompt, task=None):
             body["response_format"] = {"type": "json_object"}
             if provider == "deepseek":
                 body["thinking"] = {"type": "disabled"}  # keep base tasks fast/cheap
-        r = httpx.post(
-            f"{base}/chat/completions",
-            headers={"Authorization": f"Bearer {key}"},
-            json=body, timeout=timeout)
-        if r.status_code == 429:
-            raise RateLimited()
-        r.raise_for_status()
+        r = _post_chat(f"{base}/chat/completions", key, body, timeout, provider, model)
         data = r.json()
         _record(provider, data.get("usage", {}).get("total_tokens", 0))
         return data["choices"][0]["message"]["content"]

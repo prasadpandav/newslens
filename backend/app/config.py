@@ -122,6 +122,26 @@ RANK_GRAVITY = float(os.environ.get("RANK_GRAVITY", "1.5"))
 # could climb back over fresh reporting, which is the exact failure ranking.py
 # exists to prevent. See test: an image must never beat a fresher story.
 RANK_IMAGE_BOOST = float(os.environ.get("RANK_IMAGE_BOOST", "1.15"))
+# How much a story in one of the reader's chosen topics outranks one that is
+# not. The default feed used to ignore interests completely, which is why a
+# reader who never picked Sports still got a feed that was half sports: Sports
+# is the largest topic by ingest volume (23.5% of the catalogue), its feeds
+# publish constantly, and single-source stories all share the same impact — so
+# recency alone decided the order and the loudest-publishing topic won.
+# 8x is worth roughly three pipeline cycles of ageing at the default gravity:
+# a chosen topic leads while it is anywhere near as fresh, and still loses to
+# genuinely newer reporting once it is a day old.
+RANK_INTEREST_BOOST = float(os.environ.get("RANK_INTEREST_BOOST", "8.0"))
+# Corroboration's weight in the feed order, applied as
+# RANK_CRED_FLOOR + credibility/100 * RANK_CRED_WEIGHT.
+# The feed ranked on ARTICLE COUNT alone and ignored `credibility` — the figure
+# the reader is actually shown ("Nearly all sources agree · 85") — so a
+# single-source story scored 10 tied exactly with a single-source story scored
+# 98. At the defaults the spread is 0.6x .. 1.5x, about one cycle of ageing:
+# enough to separate well-corroborated reporting from thin reporting, not
+# enough to park a well-corroborated old story above fresh news.
+RANK_CRED_FLOOR = float(os.environ.get("RANK_CRED_FLOOR", "0.6"))
+RANK_CRED_WEIGHT = float(os.environ.get("RANK_CRED_WEIGHT", "0.9"))
 # Ingest freshness: skip feed entries published more than this many hours ago.
 # Feeds carry a long tail (some hold 200 items), so without a gate every run
 # re-considers week-old news. Keep it comfortably WIDER than the pipeline
