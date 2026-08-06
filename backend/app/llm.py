@@ -6,6 +6,7 @@ Every call asks for JSON and validates it; one retry with the error appended.
 Usage (calls + rough tokens) is accumulated in `usage` for /admin/usage.
 """
 import json
+import os
 import logging
 import re
 import threading
@@ -84,6 +85,13 @@ MIN_INTERVAL = {"groq": 2.1, "gemini": 6.5, "deepseek": 0.5, "openai": 0.5}
 # its door for every call. It gets retried automatically after the cooldown.
 _benched_until: dict[str, float] = {}
 COOLDOWN_SECONDS = 900  # 15 min
+# A provider that is out of credit, or whose key was revoked, is benched for
+# much longer than a rate-limited one: a 429 clears by itself, a 402 waits for a
+# human to top up. 15 minutes would mean re-discovering an empty account four
+# times an hour, once per pipeline stage that uses it. Still finite, so topping
+# up is picked up on its own without a redeploy.
+PROVIDER_DOWN_COOLDOWN_SECONDS = int(
+    os.environ.get("PROVIDER_DOWN_COOLDOWN_SECONDS", str(60 * 60)))
 
 # Global sliding-window throttle: ≤ LLM_MAX_CALLS_PER_MIN real calls in any 60s,
 # across ALL tasks/providers/threads. Guards free-tier RPM and caps token burn.
@@ -210,6 +218,22 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                     "provider": p, "event": "rate_limited_benched",
                     "task": task})
                 continue
+            except ProviderDown as e:
+                # Bench it exactly like a rate limit. Nothing this run will make
+                # a 402/401/403 succeed, and retrying it once per unit call is
+                # how one dead provider turned into four identical failures and
+                # ~75s of wasted pipeline time in a single stage. It comes back
+                # off the bench after the cooldown, so topping up (or fixing the
+                # key) is picked up without a redeploy.
+                last_err = str(e)[:200]
+                _benched_until[p] = time.time() + PROVIDER_DOWN_COOLDOWN_SECONDS
+                _note("provider_down", p, task,
+                      f"{last_err} — benched {PROVIDER_DOWN_COOLDOWN_SECONDS // 60} min")
+                provider_events.appendleft({
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "provider": p, "event": f"down_{e.status}_benched",
+                    "task": task})
+                continue
             except json.JSONDecodeError as e:
                 last_err = str(e)[:200]
                 _note("invalid_json", p, task, last_err)
@@ -227,6 +251,22 @@ def complete_json(task: str, prompt: str, retries: int = 1):
 
 class RateLimited(Exception):
     pass
+
+
+class ProviderDown(Exception):
+    """A provider failure that will NOT clear by trying again in a moment:
+    no credit (402), a bad or revoked key (401), a blocked account (403).
+
+    Distinct from RateLimited because the remedy is different — a rate limit
+    clears on its own, this one waits for a human. Both bench the provider,
+    which is the point: a DeepSeek balance of -$0.01 produced four identical
+    402s in 75 seconds inside ONE trends stage, because every unit call retried
+    the same dead provider before falling through. Benching it turns that into
+    one failure and an immediate fallback."""
+
+    def __init__(self, status, detail=""):
+        super().__init__(f"{status}: {detail}"[:300])
+        self.status = status
 
 
 #: (provider, model) -> parameters that model has told us it will not accept.
@@ -263,6 +303,8 @@ def _post_chat(url, key, body, timeout, provider, model):
                        json=sent, timeout=timeout)
         if r.status_code == 429:
             raise RateLimited()
+        if r.status_code in (401, 402, 403):
+            raise ProviderDown(r.status_code, r.text[:200])
         if r.status_code != 400:
             if r.status_code >= 400:
                 # Carry the body: a bare status line is not a diagnosis.
