@@ -95,6 +95,33 @@ CREATE INDEX IF NOT EXISTS articles_source_fetched ON articles(source, fetched_a
 CREATE TABLE IF NOT EXISTS traffic (
   day TEXT, route TEXT, hits INTEGER DEFAULT 0, PRIMARY KEY (day, route));
 
+-- LLM spend. Same pre-aggregated shape as `traffic` and for the same reason:
+-- one running counter per (day, provider, model, task, peak), incremented in
+-- place, so a year of cost history stays queryable without a row per call.
+-- Size is bounded by the number of distinct model x task combinations (a few
+-- dozen) times days — it does NOT grow with call volume, which is what a
+-- 512MB box requires of any table nobody prunes.
+--
+-- This exists because llm.usage is process-local: it resets on every deploy and
+-- on every OOM kill, so it can say what the current run is doing and nothing
+-- about what last month cost. See app/llmcost.py.
+--
+-- `peak` is part of the key, not a column, because DeepSeek bills 2x inside its
+-- declared peak windows: splitting the rows keeps repricing exact and lets the
+-- report say how much was spent at the doubled rate.
+-- Token counts are the durable record; cost_usd is derived from the rate card
+-- in force when the call was made, and can be recomputed in place from the
+-- current one (POST /admin/llm-reprice) when a rate is corrected or first set.
+CREATE TABLE IF NOT EXISTS llm_usage (
+  day TEXT, provider TEXT, model TEXT, task TEXT, peak INTEGER DEFAULT 0,
+  calls INTEGER DEFAULT 0, failures INTEGER DEFAULT 0,
+  prompt_tokens INTEGER DEFAULT 0, completion_tokens INTEGER DEFAULT 0,
+  cached_tokens INTEGER DEFAULT 0, total_tokens INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0, latency_ms INTEGER DEFAULT 0,
+  first_at REAL, last_at REAL,
+  PRIMARY KEY (day, provider, model, task, peak));
+CREATE INDEX IF NOT EXISTS llm_usage_day ON llm_usage(day);
+
 -- ------------------------------------------------------- finance pipeline
 -- A parallel, domain-isolated pipeline over the finance/business beats. These
 -- tables are entirely separate from stories/trends/signals: the app reads none

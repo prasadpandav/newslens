@@ -103,6 +103,7 @@ All agents are plain Python classes sharing one interface (`run(input) -> output
 ### 4.9 Shared guardrails
 - Every agent output is schema-validated (Pydantic); invalid JSON → one retry with the validation error in the prompt → then skip and log.
 - Every LLM call is logged with tokens used, so free-tier budget is observable at `/admin/usage`.
+- That log is also written to disk (`llm_usage`, see `app/llmcost.py`): one running counter per day × provider × model × task, so consumption and cost outlive the process. The in-memory counters answer "what is this run doing"; the table answers "what did last month cost", which is the question that survives a deploy or an OOM restart. Cost is derived from a rate card in `LLM_PRICES` — a model with no rate is reported as UNPRICED, never as free.
 
 ## 5. Pipeline (one orchestrator run)
 
@@ -145,7 +146,9 @@ SQLite is correct for 10–100 users (reads are tiny, writes are batch). Migrati
 - `GET /feed?user_id=` → ranked personalized feed
 - `GET /story/{id}?user_id=` → full story: narrative, "for you", trends, connections, claim-by-claim verification
 - `POST /feedback` → taps/likes/hide → implicit context signals
-- `GET /admin/usage` → LLM budget dashboard
+- `GET /admin/usage` → LLM budget dashboard (live session counters + all-time spend totals)
+- `GET /admin/reports/llm?days=` → persistent LLM consumption and spend, per provider / per model / per pipeline task, with per-call averages
+- `POST /admin/llm-reprice?days=` → recompute stored costs from the current rate card (tokens are the stored record; cost is derived)
 - Auth for beta: per-user bearer token issued at signup (no passwords; device-bound). Upgrade path: Supabase Auth.
 
 ## 8. Stack (all free / open source)

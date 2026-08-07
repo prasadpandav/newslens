@@ -1,4 +1,5 @@
 """Configuration. Reads .env if present, else environment, else safe defaults."""
+import json
 import os
 from pathlib import Path
 
@@ -181,6 +182,63 @@ STORYTELLER_HISTORY_DAYS = float(os.environ.get("STORYTELLER_HISTORY_DAYS", "7")
 # Global cap on REAL LLM calls per rolling minute, across every task and provider.
 # Protects free-tier RPM limits (Groq is 30/min) and bounds token burn. 0 = off.
 LLM_MAX_CALLS_PER_MIN = int(os.environ.get("LLM_MAX_CALLS_PER_MIN", "30"))
+
+# ------------------------------------------------- LLM spend accounting
+# The rate card, in US dollars per 1,000,000 tokens, as
+# [input, output, cached_input], keyed by "provider/model".
+#
+# Seeded ONLY with list prices that are actually known. A model with no entry
+# here is reported as UNPRICED — its calls and tokens still appear in every
+# report and the admin page names it — rather than being costed at zero. That
+# distinction matters: zero is a claim that the model is free, and a wrong zero
+# frozen into a month of history is worse than a visible gap, because the token
+# counts are stored and a gap can be repriced (POST /admin/llm-reprice) while a
+# confident wrong number never gets questioned.
+#
+# Provider price pages change without notice, so treat these as a starting
+# point and keep the real rates in LLM_PRICES. Confirm against the provider's
+# invoice before reporting a figure to anyone.
+LLM_PRICE_DEFAULTS = {
+    "mock/mock": [0.0, 0.0, 0.0],          # no network call, definitionally free
+    "groq/llama-3.3-70b-versatile": [0.59, 0.79, 0.59],
+    "gemini/gemini-2.5-flash-lite": [0.10, 0.40, 0.025],
+    "gemini/gemini-2.5-flash": [0.30, 2.50, 0.075],
+    "openai/gpt-4o-mini": [0.15, 0.60, 0.075],
+}
+
+def _parse_prices(raw):
+    """Parse the LLM_PRICES override: a JSON object of
+    {"provider/model": [input, output, cached_input]} in $ per 1M tokens.
+    cached_input is optional and defaults to the input rate. A malformed entry
+    is skipped rather than taken as zero — see the note above about wrong
+    numbers being worse than missing ones."""
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    out = {}
+    for key, val in (data or {}).items():
+        try:
+            nums = [float(x) for x in (val if isinstance(val, list) else [val])]
+        except (TypeError, ValueError):
+            continue
+        if not nums or any(n < 0 for n in nums):
+            continue
+        while len(nums) < 3:
+            nums.append(nums[0] if len(nums) == 1 else nums[-1])
+        out[str(key).strip().lower()] = nums[:3]
+    return out
+
+#: Rates supplied by the operator. Kept separate from the defaults so the admin
+#: rate card can say which of the two a given number came from.
+LLM_PRICES_ENV = _parse_prices(os.environ.get("LLM_PRICES", ""))
+
+# Aggregated spend rows are tiny (bounded by distinct model x task combinations,
+# not by call volume), and cost history is the whole point of keeping them, so
+# the default is to keep them forever. Set a day count to prune anyway.
+LLM_USAGE_RETAIN_DAYS = int(os.environ.get("LLM_USAGE_RETAIN_DAYS", "0"))
 
 # Near-duplicate article merging (same story from different sources). Articles
 # whose titles cosine-match at/above this are grouped so the LLM stages process

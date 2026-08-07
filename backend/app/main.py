@@ -13,7 +13,8 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
                                Response)
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import config, db, diag, images, llm, live, analytics, ranking, textmerge
+from . import (config, db, diag, images, llm, llmcost, live, analytics, ranking,
+               textmerge)
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
                      depth_hint, clean_beats, clean_anchors,
@@ -211,6 +212,14 @@ def _purge_analytics_job():
             db.log_run(con, "purge_analytics", "ok",
                        f"deleted {n} visit rows older than "
                        f"{config.ANALYTICS_RETAIN_DAYS:g} days")
+        # Spend rows only if LLM_USAGE_RETAIN_DAYS is set — off by default,
+        # because these are aggregates that do not grow with traffic and
+        # deleting them is deleting the cost history someone is answering for.
+        n = llmcost.purge(con)
+        if n:
+            db.log_run(con, "purge_analytics", "ok",
+                       f"deleted {n} LLM spend rows older than "
+                       f"{config.LLM_USAGE_RETAIN_DAYS} days")
     except Exception as e:  # noqa: BLE001
         db.log_run(con, "purge_analytics", "error", str(e)[:300])
     finally:
@@ -2292,8 +2301,16 @@ def admin_usage(token: str = "", authorization: str = Header("")):
     total_users = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
     google_users = con.execute(
         "SELECT COUNT(*) c FROM users WHERE email IS NOT NULL AND email != ''").fetchone()["c"]
+    # Two different questions, so two different blocks. `session_llm_usage` is
+    # what THIS process has spent since it booted — it answers "is the run I
+    # just triggered doing anything" and resets on every restart.
+    # `llm_totals` comes out of the llm_usage table and is the one that
+    # survives: all-time and today's calls, tokens and cost. Cheap to read —
+    # that table holds one row per model/task per day, not one per call.
+    llm_totals = llmcost.totals(con)
     con.close()
     return {"session_llm_usage": llm.usage,
+            "llm_totals": llm_totals,
             "users": {"total": total_users, "google_signed_up": google_users},
             "provider_status": llm.provider_status(),
             "pricing": llm.pricing_status(),
@@ -2328,6 +2345,45 @@ def admin_report_visitors(days: int = 30, token: str = "",
     out = analytics.visitor_report(con, days=_report_days(days))
     con.close()
     return out
+
+
+@app.get("/admin/reports/llm")
+def admin_report_llm(days: int = 30, token: str = "",
+                     authorization: str = Header("")):
+    """LLM consumption and spend: calls, tokens and cost broken down by
+    provider, by model and by pipeline task, with per-call averages.
+
+    Reads the durable `llm_usage` table, not the in-process counters, so the
+    numbers cover the whole window regardless of how many times the service has
+    restarted inside it."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    out = llmcost.report(con, days=_report_days(days))
+    con.close()
+    return out
+
+
+@app.post("/admin/llm-reprice")
+def admin_llm_reprice(days: int = 0, token: str = "",
+                      authorization: str = Header("")):
+    """Recompute stored costs from the CURRENT rate card. days=0 = all history.
+
+    Cost is derived from a price that lives in configuration, so it is stored at
+    the rate in force when the call was made. That is right until the rate
+    itself was wrong — which it is by default for any model with no seeded
+    price, and whenever a rate is first configured after spend has already been
+    recorded. The token counts are the durable record and are never touched, so
+    the money can always be rebuilt from them.
+
+    Runs inline: this walks one small aggregate table, not a row per call."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    changed = llmcost.reprice(con, days=max(0, int(days or 0)))
+    con.close()
+    return {"repriced": changed,
+            "scope": f"last {days} days" if days else "all history",
+            "status": f"recomputed cost on {changed} row(s) "
+                      f"from the current rate card"}
 
 
 @app.get("/admin/reports/traffic")

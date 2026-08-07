@@ -170,6 +170,7 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
       <button class="on" data-r="visitors" onclick="pickReport('visitors')">Visitors</button>
       <button data-r="traffic" onclick="pickReport('traffic')">Traffic</button>
       <button data-r="users" onclick="pickReport('users')">Signed-in users</button>
+      <button data-r="llm" onclick="pickReport('llm')">LLM cost</button>
     </div>
     <div id="report"><span class="muted">Loading…</span></div>
   </div>
@@ -259,28 +260,35 @@ function statGrid(pairs){
   ).join('') + `</div>`;
 }
 
-/* Horizontal bars, each scaled against the largest value in its own list. */
-function bars(rows, labelKey, valueKey, empty){
+/* Horizontal bars, each scaled against the largest value in its own list.
+   `fmt` formats the printed value — money needs more decimals than a count. */
+function bars(rows, labelKey, valueKey, empty, fmt){
   if(!rows || !rows.length) return `<div class="muted">${esc(empty)}</div>`;
-  const max = Math.max(...rows.map(r => r[valueKey] || 0), 1);
+  const f = fmt || nfm;
+  // Scale against the real largest value, with the divide-by-zero guard kept
+  // OFF the reported figure. Clamping the max itself to 1 is invisible for
+  // counts (they are integers) and wrong for money: a busiest day of $0.34
+  // rendered as a third-height bar under a label reading "peak $1.00".
+  const max = Math.max(...rows.map(r => r[valueKey] || 0), 0), scale = max || 1;
   return `<div class="bars">` + rows.map(r => {
     const v = r[valueKey] || 0;
     return `<div class="bar"><span class="lbl" title="${esc(r[labelKey])}">${esc(r[labelKey] || '—')}</span>
-      <span class="track"><span class="fill" style="width:${Math.max(2, v/max*100)}%"></span></span>
-      <span class="val">${nfm(v)}</span></div>`;
+      <span class="track"><span class="fill" style="width:${Math.max(2, v/scale*100)}%"></span></span>
+      <span class="val">${esc(f(v))}</span></div>`;
   }).join('') + `</div>`;
 }
 
 /* Daily columns. Bars are scaled to the busiest day; title shows exact numbers. */
-function spark(daily, key, label){
+function spark(daily, key, label, fmt){
   if(!daily || !daily.length) return `<div class="muted">No activity recorded yet.</div>`;
-  const max = Math.max(...daily.map(d => d[key] || 0), 1);
+  const f = fmt || nfm;
+  const max = Math.max(...daily.map(d => d[key] || 0), 0), scale = max || 1;
   const cols = daily.map(d =>
-    `<div class="col" style="height:${Math.max(3, (d[key]||0)/max*100)}%"
-      title="${esc(day(d.day))}: ${nfm(d[key])} ${esc(label)}"></div>`).join('');
+    `<div class="col" style="height:${Math.max(3, (d[key]||0)/scale*100)}%"
+      title="${esc(day(d.day))}: ${esc(f(d[key]))} ${esc(label)}"></div>`).join('');
   return `<div class="spark">${cols}</div>
     <div class="sparkx"><span>${esc(day(daily[0].day))}</span>
-      <span>peak ${nfm(max)} ${esc(label)}/day</span>
+      <span>peak ${esc(f(max))} ${esc(label)}/day</span>
       <span>${esc(day(daily[daily.length-1].day))}</span></div>`;
 }
 
@@ -295,6 +303,7 @@ async function loadReport(){
   const d = await r.json();
   box.innerHTML = REPORT==='visitors' ? visitorsHTML(d)
                 : REPORT==='traffic'  ? trafficHTML(d)
+                : REPORT==='llm'      ? llmHTML(d)
                 : usersHTML(d);
 }
 
@@ -380,15 +389,160 @@ function usersHTML(d){
     since analytics was enabled.</div>`;
 }
 
+/* ===================== LLM cost =====================
+   Money is not a count: a per-call cost is routinely a fraction of a cent, and
+   rounding it to 2dp would print $0.00 next to a real bill. Small numbers keep
+   enough significant digits to be non-zero; totals round to cents. */
+function usd(n){
+  n = Number(n||0);
+  if(!n) return '$0';
+  const s = n < 0.01 ? n.toFixed(6).replace(/0+$/,'').replace(/\.$/,'')
+          : n < 1    ? n.toFixed(4)
+          : n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  return '$' + s;
+}
+const pct = (part, whole) => whole ? Math.round(part/whole*100) + '%' : '—';
+
+function llmHTML(d){
+  const life = d.lifetime || {};
+  const models = d.by_model || [], tasks = d.by_task || [];
+
+  // An unpriced model has real tokens and no rate, so it contributes $0 to
+  // every total on this page. Say so loudly: a quietly understated bill is the
+  // one failure mode a cost report must not have.
+  const warn = (d.unpriced||[]).length ? `
+    <div class="card" style="border-color:rgba(255,194,77,.35);background:rgba(255,194,77,.07);margin:0 0 16px">
+      <b style="color:var(--warn)">${d.unpriced.length} model(s) have no configured price</b>
+      <div class="muted" style="margin-top:6px">Their calls and tokens are counted below, but they add
+        <b>$0</b> to every cost figure on this page — so the totals are a floor, not the bill.
+        ${d.unpriced.map(m=>`<div class="mono">${esc(m.provider)}/${esc(m.model)} — ${nfm(m.calls)} calls, ${nfm(m.total_tokens)} tokens</div>`).join('')}
+        Set rates in the <span class="mono">LLM_PRICES</span> environment variable as
+        <span class="mono">{"provider/model": [input, output, cached_input]}</span> in $ per 1M tokens,
+        then press <b>Recompute costs</b> below to apply them to history.</div>
+    </div>` : '';
+
+  const modelRows = models.map(m => `<tr>
+    <td>${esc(m.provider)}</td>
+    <td class="mono">${esc(m.model)}${m.priced ? '' : ' <span class="pill warn">unpriced</span>'}</td>
+    <td>${nfm(m.calls)}</td>
+    <td>${nfm(m.prompt_tokens)}</td>
+    <td>${nfm(m.completion_tokens)}</td>
+    <td>${nfm(m.total_tokens)}</td>
+    <td>${nfm(m.avg_tokens_per_call)}</td>
+    <td>${esc(usd(m.cost_usd))}</td>
+    <td>${esc(usd(m.avg_cost_per_call))}</td>
+    <td>${esc(pct(m.cost_usd, d.cost_usd))}</td>
+    <td>${m.failures ? `<span class="st-err">${nfm(m.failures)} · ${m.failure_rate}%</span>` : '—'}</td>
+    </tr>`).join('')
+    || `<tr><td colspan="11" class="muted">No LLM calls recorded in this window.</td></tr>`;
+
+  const taskRows = tasks.map(t => `<tr>
+    <td class="mono">${esc(t.task)}</td>
+    <td>${nfm(t.calls)}</td>
+    <td>${nfm(t.total_tokens)}</td>
+    <td>${nfm(t.avg_tokens_per_call)}</td>
+    <td>${esc(usd(t.cost_usd))}</td>
+    <td>${esc(usd(t.avg_cost_per_call))}</td>
+    <td>${esc(pct(t.cost_usd, d.cost_usd))}</td>
+    <td>${nfm(t.avg_latency_ms)} ms</td></tr>`).join('')
+    || `<tr><td colspan="8" class="muted">Nothing recorded yet.</td></tr>`;
+
+  const rateRows = (d.rates||[]).map(r => `<tr>
+    <td>${esc(r.provider)}</td><td class="mono">${esc(r.model)}</td>
+    <td>${r.input_per_1m==null ? '<span class="pill warn">none</span>' : esc(usd(r.input_per_1m))}</td>
+    <td>${r.output_per_1m==null ? '—' : esc(usd(r.output_per_1m))}</td>
+    <td>${r.cached_input_per_1m==null ? '—' : esc(usd(r.cached_input_per_1m))}</td>
+    <td>${r.source==='configured' ? '<span class="pill ok">LLM_PRICES</span>'
+        : r.source==='default' ? '<span class="pill">built-in default</span>'
+        : '<span class="pill bad">not set</span>'}</td></tr>`).join('')
+    || `<tr><td colspan="6" class="muted">No models used in this window.</td></tr>`;
+
+  return warn + statGrid([
+    [`Cost · last ${d.window_days}d`, usd(d.cost_usd)],
+    ['LLM calls', nfm(d.calls)],
+    ['Tokens', nfm(d.total_tokens)],
+    ['Avg cost / call', usd(d.avg_cost_per_call)],
+    ['Avg tokens / call', nfm(d.avg_tokens_per_call)],
+    ['Projected / month', usd(d.projected_monthly_usd)],
+  ]) + `
+  <div class="muted" style="margin:-6px 0 18px">
+    All time: <b>${esc(usd(life.cost_usd))}</b> over ${nfm(life.calls)} calls and
+    ${nfm(life.total_tokens)} tokens${life.tracking_since ? ', tracked since '+esc(when(life.tracking_since)) : ''}.
+    Today so far: <b>${esc(usd((life.today||{}).cost_usd))}</b> · ${nfm((life.today||{}).calls)} calls.
+    ${d.peak_cost_usd ? `Of the window's spend, <b>${esc(usd(d.peak_cost_usd))}</b> was billed at DeepSeek's 2× peak rate.` : ''}
+    These survive restarts — the counters at the top of the page do not.
+  </div>
+
+  <h2>Spend per day</h2>
+  ${spark(d.daily, 'cost_usd', 'spend', usd)}
+
+  <h2 style="margin-top:22px">Per model</h2>
+  <div style="overflow-x:auto"><table>
+    <tr><th>Provider</th><th>Model</th><th>Calls</th><th>Input tok</th><th>Output tok</th>
+        <th>Total tok</th><th>Avg tok/call</th><th>Cost</th><th>Avg $/call</th>
+        <th>Share</th><th>Failed</th></tr>
+    ${modelRows}
+  </table></div>
+
+  <div class="two" style="margin-top:22px">
+    <div><h2>Cost by provider</h2>
+      ${bars(d.by_provider, 'provider', 'cost_usd', 'No provider spend in this window.', usd)}</div>
+    <div><h2>Calls by provider</h2>
+      ${bars(d.by_provider, 'provider', 'calls', 'No calls in this window.')}</div>
+  </div>
+
+  <h2 style="margin-top:22px">Per pipeline task</h2>
+  <div style="overflow-x:auto"><table>
+    <tr><th>Task</th><th>Calls</th><th>Tokens</th><th>Avg tok/call</th><th>Cost</th>
+        <th>Avg $/call</th><th>Share</th><th>Avg latency</th></tr>
+    ${taskRows}
+  </table></div>
+
+  <h2 style="margin-top:22px">Rate card</h2>
+  <div style="overflow-x:auto"><table>
+    <tr><th>Provider</th><th>Model</th><th>Input / 1M</th><th>Output / 1M</th>
+        <th>Cached input / 1M</th><th>Source</th></tr>
+    ${rateRows}
+  </table></div>
+  <div class="row" style="margin-top:12px">
+    <button class="ghost" onclick="repriceLLM()">Recompute costs from current rates</button>
+    <span class="muted">Token counts are the stored record; cost is derived from these rates.
+      Run this after changing <span class="mono">LLM_PRICES</span> to apply them to history.</span>
+  </div>
+  <div class="privacy">Counts every real provider call the service makes — the scheduled pipelines and
+    on-demand reader requests alike — written through to the database as each call returns, so a
+    deploy or an out-of-memory restart loses nothing. Built-in default rates are a starting point:
+    confirm them against the provider's invoice before reporting a figure.</div>`;
+}
+
+async function repriceLLM(){
+  if(!confirm('Recompute every stored cost from the rates currently configured?\n\n'+
+              'Token counts are not touched. Use this after setting or correcting LLM_PRICES. '+
+              'It rewrites history at today’s rates, so if a provider genuinely changed its '+
+              'price mid-window, that change will be flattened.')) return;
+  const r = await adminPost('/admin/llm-reprice');
+  const j = await r.json().catch(()=>({}));
+  toast(r.ok ? (j.status || 'Recomputed') : ('Error '+r.status));
+  if(r.ok) loadReport();
+}
+
 function render(d){
   const u = d.session_llm_usage||{}, users = d.users||{}, price = d.pricing||{};
+  // The spend tiles read the DATABASE totals, not the in-process counters. The
+  // process-local ones are still shown (they are how you tell a run is alive),
+  // but they are labelled "this process" and sit last, because they zero
+  // themselves on every deploy and every OOM restart — which is exactly why
+  // they cannot be the headline number anyone manages a budget against.
+  const t = d.llm_totals || {}, today = t.today || {};
   const stats = [
     ['Total users', users.total ?? '—'],
     ['Google sign-ups', users.google_signed_up ?? '—'],
-    ['LLM calls (session)', u.calls ?? 0],
-    ['Tokens (session)', (u.tokens ?? 0).toLocaleString()],
-    ['Failed calls', u.failed ?? 0],
-    ['Rate-limited', u.rate_limited ?? 0],
+    ['LLM spend · all time', usd(t.cost_usd)],
+    ['LLM spend · today', usd(today.cost_usd)],
+    ['LLM calls · all time', nfm(t.calls)],
+    ['Tokens · all time', nfm(t.total_tokens)],
+    ['Calls this process', nfm(u.calls)],
+    ['Failed · rate-limited', `${nfm(u.failed)} · ${nfm(u.rate_limited)}`],
   ];
   $('#stats').innerHTML = stats.map(([l,n])=>
     `<div class="stat"><div class="n">${esc(String(n))}</div><div class="l">${esc(l)}</div></div>`).join('');

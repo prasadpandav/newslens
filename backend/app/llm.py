@@ -3,7 +3,12 @@
 Providers: mock (no keys, heuristic answers so the whole pipeline runs),
 groq, gemini, auto (groq first, gemini on rate-limit/failure).
 Every call asks for JSON and validates it; one retry with the error appended.
-Usage (calls + rough tokens) is accumulated in `usage` for /admin/usage.
+
+Usage is recorded twice, on purpose. `usage` below is a process-local live view
+for /admin/usage — what THIS process has done since it started. It is also
+wired through to app/llmcost.py, which writes the same call to SQLite broken
+down by provider, model and task, because this dict is lost on every restart
+and the finance question ("what did last month cost") outlives the process.
 """
 import json
 import os
@@ -14,9 +19,10 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 import httpx
-from . import config
+from . import config, llmcost
 
 usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "provider_attempts": {},
+         "model_calls": {}, "model_tokens": {}, "cost_usd": 0.0,
          "rate_limited": 0, "failed": 0, "throttle_waits": 0}
 
 # ------------------------------------------------------------ observability
@@ -202,6 +208,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 continue  # provider is cooling down after a rate limit
             try:
                 usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
+                _attempt.recorded = False
                 _throttle()   # global per-minute cap across all tasks/providers
                 _pace(p)
                 text = _call(p, prompt if attempt == 0 else
@@ -211,6 +218,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 return _extract_json(text)
             except RateLimited:
                 usage["rate_limited"] += 1
+                _record_failure(p, task)
                 _benched_until[p] = time.time() + COOLDOWN_SECONDS
                 _note("rate_limited", p, task, f"429 — benched {COOLDOWN_SECONDS // 60} min")
                 provider_events.appendleft({
@@ -226,6 +234,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 # off the bench after the cooldown, so topping up (or fixing the
                 # key) is picked up without a redeploy.
                 last_err = str(e)[:200]
+                _record_failure(p, task)
                 _benched_until[p] = time.time() + PROVIDER_DOWN_COOLDOWN_SECONDS
                 _note("provider_down", p, task,
                       f"{last_err} — benched {PROVIDER_DOWN_COOLDOWN_SECONDS // 60} min")
@@ -236,10 +245,17 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 continue
             except json.JSONDecodeError as e:
                 last_err = str(e)[:200]
+                # Usually a no-op: the provider answered (and billed us), so
+                # _record has already logged this attempt as a call with its
+                # tokens, and _record_failure declines to count it twice. It is
+                # still called because _extract_json can raise this before any
+                # response was recorded when a provider returns an empty body.
+                _record_failure(p, task)
                 _note("invalid_json", p, task, last_err)
                 continue
             except Exception as e:  # noqa: BLE001
                 last_err = str(e)[:200]
+                _record_failure(p, task)
                 _note("error", p, task, last_err)
                 continue
     usage["failed"] += 1
@@ -326,10 +342,76 @@ def _post_chat(url, key, body, timeout, provider, model):
     raise RuntimeError(f"{provider} 400: {detail[:300]}")
 
 
-def _record(provider, tokens):
-    usage["calls"] += 1
-    usage["tokens"] += tokens
-    usage["provider_calls"][provider] = usage["provider_calls"].get(provider, 0) + 1
+def _openai_usage(data):
+    """(prompt, completion, cached, total) from an OpenAI-compatible response.
+
+    `cached` is the slice of the prompt the provider served from its own cache
+    and bills at a reduced rate. Only DeepSeek reports it; everywhere else it is
+    absent and the whole prompt is charged at the full input rate."""
+    u = data.get("usage") or {}
+    p = int(u.get("prompt_tokens") or 0)
+    c = int(u.get("completion_tokens") or 0)
+    cached = int(u.get("prompt_cache_hit_tokens") or 0)
+    if not cached:
+        # OpenAI reports the same thing nested one level down.
+        cached = int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+    return p, c, cached, int(u.get("total_tokens") or 0) or (p + c)
+
+
+def _gemini_usage(data):
+    """(prompt, completion, cached, total) from a generateContent response.
+
+    `candidatesTokenCount` counts only the answer, NOT the thinking tokens a
+    reasoning model burns getting there — but those are billed as output. Adding
+    them is the difference between a thinking model's real bill and a fraction
+    of it."""
+    u = data.get("usageMetadata") or {}
+    p = int(u.get("promptTokenCount") or 0)
+    c = int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0)
+    return (p, c, int(u.get("cachedContentTokenCount") or 0),
+            int(u.get("totalTokenCount") or 0) or (p + c))
+
+
+#: Whether the attempt running on THIS thread already reached _record. Set per
+#: attempt in complete_json, so a failure handler can tell "the provider never
+#: answered" (no tokens, count a failure) from "it answered and we could not use
+#: the answer" (already counted as a billed call — counting it again would show
+#: one attempt as both a call and a failure and make the failure rate a lie).
+#: Thread-local for the same reason _context is: the scheduler's pipeline thread
+#: and request handler threads are inside complete_json at the same time.
+_attempt = threading.local()
+
+
+def _record_failure(provider, task):
+    """Count an attempt that cost us time and got nothing back. No-op when the
+    call was already recorded as billed."""
+    if getattr(_attempt, "recorded", False):
+        return
+    _record(provider, _model_for(provider, task), task, (0, 0, 0, 0), failed=True)
+
+
+def _record(provider, model, task, tokens, latency_ms=0, failed=False):
+    """One call's outcome, into the live counters AND into durable storage.
+
+    `usage` is what /admin/usage reads for "this process"; llmcost writes the
+    same call to SQLite keyed by day/provider/model/task so it survives the
+    restart that empties this dict. `tokens` is (prompt, completion, cached,
+    total) — the split matters because input and output are priced differently.
+    """
+    p, c, cached, total = tokens
+    peak = provider == "deepseek" and deepseek_in_peak()
+    _attempt.recorded = True
+    if not failed:
+        usage["calls"] += 1
+        usage["tokens"] += total
+        usage["provider_calls"][provider] = usage["provider_calls"].get(provider, 0) + 1
+        key = f"{provider}/{model}"
+        usage["model_calls"][key] = usage["model_calls"].get(key, 0) + 1
+        usage["model_tokens"][key] = usage["model_tokens"].get(key, 0) + total
+        usage["cost_usd"] += llmcost.cost_of(provider, model, p, c, cached, peak) or 0.0
+    llmcost.record(provider, model, task, prompt_tokens=p, completion_tokens=c,
+                   cached_tokens=cached, total_tokens=total,
+                   latency_ms=latency_ms, failed=failed, peak=peak)
 
 
 def _call(provider, prompt, task=None):
@@ -337,6 +419,7 @@ def _call(provider, prompt, task=None):
     is_reasoning = task in config.REASONING_TASKS
     # Reasoning models think longer before answering; give them more headroom.
     timeout = 150 if is_reasoning else 60
+    started = time.time()
     if provider == "groq":
         if not config.GROQ_API_KEY:
             raise RuntimeError("no groq key")
@@ -349,7 +432,8 @@ def _call(provider, prompt, task=None):
              "response_format": {"type": "json_object"}},
             timeout, "groq", model)
         data = r.json()
-        _record("groq", data.get("usage", {}).get("total_tokens", 0))
+        _record("groq", model, task, _openai_usage(data),
+                (time.time() - started) * 1000)
         return data["choices"][0]["message"]["content"]
     if provider in ("openai", "deepseek"):
         key = config.DEEPSEEK_API_KEY if provider == "deepseek" else config.OPENAI_API_KEY
@@ -371,7 +455,8 @@ def _call(provider, prompt, task=None):
                 body["thinking"] = {"type": "disabled"}  # keep base tasks fast/cheap
         r = _post_chat(f"{base}/chat/completions", key, body, timeout, provider, model)
         data = r.json()
-        _record(provider, data.get("usage", {}).get("total_tokens", 0))
+        _record(provider, model, task, _openai_usage(data),
+                (time.time() - started) * 1000)
         return data["choices"][0]["message"]["content"]
     if provider == "gemini":
         if not config.GEMINI_API_KEY:
@@ -388,8 +473,8 @@ def _call(provider, prompt, task=None):
             raise RateLimited()
         r.raise_for_status()
         data = r.json()
-        toks = data.get("usageMetadata", {}).get("totalTokenCount", 0)
-        _record("gemini", toks)
+        _record("gemini", model, task, _gemini_usage(data),
+                (time.time() - started) * 1000)
         return data["candidates"][0]["content"]["parts"][0]["text"]
     raise RuntimeError(f"unknown provider {provider}")
 
@@ -436,7 +521,10 @@ def _keywords(prompt, n=3):
 
 
 def _mock(task, prompt):
-    _record("mock", 0)
+    # Recorded like any other call — a mock run should still show up in the
+    # spend report, at its true cost of zero, so "nothing was billed" and
+    # "nothing was measured" can be told apart.
+    _record("mock", "mock", task, (0, 0, 0, 0))
     kws = _keywords(prompt)
     label = " ".join(k.capitalize() for k in kws[:2]) or "General News"
     if task == "entities":
