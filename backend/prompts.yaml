@@ -309,3 +309,301 @@ personalize: |
   their work, business, city, family or money. Be concrete, honest about uncertainty,
   and never invent facts. Then score personal impact 0-3 (0 none, 3 high).
   Reply ONLY with JSON: {{"impact_text": "...", "impact_score": 0}}
+
+# ---------------------------------------------------------------------------
+# FINANCE PIPELINE (app/finance/). Separate task names so the general pipeline's
+# prompts are untouched and either can be tuned without disturbing the other.
+# ---------------------------------------------------------------------------
+
+# Agent 1, call 1 of 3 — TABULAR CHAIN OF THOUGHT.
+# The model is made to fill a table column by column before it answers. The
+# point is not formatting: a table forces one row per claim with a cell for the
+# span it came from, so a figure with no span in the text has nowhere to hide.
+fin_extract: |
+  You are a financial data analyst. Below is a merged brief about ONE financial
+  event, built from every outlet that covered it.
+  {items}
+
+  Work through this as a TABLE, one step at a time. Do not write prose, and do
+  not skip a step — each step uses the output of the one before it.
+
+  STEP 1 — ENTITY TABLE. One row per distinct organisation, person, regulator,
+  geography or sector named in the brief. Columns:
+    name        — exactly as the brief writes it, no expansion, no correction
+    type        — organization | person | regulator | geography | sector | index | commodity | currency
+    role        — what it does in THIS event: acquirer, target, regulator,
+                  lender, supplier, customer, plaintiff, none
+    verbatim    — the phrase in the brief that this row is taken from
+  Never add a company the brief does not name. If a company is referred to only
+  as "the lender" or "the company", do NOT guess which one it is.
+  Include the sector and the country as their own rows whenever the brief makes
+  them clear — they are how this story is later linked to others, and a table
+  with only company rows leaves it unlinkable.
+
+  STEP 2 — METRIC TABLE. One row per HARD NUMBER in the brief. Columns:
+    name        — revenue, net_profit, eps, deal_value, fine_amount, guidance,
+                  margin, growth, stake_pct, headcount, target_date
+    value       — the number alone, no symbols, no commas
+    unit        — crore | lakh | million | billion | percent | count | none
+    currency    — INR | USD | EUR | GBP | none
+    period      — the period it belongs to (Q1 FY26, CY2025, FY25) or none
+    basis       — reported | guidance | consensus | estimate | prior_period | unknown
+    entity      — which row of STEP 1 the number belongs to
+    yoy_change  — the year-on-year change in percent if the brief states one, else null
+    verbatim    — the phrase the number is read from, INCLUDING the digits
+  Rules that matter more than completeness:
+  - Copy digits exactly. Never convert between crore, million and billion.
+  - A number the brief does not contain must not appear. Do not compute, infer
+    or annualise anything. Zero rows is a correct answer for a story with no
+    numbers in it.
+  - If outlets disagree on a figure, emit ONE row for each figure reported.
+
+  STEP 3 — RELATIONSHIP TABLE. One row per relationship BETWEEN two rows of
+  STEP 1 that the brief actually states. Columns:
+    subject, predicate, object, event_type, verbatim
+  Use short predicates: acquires, merges_with, invests_in, fines, investigates,
+  approves, rejects, sues, supplies, partners_with, appoints, resigns_from,
+  divests, raises_capital_from, defaults_on, guides_up, guides_down,
+  cuts_rates, raises_rates, competes_with, owns_stake_in.
+  Only relationships the brief STATES. Two companies appearing in the same
+  sentence is not a relationship.
+
+  STEP 4 — Classify the event overall as ONE of:
+  merger_acquisition | earnings | guidance | regulatory_action | leadership_change |
+  supply_chain | funding_round | debt_ratings | legal_action | restructuring |
+  product_launch | macro_policy | other
+
+  Reply ONLY with JSON, in exactly this shape:
+  {{"event_type": "earnings",
+    "entities": [{{"name": "...", "type": "organization", "role": "target",
+                   "verbatim": "..."}}],
+    "metrics": [{{"name": "revenue", "value": 1234.5, "unit": "crore",
+                  "currency": "INR", "period": "Q1 FY26", "basis": "reported",
+                  "entity": "...", "yoy_change": 12.4, "verbatim": "..."}}],
+    "relationships": [{{"subject": "...", "predicate": "acquires",
+                        "object": "...", "event_type": "merger_acquisition",
+                        "verbatim": "..."}}]}}
+
+# Agent 1, call 2 of 3 — SimTom (Simulated Theory of Mind).
+# Two stages, in order: first REBUILD the event from inside each actor's head
+# (what they know, what they want), and only then judge how it lands for them.
+# A single blended sentiment score on financial copy is close to meaningless —
+# a fine is a loss to the executive and a win to the regulator.
+fin_sentiment: |
+  Below is a financial news brief and the actors it names.
+  {items}
+
+  Actors named or clearly implied: {actors}
+
+  For EACH actor, in two stages:
+
+  STAGE 1 — PERSPECTIVE TAKING. Put yourself inside that actor's position and
+  write down, in their terms:
+    knows   — what this actor knows from the brief, and only what they would know
+    wants   — what this actor is trying to achieve or protect. Their mandate,
+              their incentive, what they are measured on.
+  Do not judge anything yet. Do not use the words good or bad in this stage.
+
+  STAGE 2 — From inside that position, and using ONLY stage 1, judge how this
+  event lands for them:
+    sentiment  — -1.0 (severely against their interest) to +1.0 (strongly in it),
+                 0 for genuinely neutral
+    confidence — 0-1, how sure you are given what the brief actually says
+    position   — if the brief QUOTES this actor, their stated position in their
+                 own words; "" if they did not speak
+
+  Rules:
+  - Cover every actor given, even when they did not speak. An actor who is
+    silent still has an interest, and that is the point of doing this.
+  - Actors will disagree. Do not average them, do not soften them, and do not
+    make them agree because the story sounds positive overall.
+  - Never invent a quote. `position` is verbatim from the brief or it is "".
+  - role is one of: regulator | executive | board | sell_side_analyst |
+    institutional_investor | retail_investor | creditor | employee | customer |
+    competitor | supplier | government
+
+  Reply ONLY with JSON:
+  {{"actors": [{{"actor": "SEBI", "role": "regulator",
+                 "knows": "...", "wants": "...", "position": "",
+                 "sentiment": 0.4, "confidence": 0.7}}],
+    "rationale": "one sentence on where the actors most disagree"}}
+
+# Agent 1, call 3 of 3 — synthesis. Same two-piece shape (what happened / why it
+# matters), same beats and anchors as the general Storyteller, so anything that
+# renders a story renders one of these. What is added is the finance spine: the
+# extracted numbers, the relationships and the actor split are given back to the
+# model and it is required to build the piece around them.
+fin_story: |
+  Write this financial event as a story, using the extracted data below as its
+  spine. Every number you use must come from the metric table — you may not
+  introduce, adjust or annualise a figure.
+
+  Verified claims: {claims}
+  Event type: {event_type}
+  Metric table (the ONLY numbers you may use): {metrics}
+  Relationships found: {relationships}
+  How different actors read this: {sentiment}
+  Merged brief: {items}
+
+  1. "what_happened" — the complete storyline, 200-260 words, told as a
+     narrative: who did what, to whom, for how much, when, and where it stands
+     now. Lead with the development, not with background. Put the money in
+     early — a reader of a financial story wants the number in the first two
+     sentences. Write figures the way the sources write them (Rs 8,500 crore
+     stays Rs 8,500 crore). Never open with "Here's the story" or similar.
+
+  2. "why_it_matters" — 70-110 words on implications ONLY: what changes for the
+     companies, the sector, the people on the other end of these relationships.
+     Assume the reader has just read what_happened; never re-narrate it.
+     Say plainly who gains and who carries the cost — the actor table above
+     tells you they are different people, so do not write as if everyone
+     involved wants the same outcome.
+
+  3. "economic_drivers" — 2-4 short phrases naming the economic forces actually
+     at work here (input costs, rate cycle, regulatory tightening, demand
+     shift, currency, credit quality). Plain words, not textbook terms.
+
+  4. "beats" — the same storyline cut into its natural sections, as
+     [{{"label": "...", "text": "..."}}] in reading order. Labels are specific
+     to THIS story, sentence case, under 5 words: "What the filings show",
+     "Where the money goes", "What the regulator wants". Never "Introduction",
+     "Background" or "Conclusion". {depth}
+
+  5. "anchors" — [{{"claim": <index into the claims list>, "quote": "..."}}].
+     The quote MUST be copied character for character from your "beats" text;
+     it is used to attach that claim's verdict to that sentence on the page.
+     Omit any claim you did not state rather than approximating it.
+
+  6. "headline" — concrete and specific, carrying the central fact. A number in
+     the headline is good WHEN it is the point of the story. Every factual
+     element must appear in the verified claims.
+
+  Rules:
+  - PLAIN WORDS, NOT JARGON. "the company will not meet the target it gave in
+    April", not "a guidance cut". "money it owes", not "leverage".
+  - Where outlets disagree on a figure, say so ("reports put the deal between
+    Rs 8,200 and Rs 8,500 crore"). Never silently pick one.
+  - A discrepancy is the SAME fact carrying different figures. Two different
+    facts are not a discrepancy just because their numbers are close: a fine on
+    one company and a fine on another are two fines, and merging them into a
+    range states something no outlet reported.
+  - Do NOT tell anyone what to do with money. No recommendations, no price
+    targets, no "investors should". Describe what happened and what it changes.
+
+  Reply ONLY with JSON:
+  {{"headline": "...", "what_happened": "...", "why_it_matters": "...",
+    "economic_drivers": ["..."],
+    "beats": [{{"label": "...", "text": "..."}}],
+    "anchors": [{{"claim": 0, "quote": "..."}}]}}
+
+# Agent 2 — narrative arcs across a rolling window. The cascade in `graph` was
+# computed by walking the knowledge graph, NOT asked of the model: it is real
+# stored relationships, and the model's job is to explain the mechanism, not to
+# invent who supplies whom.
+fin_trend: |
+  You are a macro analyst. Below are {n} recent financial stories from the last
+  {window} days, one per line:
+  story_id | event type | headline | sectors | tickers | key numbers | excerpt
+  {digests}
+
+  Relationships already established between the companies in these stories,
+  found by walking the knowledge graph built from the reporting:
+  {graph}
+
+  Already-tracked trends:
+  {existing}
+
+  Identify 1-4 narrative arcs that connect several of these stories. An arc is
+  a chain of cause and effect that runs across stories, not a topic they share.
+  "Three banks reported earnings" is not an arc. "Deposit costs rose, so
+  margins compressed at mid-sized lenders, so two of them slowed lending" is.
+
+  For each arc:
+  - "arc" is the chain as ordered steps, 3-5 short phrases, each the cause of
+    the next: ["rates held high", "commercial property refinancing stalls",
+    "regional lenders raise provisions"].
+  - "narrative" opens with ONE plain sentence stating the claim about the
+    world — a full sentence a reader could disagree with, not a label. The
+    sentences after it carry the evidence and how many stories support it.
+  - "second_order" names who is affected INDIRECTLY, one entry per hop you can
+    justify from the relationships above: {{"entity", "mechanism", "order"}}
+    where order is 2 for one step out, 3 for two steps out. Use the graph. If
+    the graph does not connect them, do not claim they are connected.
+  - "macro_factors" names the macro forces involved (policy rates, currency,
+    commodity prices, credit growth, demand).
+  - "confidence" 0-1, honest. Do not exceed 0.85. An arc resting on one story
+    or on thin reporting should be below 0.5 or left out entirely.
+  - "story_ids" cites 2 or more story ids from the digests.
+
+  Reuse an already-tracked name VERBATIM when you see the same force, so it
+  updates in place instead of duplicating. PLAIN WORDS, NOT JARGON.
+
+  Reply ONLY with JSON:
+  {{"trends": [{{"name": "3-6 plain words", "narrative": "2-4 sentences",
+     "arc": ["...", "..."], "sectors": [...], "tickers": [...],
+     "macro_factors": [...],
+     "second_order": [{{"entity": "...", "mechanism": "...", "order": 2}}],
+     "confidence": 0.0, "story_ids": ["...", "..."]}}]}}
+
+# Agent 3 — scenario analysis. Three cases, always, with the probabilities on
+# them, and an explicit statement of what would prove the whole thing wrong.
+fin_forecast: |
+  You are a scenario analyst. Below is one financial trend and the stories
+  behind it.
+
+  Trend: {name}
+  How it develops: {arc}
+  What we know: {narrative}
+  Sectors: {sectors}   Tickers: {tickers}   Macro factors: {macro}
+  Second-order exposure found in the knowledge graph: {cascade}
+  Stories:
+  {digests}
+
+  Produce THREE scenarios — base, bull and bear — for how this plays out.
+
+  For each scenario:
+  - "probability" 0-1. The three MUST sum to 1.0. Base is normally the most
+    likely; if it is not, you have mislabelled which case is the base.
+  - "thesis" — 2-3 sentences: what happens, through what mechanism, to whom.
+    Concrete. Name the sectors and companies from the material above.
+  - "horizon" — "short_term" for 1-30 days, "long_term" for 1-12 months.
+  - "direction" — up | down | flat | unclear, for the affected sector.
+  - "magnitude" — qualitative only: "modest", "material", "severe". NEVER a
+    price, a percentage move or a valuation.
+  - "drivers" — the 2-4 things that have to happen for this case to hold.
+  - "precedent" — the historical episode you are reasoning from, if there is a
+    real one. "" if you are not drawing on one. Do not invent a precedent.
+  - "affected_sectors" / "affected_tickers" — from the material above only.
+
+  Then, for the forecast as a whole:
+  - "short_term" — 2-3 sentences on the 1-30 day implications.
+  - "long_term" — 2-3 sentences on the 1-12 month implications.
+  - "risks" — what could go wrong with this analysis.
+  - "dependencies" — what this analysis is resting on.
+  - "invalidation" — AT LEAST ONE observable that would prove this wrong.
+    Each is {{"observable", "threshold", "source", "invalidates"}} where
+    "observable" is something a reader could actually go and check (a policy
+    decision, a filing, a published print), "threshold" is the level that
+    matters, "source" is where it is published, and "invalidates" lists which
+    of base/bull/bear it kills. "Sentiment worsens" is not an observable.
+    "CPI prints above 6% in the next release" is.
+  - "confidence" 0-1 in the analysis overall. Do not exceed 0.85.
+
+  HARD CONSTRAINT — this is scenario analysis, NOT financial advice:
+  - Never tell anyone to buy, sell, hold, enter or exit anything.
+  - Never give a price target, a fair value or an expected return.
+  - Never use "investors should", "we recommend", "a good time to".
+  - Describe what may happen and why. The reader decides what to do about it.
+  Output that breaks this constraint is discarded, so write it clean.
+
+  Reply ONLY with JSON:
+  {{"title": "plain sentence naming what may happen to whom",
+    "scenarios": [{{"kind": "base", "probability": 0.55, "thesis": "...",
+      "horizon": "short_term", "direction": "down", "magnitude": "material",
+      "drivers": ["..."], "precedent": "", "affected_sectors": ["..."],
+      "affected_tickers": ["..."], "confidence": 0.6}}],
+    "short_term": "...", "long_term": "...",
+    "risks": ["..."], "dependencies": ["..."],
+    "invalidation": [{{"observable": "...", "threshold": "...",
+      "source": "...", "invalidates": ["bear"]}}],
+    "confidence": 0.55}}

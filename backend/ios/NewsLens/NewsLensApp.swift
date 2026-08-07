@@ -12,7 +12,17 @@ struct DescryApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if welcomed || api.userID != nil {
+                /* The finance reader has no navigation entry yet — the finance
+                   pipeline writes to its own tables and nothing in the five
+                   tabs reads them. Until it is wired into a tab, this is how
+                   the screen is opened for review and screenshots:
+                   `-financeStoryID <id>` as a launch argument (UserDefaults
+                   picks it up), or on a real device via Settings. Harmless in
+                   production: with the key unset the branch never runs. */
+                if let fid = UserDefaults.standard.string(forKey: "financeStoryID"),
+                   !fid.isEmpty {
+                    NavigationStack { FinanceStoryView(storyID: fid) }
+                } else if welcomed || api.userID != nil {
                     RootTabs()
                 } else {
                     WelcomeView { welcomed = true }

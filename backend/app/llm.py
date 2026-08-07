@@ -413,7 +413,20 @@ def _keywords(prompt, n=3):
                 "causal economic policy affects other unrelated surface skeptical "
                 "meaningful link summary title extract answer question reader "
                 "assistant accurate uncertainty admit words tailor followups "
-                "natural follow profile intelligence").split())
+                "natural follow profile intelligence "
+                # finance prompt scaffolding — same reason as the block above:
+                # without these the finance prompts' own instructions outweigh
+                # the article text and mock mode "extracts" entities called
+                # "Brief", "Crore" and "Event".
+                "brief crore lakh entity entities metric metrics table tables "
+                "column columns relationship relationships verbatim predicate "
+                "subject object actor actors sentiment stage perspective "
+                "scenario scenarios forecast probability horizon magnitude "
+                "drivers precedent invalidation invalidates observable "
+                "threshold financial advice recommend target price value unit "
+                "currency period basis reported guidance consensus estimate "
+                "revenue earnings none null organization regulator geography "
+                "sector arc cascade macro second order hops confidence").split())
     words = [w.lower() for w in re.findall(r"[A-Za-z]{4,}", prompt)]
     freq = {}
     for w in words:
@@ -520,4 +533,97 @@ def _mock(task, prompt):
         return {"impact_text": f"Given your profile, developments in {label.lower()} "
                                f"could affect your sector or region. Worth a closer read.",
                 "impact_score": 1}
+    # ------------------------------------------------------ finance pipeline
+    # Mock mode has to exercise the finance path end to end (it is how the
+    # tests run, and how the pipeline behaves locally with no keys), so these
+    # answer in the real shapes. Every figure is anchored to a number actually
+    # present in the prompt rather than invented — the finance schemas reject a
+    # metric whose verbatim span carries no digit, and mock output that could
+    # not survive its own validator would be a useless rehearsal.
+    if task == "fin_extract":
+        # NO entities and NO relationships, deliberately. Mock mode cannot read
+        # which words in a brief are companies, and its keyword guesses ("Event",
+        # "Stake", "Crore") would be written into the knowledge graph as nodes —
+        # leaving a graph that looks populated while every walk over it is
+        # meaningless, which is worse than an empty one. Same reasoning as the
+        # same_story and framing mocks above: when the mock cannot judge, it
+        # declines rather than inventing. The metric row IS emitted, anchored to
+        # a number actually present in the brief, so the extraction path and its
+        # verbatim rule are still exercised end to end.
+        num = re.search(r"\d[\d,]*(?:\.\d+)?", prompt)
+        metrics = []
+        if num:
+            metrics = [{"name": "figure", "value": float(num.group(0).replace(",", "")),
+                        "unit": "none", "currency": "none", "period": "",
+                        "basis": "unknown", "entity": "", "yoy_change": None,
+                        "verbatim": f"figure reported as {num.group(0)} "
+                                    f"(mock mode: not a real extraction)"}]
+        return {"event_type": "other", "entities": [],
+                "metrics": metrics, "relationships": []}
+    if task == "fin_sentiment":
+        m = re.search(r"^Actors named or clearly implied: (.+)$", prompt, re.M)
+        actors = [a.strip() for a in (m.group(1) if m else "").split(",") if a.strip()]
+        return {"actors": [{"actor": a, "role": "executive",
+                            "knows": "mock mode: perspective not simulated",
+                            "wants": "mock mode: incentive not simulated",
+                            "position": "", "sentiment": 0.0, "confidence": 0.2}
+                           for a in actors[:6]],
+                "rationale": "Mock mode: actor perspectives were not simulated."}
+    if task == "fin_story":
+        return {"headline": f"{label}: What The Numbers Show",
+                "what_happened": f"Reporting centred on {label.lower()} emerged across "
+                                 f"several outlets. The figures and relationships in the "
+                                 f"merged brief are carried through unchanged. "
+                                 f"(Placeholder text — generated without an LLM key.)",
+                "why_it_matters": f"If it holds, this changes the economics around "
+                                  f"{label.lower()} and who carries the cost. "
+                                  f"(Placeholder text.)",
+                "economic_drivers": kws[:2]}
+    if task == "fin_trend":
+        ids = re.findall(r"^([0-9a-f]{12}) \|", prompt, re.M)[:3]
+        if len(ids) < 2:
+            return {"trends": []}
+        return {"trends": [{
+            "name": f"{label} pressure building",
+            "narrative": f"Costs around {label.lower()} are moving in one direction "
+                         f"across several companies. (Placeholder — mock mode.)",
+            "arc": [f"{label.lower()} costs rise", "margins compress",
+                    "spending slows"],
+            "sectors": kws[:2], "tickers": [], "macro_factors": kws[:1],
+            "second_order": [], "confidence": 0.4, "story_ids": ids}]}
+    if task == "fin_forecast":
+        return {"title": f"{label} pressure may spread to adjacent sectors",
+                "scenarios": [
+                    {"kind": "base", "probability": 0.5,
+                     "thesis": "Conditions hold broadly as reported, with the effect "
+                               "contained to the companies already named. "
+                               "(Placeholder — mock mode.)",
+                     "horizon": "short_term", "direction": "flat",
+                     "magnitude": "modest", "drivers": kws[:2], "precedent": "",
+                     "affected_sectors": kws[:1], "affected_tickers": [],
+                     "confidence": 0.4},
+                    {"kind": "bull", "probability": 0.25,
+                     "thesis": "The pressure eases sooner than the reporting implies "
+                               "and the effect does not travel. (Placeholder.)",
+                     "horizon": "long_term", "direction": "up",
+                     "magnitude": "modest", "drivers": kws[:1], "precedent": "",
+                     "affected_sectors": kws[:1], "affected_tickers": [],
+                     "confidence": 0.3},
+                    {"kind": "bear", "probability": 0.25,
+                     "thesis": "The pressure transmits through suppliers and lenders "
+                               "to a wider set of companies. (Placeholder.)",
+                     "horizon": "long_term", "direction": "down",
+                     "magnitude": "material", "drivers": kws[:2], "precedent": "",
+                     "affected_sectors": kws[:1], "affected_tickers": [],
+                     "confidence": 0.3}],
+                "short_term": "Little visible change in the first weeks. (Placeholder.)",
+                "long_term": "Direction depends on whether the pressure persists. "
+                             "(Placeholder.)",
+                "risks": ["Mock mode: no real analysis was performed."],
+                "dependencies": ["An LLM key being configured."],
+                "invalidation": [{"observable": "the next scheduled results or policy "
+                                                "statement from the named parties",
+                                  "threshold": "any reversal of the reported direction",
+                                  "source": "company filings", "invalidates": ["bear"]}],
+                "confidence": 0.35}
     return {}

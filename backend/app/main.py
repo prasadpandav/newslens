@@ -20,6 +20,9 @@ from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      detect_correction, Framer)
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
+from .finance import kg as fin_kg
+from .finance.orchestrator import (run_finance_pipeline, unresolved_report,
+                                   STAGES as FIN_STAGES)
 
 app = FastAPI(title="Descry API", version="0.1")
 # Browser origin allowlist — ALLOWED_ORIGINS env, default * for the beta portal.
@@ -129,6 +132,22 @@ def guarded_run(stage: str | None = None):
         _pipeline_lock.release()
 
 
+def guarded_finance_run(stage: str | None = None):
+    """The finance pipeline, sharing the general pipeline's lock ON PURPOSE.
+
+    They write to different tables, so correctness doesn't need it — but they
+    are both LLM pipelines with the whole working set of a run in memory, and
+    letting them overlap inside one 512MB instance is how you get an OOM with
+    no traceback. In its normal deployment this never contends: the finance
+    pipeline runs as its own worker process (FINANCE_IN_PROCESS=0)."""
+    if not _pipeline_lock.acquire(blocking=False):
+        return None
+    try:
+        return run_finance_pipeline(stage)
+    finally:
+        _pipeline_lock.release()
+
+
 @app.on_event("startup")
 def _start():
     # Unconditional RSS log every 30s — catches growth that isn't tied to any
@@ -168,6 +187,19 @@ def _start():
                       id="purge_analytics", replace_existing=True,
                       next_run_time=datetime.now() + timedelta(minutes=5),
                       coalesce=True, misfire_grace_time=3600, max_instances=1)
+    # The finance pipeline is OFF in this process by default and runs as its own
+    # worker/cron (`python run_finance_pipeline.py`). Scheduling it here is a
+    # local-development convenience: on the 512MB instance it would put a second
+    # LLM pipeline in the process that serves requests, which is precisely the
+    # coupling that let a pipeline OOM take the API down with it.
+    if config.FINANCE_IN_PROCESS:
+        scheduler.add_job(guarded_finance_run, "interval",
+                          hours=config.FINANCE_INTERVAL_HOURS,
+                          id="finance_pipeline", replace_existing=True,
+                          next_run_time=datetime.now() + timedelta(minutes=6),
+                          coalesce=True, misfire_grace_time=3600, max_instances=1)
+        diag.checkpoint("finance pipeline scheduled IN-PROCESS "
+                        f"(every {config.FINANCE_INTERVAL_HOURS}h)")
     scheduler.start()
 
 
@@ -2307,3 +2339,183 @@ def admin_report_traffic(days: int = 30, token: str = "",
     out = analytics.traffic_report(con, days=_report_days(days))
     con.close()
     return out
+
+
+# ---------------------------------------------------------------- finance
+# Read surface for the finance pipeline. Entirely additive: separate paths over
+# separate tables, so nothing an existing client calls changes shape or timing.
+# Neither the iOS app nor the web portal reads these yet — the pipeline can run
+# and be inspected before anything is surfaced to a reader.
+def _fin_story_row(r, full=False):
+    """Wire shape for a finance story. The heavy structures (entity table,
+    metric table, actor sentiment) are only sent on the detail endpoint —
+    inlining them in a list is how /signals grew to 107KB."""
+    out = {"id": r["id"], "headline": r["headline"], "event_type": r["event_type"],
+           "topic": r["topic"], "credibility": r["credibility"],
+           "sectors": db.uj(r["sectors"], []), "tickers": db.uj(r["tickers"], []),
+           "sentiment_net": r["sentiment_net"],
+           "sentiment_dispersion": r["sentiment_dispersion"],
+           "image_url": r["image_url"], "created_at": r["created_at"],
+           "updated_at": r["updated_at"]}
+    if not full:
+        out["narrative"] = (r["narrative"] or "")[:280]
+        out["metric_count"] = len(db.uj(r["metrics"], []))
+        return out
+    out.update({
+        "narrative": r["narrative"], "why_matters": r["why_matters"],
+        "credibility_note": r["credibility_note"], "claims": db.uj(r["claims"], {}),
+        "article_ids": db.uj(r["article_ids"], []), "sources": db.uj(r["sources"], []),
+        "geographies": db.uj(r["geographies"], []),
+        "entities": db.uj(r["entities"], {}), "metrics": db.uj(r["metrics"], []),
+        "sentiment": db.uj(r["sentiment"], {}),
+        "economic_drivers": db.uj(r["economic_drivers"], []),
+        "beats": db.uj(r["beats"], None), "anchors": db.uj(r["anchors"], None),
+        "merge_stats": db.uj(r["merge_stats"], {}),
+        "unresolved": db.uj(r["unresolved"], []),
+        "schema_version": r["schema_version"]})
+    return out
+
+
+@app.get("/finance/stories")
+def finance_stories(limit: int = 30, event_type: str = ""):
+    con = db.connect()
+    limit = max(1, min(int(limit or 30), 100))
+    if event_type:
+        rows = con.execute(
+            "SELECT * FROM fin_stories WHERE event_type=? "
+            "ORDER BY updated_at DESC LIMIT ?", (event_type, limit)).fetchall()
+    else:
+        rows = con.execute("SELECT * FROM fin_stories ORDER BY updated_at DESC "
+                           "LIMIT ?", (limit,)).fetchall()
+    out = [_fin_story_row(r) for r in rows]
+    con.close()
+    return {"stories": out, "count": len(out)}
+
+
+@app.get("/finance/story/{story_id}")
+def finance_story(story_id: str):
+    con = db.connect()
+    r = con.execute("SELECT * FROM fin_stories WHERE id=?", (story_id,)).fetchone()
+    if not r:
+        con.close()
+        raise HTTPException(404, "finance story not found")
+    out = _fin_story_row(r, full=True)
+    # The relationships THIS story established. They live in the graph rather
+    # than on the story row (one edge, many stories), so they are read back by
+    # story id. A LIKE over a JSON column is a scan — acceptable only because
+    # fin_kg_edges is bounded by FIN_KG_RETAIN_DAYS and this is a single-story
+    # endpoint. If it ever shows up in a profile, denormalise instead of
+    # indexing a JSON column.
+    # Node ids are canonical (a ticker symbol where one resolved), which is what
+    # makes the graph joinable — and exactly what a reader should not be shown.
+    # fin_kg_nodes keeps the name as the article wrote it, so the edge travels
+    # with both: the id for anything that has to match, the name to print.
+    names = {r["id"]: r["name"] for r in con.execute(
+        "SELECT id, name FROM fin_kg_nodes WHERE namespace='finance'").fetchall()}
+    out["relationships"] = [
+        {"subject": e["subject"], "predicate": e["predicate"], "object": e["object"],
+         "subject_name": names.get(e["subject"], e["subject"]),
+         "object_name": names.get(e["object"], e["object"]),
+         "subject_type": e["subject_type"], "object_type": e["object_type"],
+         "event_type": e["event_type"], "confidence": e["confidence"]}
+        for e in con.execute(
+            "SELECT * FROM fin_kg_edges WHERE namespace='finance' AND story_ids LIKE ? "
+            "ORDER BY confidence DESC LIMIT 12", (f'%"{story_id}"%',)).fetchall()]
+    con.close()
+    return out
+
+
+@app.get("/finance/trends")
+def finance_trends(limit: int = 20):
+    con = db.connect()
+    rows = con.execute(
+        "SELECT * FROM fin_trends WHERE retired_at IS NULL "
+        "ORDER BY confidence DESC, updated_at DESC LIMIT ?",
+        (max(1, min(int(limit or 20), 60)),)).fetchall()
+    out = [{"id": r["id"], "name": r["name"], "narrative": r["narrative"],
+            "arc": db.uj(r["arc"], []), "cascade": db.uj(r["cascade"], []),
+            "story_ids": db.uj(r["story_ids"], []),
+            "sectors": db.uj(r["sectors"], []), "tickers": db.uj(r["tickers"], []),
+            "macro_factors": db.uj(r["macro_factors"], []),
+            "window_days": r["window_days"], "velocity": r["velocity"],
+            "confidence": r["confidence"], "created_at": r["created_at"],
+            "updated_at": r["updated_at"]} for r in rows]
+    con.close()
+    return {"trends": out, "count": len(out)}
+
+
+@app.get("/finance/forecasts")
+def finance_forecasts(limit: int = 20):
+    con = db.connect()
+    rows = con.execute(
+        "SELECT * FROM fin_forecasts WHERE retired_at IS NULL "
+        "ORDER BY confidence DESC, updated_at DESC LIMIT ?",
+        (max(1, min(int(limit or 20), 60)),)).fetchall()
+    out = [{"id": r["id"], "title": r["title"],
+            "trend_ids": db.uj(r["trend_ids"], []),
+            "story_ids": db.uj(r["story_ids"], []),
+            "scenarios": db.uj(r["scenarios"], []),
+            "short_term": r["short_term"], "long_term": r["long_term"],
+            "risks": db.uj(r["risks"], []),
+            "dependencies": db.uj(r["dependencies"], []),
+            "invalidation": db.uj(r["invalidation"], []),
+            "confidence": r["confidence"],
+            # Sent on every forecast, never assembled by the client: the
+            # not-advice framing has to travel with the content wherever it
+            # is rendered.
+            "disclaimer": r["disclaimer"],
+            "created_at": r["created_at"], "updated_at": r["updated_at"]}
+           for r in rows]
+    con.close()
+    return {"forecasts": out, "count": len(out)}
+
+
+@app.get("/finance/graph")
+def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
+    """The knowledge graph: overall shape, or the cascade around one entity."""
+    con = db.connect()
+    try:
+        if not entity:
+            return {"stats": fin_kg.stats(con),
+                    "top": fin_kg.top_entities(con, limit=min(int(limit or 40), 100))}
+        seed = fin_kg.tk.canonical(entity)
+        links = fin_kg.cascade(con, [seed], max_hops=max(1, min(int(hops or 2), 4)),
+                               max_links=max(1, min(int(limit or 40), 100)))
+        return {"entity": entity, "resolved_to": seed,
+                "links": [l.model_dump(mode="json") for l in links],
+                "count": len(links)}
+    finally:
+        con.close()
+
+
+@app.post("/admin/run-finance")
+def admin_run_finance(stage: str = "", token: str = "",
+                      authorization: str = Header("")):
+    """Kick off a finance pipeline run in the background.
+      /admin/run-finance?stage=fin_stories    extraction + KG only
+      /admin/run-finance?stage=fin_trends     cascade linking only
+      /admin/run-finance?stage=fin_forecasts  scenarios only
+    Poll /admin/usage — recent_runs carries stage='finance_pipeline', status='done'."""
+    _require_admin(authorization, token)
+    if stage and stage not in FIN_STAGES:
+        raise HTTPException(400, f"unknown stage '{stage}'; valid: {FIN_STAGES}")
+    if _pipeline_lock.locked():
+        return {"started": False, "status": "a pipeline run is already in progress",
+                "check": "GET /admin/usage"}
+    threading.Thread(target=guarded_finance_run, args=(stage or None,),
+                     daemon=True).start()
+    return {"started": True, "stage": stage or "all", "status": "running in background",
+            "check": "GET /admin/usage — a recent_runs row with "
+                     "stage='finance_pipeline', status='done' marks completion"}
+
+
+@app.get("/admin/finance/unresolved")
+def admin_finance_unresolved(token: str = "", authorization: str = Header("")):
+    """Company names the pipeline saw but tickers.yaml could not resolve — the
+    work queue for extending the map."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    rows = unresolved_report(con)
+    con.close()
+    return {"unresolved": [{"name": n, "seen": c} for n, c in rows],
+            "count": len(rows)}

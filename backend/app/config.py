@@ -57,8 +57,20 @@ DEEPSEEK_PEAK_WINDOWS_UTC = _parse_hour_windows(
 
 # Tasks that need deep reasoning use each provider's stronger model when set.
 # Empty string = that provider uses its base model for reasoning tasks too.
-REASONING_TASKS = set(t.strip() for t in
-                      os.environ.get("REASONING_TASKS", "signals,signals_unit,trend").split(","))
+#
+# The finance tasks are here because it was measured, not assumed. Given one
+# story carrying two separate penalties (Rs 75 crore on one bank, Rs 63 crore on
+# another), llama-3.3-70b merged them into "a range of Rs 63 to Rs 75 crore" —
+# a figure no outlet reported — and did so even after the prompt was made
+# explicit that two different facts are not a discrepancy. The same brief on a
+# stronger model kept the two fines attached to their own companies. Numerical
+# attribution is the whole point of this pipeline, so it gets the better model.
+# fin_sentiment stays on the base model: it is qualitative, and it is the one
+# finance call whose failure is not fatal to the story.
+REASONING_TASKS = set(t.strip() for t in os.environ.get(
+    "REASONING_TASKS",
+    "signals,signals_unit,trend,fin_extract,fin_story,fin_trend,fin_forecast"
+).split(","))
 # Under LLM_PROVIDER=auto, reasoning tasks (trend/forecast) try these providers
 # in order — strongest thinking model first — falling through on missing key or
 # rate-limit. Ordinary tasks keep the cheaper free-first order below.
@@ -264,5 +276,40 @@ DB_PATH = str(ROOT / os.environ.get("DB_PATH", "newslens.db"))
 FEEDS_FILE = ROOT / "feeds.yaml"
 SOURCES_FILE = ROOT / "sources.yaml"
 PROMPTS_FILE = ROOT / "prompts.yaml"
+TICKERS_FILE = ROOT / "tickers.yaml"
 SAMPLE_FILE = ROOT / "sample_articles.json"
 ADMIN_PAGE = ROOT / "admin.html"
+
+# ------------------------------------------------------- finance pipeline
+# A second, domain-isolated pipeline over the finance/business beats. It writes
+# only to fin_* tables, so every knob here is additive: with FINANCE_TOPICS
+# empty it does nothing and the app behaves exactly as it did before.
+FINANCE_TOPICS = [t.strip().lower() for t in os.environ.get(
+    "FINANCE_TOPICS", "finance,business").split(",") if t.strip()]
+# Runs as its own worker/cron by default (run_finance_pipeline.py). Set to 1 to
+# also schedule it inside the API process — convenient locally, but on the
+# 512MB box it puts a second LLM pipeline in the process that serves requests,
+# which is exactly the coupling that made a ConnectionFinder OOM take the API
+# down with it. See render-512mb-oom-limit.
+FINANCE_IN_PROCESS = os.environ.get("FINANCE_IN_PROCESS", "0") == "1"
+FINANCE_INTERVAL_HOURS = float(os.environ.get("FINANCE_INTERVAL_HOURS", "3"))
+# Per-run ceilings. Every finance stage is bounded the same way the general
+# pipeline's stages are — the ConnectionFinder OOM came from an unbounded pair
+# scan, and none of these may be allowed to grow with the table.
+FIN_MAX_STORIES_PER_RUN = int(os.environ.get("FIN_MAX_STORIES_PER_RUN", "12"))
+FIN_MAX_ARTICLES_PER_RUN = int(os.environ.get("FIN_MAX_ARTICLES_PER_RUN", "400"))
+FIN_MAX_TREND_STORIES = int(os.environ.get("FIN_MAX_TREND_STORIES", "60"))
+FIN_MAX_FORECASTS_PER_RUN = int(os.environ.get("FIN_MAX_FORECASTS_PER_RUN", "8"))
+FIN_WINDOW_DAYS = float(os.environ.get("FIN_WINDOW_DAYS", "7"))
+# Rolling window Agent 2 links over. The spec's 7-30 days: wider than the news
+# window because a cascade (rates -> defaults -> bank stress) plays out over
+# weeks, and a 7-day view cannot see the first link any more.
+FIN_TREND_WINDOW_DAYS = float(os.environ.get("FIN_TREND_WINDOW_DAYS", "30"))
+# How far a cascade walk may travel from a seed entity in the KG. 3 hops covers
+# "supplier of a supplier of the named company"; beyond that the mechanism is
+# no longer something we can evidence from the reporting.
+FIN_MAX_CASCADE_HOPS = int(os.environ.get("FIN_MAX_CASCADE_HOPS", "3"))
+# KG edges older than this are pruned. Same reasoning as prune_history: an
+# append-only table on a 512MB box needs a ceiling written down at birth.
+FIN_KG_RETAIN_DAYS = float(os.environ.get("FIN_KG_RETAIN_DAYS", "120"))
+FIN_FORECAST_RETIRE_DAYS = float(os.environ.get("FIN_FORECAST_RETIRE_DAYS", "30"))

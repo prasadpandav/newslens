@@ -94,6 +94,71 @@ CREATE INDEX IF NOT EXISTS articles_source_fetched ON articles(source, fetched_a
 -- Keeps overall-traffic reporting O(days) instead of one row per request.
 CREATE TABLE IF NOT EXISTS traffic (
   day TEXT, route TEXT, hits INTEGER DEFAULT 0, PRIMARY KEY (day, route));
+
+-- ------------------------------------------------------- finance pipeline
+-- A parallel, domain-isolated pipeline over the finance/business beats. These
+-- tables are entirely separate from stories/trends/signals: the app reads none
+-- of them, so a finance run cannot change what an existing reader sees, and an
+-- install that never runs it just has five empty tables.
+--
+-- Shapes mirror app/schemas/finance.py. Rich structures (the entity table,
+-- metrics, the SimTom sentiment profile, scenarios) are JSON columns, matching
+-- how claims/merge_stats/beats are already stored; the scalars promoted to
+-- real columns are exactly the ones something filters or orders by.
+-- schema_version travels on every row so an older shape stays readable.
+CREATE TABLE IF NOT EXISTS fin_stories (
+  id TEXT PRIMARY KEY, event_id TEXT, headline TEXT, narrative TEXT,
+  why_matters TEXT, event_type TEXT, topic TEXT, credibility REAL,
+  credibility_note TEXT, claims TEXT, article_ids TEXT, sources TEXT,
+  sectors TEXT, geographies TEXT, tickers TEXT, entities TEXT, metrics TEXT,
+  sentiment TEXT, sentiment_net REAL, sentiment_dispersion REAL,
+  economic_drivers TEXT, beats TEXT, anchors TEXT, merge_stats TEXT,
+  unresolved TEXT, image_url TEXT, schema_version INTEGER,
+  created_at REAL, updated_at REAL);
+CREATE INDEX IF NOT EXISTS fin_stories_updated ON fin_stories(updated_at);
+CREATE INDEX IF NOT EXISTS fin_stories_event ON fin_stories(event_id);
+CREATE INDEX IF NOT EXISTS fin_stories_type ON fin_stories(event_type, updated_at);
+
+-- The knowledge graph. `namespace` is what keeps finance edges from ever
+-- colliding with another domain's, so a second specialised pipeline can share
+-- these tables without a migration.
+--
+-- A node id is the CANONICAL name (a ticker symbol where one resolved), so
+-- "Reliance", "RIL" and "Reliance Industries Ltd" converge on one node instead
+-- of three that no walk can join.
+CREATE TABLE IF NOT EXISTS fin_kg_nodes (
+  namespace TEXT, id TEXT, name TEXT, type TEXT, ticker TEXT, exchange TEXT,
+  mentions INTEGER DEFAULT 0, first_seen REAL, last_seen REAL,
+  PRIMARY KEY (namespace, id));
+-- One row per distinct (subject, predicate, object) in a namespace — a second
+-- story reporting the same relationship accumulates onto it (story_ids,
+-- evidence, confidence) rather than adding a parallel edge, which is what
+-- makes a cascade walk terminate.
+CREATE TABLE IF NOT EXISTS fin_kg_edges (
+  id TEXT PRIMARY KEY, namespace TEXT, subject TEXT, predicate TEXT,
+  object TEXT, subject_type TEXT, object_type TEXT, event_type TEXT,
+  value TEXT, confidence REAL, evidence TEXT, story_ids TEXT,
+  occurred_at REAL, created_at REAL, updated_at REAL,
+  UNIQUE (namespace, subject, predicate, object));
+-- Both directions are walked (a supplier's exposure is found from either end),
+-- so both need an index or every hop full-scans the edge table.
+CREATE INDEX IF NOT EXISTS fin_kg_subject ON fin_kg_edges(namespace, subject);
+CREATE INDEX IF NOT EXISTS fin_kg_object ON fin_kg_edges(namespace, object);
+CREATE INDEX IF NOT EXISTS fin_kg_updated ON fin_kg_edges(updated_at);
+
+CREATE TABLE IF NOT EXISTS fin_trends (
+  id TEXT PRIMARY KEY, name TEXT, narrative TEXT, arc TEXT, cascade TEXT,
+  story_ids TEXT, sectors TEXT, tickers TEXT, macro_factors TEXT,
+  window_days INTEGER, velocity REAL, confidence REAL, evidence TEXT,
+  schema_version INTEGER, created_at REAL, updated_at REAL, retired_at REAL);
+CREATE INDEX IF NOT EXISTS fin_trends_live ON fin_trends(retired_at, updated_at);
+
+CREATE TABLE IF NOT EXISTS fin_forecasts (
+  id TEXT PRIMARY KEY, title TEXT, trend_ids TEXT, story_ids TEXT,
+  scenarios TEXT, short_term TEXT, long_term TEXT, risks TEXT,
+  dependencies TEXT, invalidation TEXT, confidence REAL, disclaimer TEXT,
+  schema_version INTEGER, created_at REAL, updated_at REAL, retired_at REAL);
+CREATE INDEX IF NOT EXISTS fin_forecasts_live ON fin_forecasts(retired_at, updated_at);
 """
 
 _schema_ready = False

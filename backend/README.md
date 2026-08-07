@@ -76,6 +76,39 @@ MicroTrendDetector (accelerating 72h signals) → ConnectionFinder (hidden cross
 headline) → Personalizer ("what this means for you", per user). The Orchestrator plans
 topics from all users' interests and runs the stages every `PIPELINE_INTERVAL_HOURS`.
 
+## The finance pipeline (separate, domain-isolated)
+
+A second 3-agent pipeline runs over the `finance` and `business` beats only,
+writing to its own `fin_*` tables. It never touches `stories`, `trends` or
+`signals`, so the app behaves identically whether or not it has ever run.
+
+```bash
+python run_finance_pipeline.py                 # all stages
+python run_finance_pipeline.py --stage fin_trends
+python run_finance_pipeline.py --unresolved    # names tickers.yaml is missing
+python run_finance_pipeline.py --graph         # graph size + most-connected nodes
+```
+
+- **FinancialStoryAgent** — Tabular Chain-of-Thought extraction (entity table,
+  metric table, relationship table), SimTom multi-actor sentiment, and a
+  knowledge graph, synthesised into one story per event. Every figure must
+  quote the span it came from or it is dropped. Tickers are resolved against
+  `tickers.yaml` only — never authored by the model.
+- **FinancialTrendAgent** — narrative arcs over a 30-day window. Second-order
+  impact comes from *walking the graph*, not from asking the model who supplies
+  whom.
+- **FinancialForecastingAgent** — base/bull/bear scenarios with explicit
+  invalidation criteria. Not financial advice: enforced by a validator, not
+  just by the prompt.
+
+Runs as its own worker/cron by default. `FINANCE_IN_PROCESS=1` also schedules it
+inside the API — convenient locally, but it puts a second LLM pipeline in the
+process that serves requests. Read it back via `/finance/stories`,
+`/finance/story/{id}`, `/finance/trends`, `/finance/forecasts`, `/finance/graph`.
+
+Tune it with `tickers.yaml` (company → symbol) and the `fin_*` keys in
+`prompts.yaml`. Tests: `python -m unittest discover -s tests`.
+
 ## Deploy free
 
 `docker build -t newslens backend && docker run -d -p 8000:8000 newslens` on an

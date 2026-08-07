@@ -7,9 +7,12 @@ import Combine
 final class APIClient: ObservableObject {
     static let shared = APIClient()
 
-    // Production server. For local backend testing use "http://localhost:8000"
-    // (Simulator only) and remember to switch back before building for device.
-    var baseURL = URL(string: "https://newslens-rmv6.onrender.com")!
+    // Production server. Override at launch with `-apiBase http://localhost:8000`
+    // (Simulator) rather than editing this line — a hand-edited baseURL is one
+    // forgotten revert away from shipping a build that points at a laptop.
+    static let defaultBase = "https://newslens-rmv6.onrender.com"
+    var baseURL = URL(string: UserDefaults.standard.string(forKey: "apiBase") ?? "")
+        ?? URL(string: defaultBase)!
 
     // Public web portal — used for share links. Set to your static site URL.
     var webBaseURL = "https://www.descry.in"
@@ -316,6 +319,20 @@ final class APIClient: ObservableObject {
     func fetchStory(id: String) async throws -> StoryDetail {
         let data = try await request("story/\(id)", query: ["user_id": userID ?? ""])
         return try JSONDecoder().decode(StoryDetail.self, from: data)
+    }
+
+    // MARK: - Finance pipeline
+    // Separate endpoints over separate tables, so these are separate calls: a
+    // finance story is not a `stories` row with extra fields on it.
+
+    func fetchFinanceStories(limit: Int = 30) async throws -> [FinanceStoryCard] {
+        let data = try await request("finance/stories", query: ["limit": "\(limit)"])
+        return try JSONDecoder().decode(FinanceStoriesResponse.self, from: data).stories
+    }
+
+    func fetchFinanceStory(id: String) async throws -> FinanceStory {
+        let data = try await request("finance/story/\(id)")
+        return try JSONDecoder().decode(FinanceStory.self, from: data)
     }
 
     /// "What this means for you" — computed (and cached server-side) the first

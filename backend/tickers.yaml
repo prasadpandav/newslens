@@ -1,0 +1,136 @@
+# Company name -> ticker. The ONLY source of ticker symbols in the finance
+# pipeline: the LLM proposes a company name, this file resolves it. A name that
+# isn't here resolves to nothing and the org is kept without a symbol — never a
+# guessed one. (See schemas/finance.py Ticker._no_unresolved_symbols.)
+#
+# Seeded by hand with what the configured finance feeds actually cover (RBI,
+# SEBI, Mint, ET, BusinessLine, CNBC-TV18, The Hindu Business, plus the global
+# CNBC/BBC feeds). Names the pipeline could not resolve are recorded on each
+# story's entity table and reported by `run_finance_pipeline.py --unresolved`,
+# which is the work queue for extending this file.
+#
+# Matching is exact on the normalised form: lowercased, punctuation dropped,
+# legal suffixes (ltd/limited/inc/corp/plc/co/nv/sa/ag) removed. So
+# "Reliance Industries Ltd." matches the "Reliance Industries" entry without an
+# alias. Add aliases only for forms normalisation cannot reach ("RIL", "HDFC").
+# Two entries that normalise identically are treated as ambiguous and BOTH stay
+# unresolved, on purpose.
+
+companies:
+  # ---------------------------------------------------------------- India
+  - {symbol: RELIANCE,   exchange: NSE, name: Reliance Industries, aliases: [RIL]}
+  - {symbol: TCS,        exchange: NSE, name: Tata Consultancy Services}
+  - {symbol: HDFCBANK,   exchange: NSE, name: HDFC Bank}
+  - {symbol: ICICIBANK,  exchange: NSE, name: ICICI Bank}
+  - {symbol: SBIN,       exchange: NSE, name: State Bank of India, aliases: [SBI]}
+  - {symbol: INFY,       exchange: NSE, name: Infosys}
+  - {symbol: BHARTIARTL, exchange: NSE, name: Bharti Airtel, aliases: [Airtel]}
+  - {symbol: ITC,        exchange: NSE, name: ITC}
+  - {symbol: LT,         exchange: NSE, name: Larsen and Toubro, aliases: [L&T, Larsen & Toubro]}
+  - {symbol: KOTAKBANK,  exchange: NSE, name: Kotak Mahindra Bank}
+  - {symbol: AXISBANK,   exchange: NSE, name: Axis Bank}
+  - {symbol: HINDUNILVR, exchange: NSE, name: Hindustan Unilever, aliases: [HUL]}
+  - {symbol: BAJFINANCE, exchange: NSE, name: Bajaj Finance}
+  - {symbol: MARUTI,     exchange: NSE, name: Maruti Suzuki, aliases: [Maruti Suzuki India]}
+  - {symbol: ASIANPAINT, exchange: NSE, name: Asian Paints}
+  - {symbol: WIPRO,      exchange: NSE, name: Wipro}
+  - {symbol: HCLTECH,    exchange: NSE, name: HCL Technologies, aliases: [HCLTech]}
+  - {symbol: TECHM,      exchange: NSE, name: Tech Mahindra}
+  - {symbol: TATAMOTORS, exchange: NSE, name: Tata Motors}
+  - {symbol: TATASTEEL,  exchange: NSE, name: Tata Steel}
+  - {symbol: JSWSTEEL,   exchange: NSE, name: JSW Steel}
+  - {symbol: ADANIENT,   exchange: NSE, name: Adani Enterprises}
+  - {symbol: ADANIPORTS, exchange: NSE, name: Adani Ports and Special Economic Zone, aliases: [Adani Ports]}
+  - {symbol: ADANIGREEN, exchange: NSE, name: Adani Green Energy}
+  - {symbol: ONGC,       exchange: NSE, name: Oil and Natural Gas Corporation, aliases: [ONGC]}
+  - {symbol: NTPC,       exchange: NSE, name: NTPC}
+  - {symbol: POWERGRID,  exchange: NSE, name: Power Grid Corporation of India}
+  - {symbol: COALINDIA,  exchange: NSE, name: Coal India}
+  - {symbol: SUNPHARMA,  exchange: NSE, name: Sun Pharmaceutical Industries, aliases: [Sun Pharma]}
+  - {symbol: DRREDDY,    exchange: NSE, name: Dr Reddys Laboratories, aliases: ["Dr. Reddy's Laboratories", "Dr Reddy's"]}
+  - {symbol: CIPLA,      exchange: NSE, name: Cipla}
+  - {symbol: TITAN,      exchange: NSE, name: Titan Company}
+  - {symbol: NESTLEIND,  exchange: NSE, name: Nestle India}
+  - {symbol: ULTRACEMCO, exchange: NSE, name: UltraTech Cement}
+  - {symbol: GRASIM,     exchange: NSE, name: Grasim Industries}
+  - {symbol: M&M,        exchange: NSE, name: Mahindra and Mahindra, aliases: [Mahindra & Mahindra]}
+  - {symbol: BAJAJ-AUTO, exchange: NSE, name: Bajaj Auto}
+  - {symbol: HEROMOTOCO, exchange: NSE, name: Hero MotoCorp}
+  - {symbol: EICHERMOT,  exchange: NSE, name: Eicher Motors}
+  - {symbol: INDUSINDBK, exchange: NSE, name: IndusInd Bank}
+  - {symbol: BANKBARODA, exchange: NSE, name: Bank of Baroda}
+  - {symbol: PNB,        exchange: NSE, name: Punjab National Bank}
+  - {symbol: ZOMATO,     exchange: NSE, name: Eternal, aliases: [Zomato]}
+  - {symbol: PAYTM,      exchange: NSE, name: One97 Communications, aliases: [Paytm]}
+  - {symbol: NYKAA,      exchange: NSE, name: FSN E-Commerce Ventures, aliases: [Nykaa]}
+  - {symbol: POLICYBZR,  exchange: NSE, name: PB Fintech, aliases: [Policybazaar]}
+  - {symbol: DMART,      exchange: NSE, name: Avenue Supermarts, aliases: [DMart]}
+  - {symbol: LICI,       exchange: NSE, name: Life Insurance Corporation of India, aliases: [LIC]}
+  - {symbol: SBILIFE,    exchange: NSE, name: SBI Life Insurance}
+  - {symbol: HDFCLIFE,   exchange: NSE, name: HDFC Life Insurance}
+  - {symbol: VEDL,       exchange: NSE, name: Vedanta}
+  - {symbol: HINDALCO,   exchange: NSE, name: Hindalco Industries}
+  - {symbol: BPCL,       exchange: NSE, name: Bharat Petroleum Corporation, aliases: [BPCL]}
+  - {symbol: IOC,        exchange: NSE, name: Indian Oil Corporation}
+  - {symbol: GAIL,       exchange: NSE, name: GAIL India}
+  - {symbol: DLF,        exchange: NSE, name: DLF}
+  - {symbol: SHRIRAMFIN, exchange: NSE, name: Shriram Finance}
+  - {symbol: JIOFIN,     exchange: NSE, name: Jio Financial Services}
+  - {symbol: IRCTC,      exchange: NSE, name: Indian Railway Catering and Tourism Corporation, aliases: [IRCTC]}
+  - {symbol: YESBANK,    exchange: NSE, name: Yes Bank}
+  - {symbol: IDFCFIRSTB, exchange: NSE, name: IDFC First Bank}
+  - {symbol: TATAPOWER,  exchange: NSE, name: Tata Power}
+  - {symbol: SIEMENS,    exchange: NSE, name: Siemens India}
+
+  # --------------------------------------------------------------- global
+  - {symbol: AAPL,  exchange: NASDAQ, name: Apple}
+  - {symbol: MSFT,  exchange: NASDAQ, name: Microsoft}
+  - {symbol: GOOGL, exchange: NASDAQ, name: Alphabet, aliases: [Google]}
+  - {symbol: AMZN,  exchange: NASDAQ, name: Amazon, aliases: [Amazon.com]}
+  - {symbol: META,  exchange: NASDAQ, name: Meta Platforms, aliases: [Facebook]}
+  - {symbol: NVDA,  exchange: NASDAQ, name: Nvidia}
+  - {symbol: TSLA,  exchange: NASDAQ, name: Tesla}
+  - {symbol: NFLX,  exchange: NASDAQ, name: Netflix}
+  - {symbol: INTC,  exchange: NASDAQ, name: Intel}
+  - {symbol: AMD,   exchange: NASDAQ, name: Advanced Micro Devices, aliases: [AMD]}
+  - {symbol: AVGO,  exchange: NASDAQ, name: Broadcom}
+  - {symbol: ORCL,  exchange: NYSE,   name: Oracle}
+  - {symbol: CRM,   exchange: NYSE,   name: Salesforce}
+  - {symbol: IBM,   exchange: NYSE,   name: International Business Machines, aliases: [IBM]}
+  - {symbol: JPM,   exchange: NYSE,   name: JPMorgan Chase, aliases: [JP Morgan, JPMorgan]}
+  - {symbol: GS,    exchange: NYSE,   name: Goldman Sachs}
+  - {symbol: MS,    exchange: NYSE,   name: Morgan Stanley}
+  - {symbol: BAC,   exchange: NYSE,   name: Bank of America}
+  - {symbol: C,     exchange: NYSE,   name: Citigroup}
+  - {symbol: WFC,   exchange: NYSE,   name: Wells Fargo}
+  - {symbol: HSBC,  exchange: NYSE,   name: HSBC Holdings, aliases: [HSBC]}
+  - {symbol: BRK.B, exchange: NYSE,   name: Berkshire Hathaway}
+  - {symbol: V,     exchange: NYSE,   name: Visa}
+  - {symbol: MA,    exchange: NYSE,   name: Mastercard}
+  - {symbol: WMT,   exchange: NYSE,   name: Walmart}
+  - {symbol: XOM,   exchange: NYSE,   name: Exxon Mobil, aliases: [ExxonMobil]}
+  - {symbol: CVX,   exchange: NYSE,   name: Chevron}
+  - {symbol: SHEL,  exchange: NYSE,   name: Shell}
+  - {symbol: BP,    exchange: NYSE,   name: BP}
+  - {symbol: F,     exchange: NYSE,   name: Ford Motor, aliases: [Ford]}
+  - {symbol: GM,    exchange: NYSE,   name: General Motors}
+  - {symbol: RIVN,  exchange: NASDAQ, name: Rivian Automotive, aliases: [Rivian]}
+  - {symbol: BA,    exchange: NYSE,   name: Boeing}
+  - {symbol: DIS,   exchange: NYSE,   name: Walt Disney, aliases: [Disney]}
+  - {symbol: PFE,   exchange: NYSE,   name: Pfizer}
+  - {symbol: NVO,   exchange: NYSE,   name: Novo Nordisk}
+  - {symbol: LLY,   exchange: NYSE,   name: Eli Lilly}
+  - {symbol: TSM,   exchange: NYSE,   name: Taiwan Semiconductor Manufacturing, aliases: [TSMC]}
+  - {symbol: BABA,  exchange: NYSE,   name: Alibaba Group, aliases: [Alibaba]}
+  - {symbol: UBER,  exchange: NYSE,   name: Uber Technologies, aliases: [Uber]}
+  - {symbol: KLAR,  exchange: NYSE,   name: Klarna}
+
+# Market indices. Same resolution path, flagged as an index so a move in one is
+# never written into the graph as if a company had done something.
+indices:
+  - {symbol: NIFTY50,  exchange: NSE,    name: Nifty 50, aliases: [Nifty]}
+  - {symbol: BANKNIFTY, exchange: NSE,   name: Nifty Bank, aliases: [Bank Nifty]}
+  - {symbol: SENSEX,   exchange: BSE,    name: BSE Sensex, aliases: [Sensex]}
+  - {symbol: SPX,      exchange: NYSE,   name: S&P 500}
+  - {symbol: NDX,      exchange: NASDAQ, name: Nasdaq 100}
+  - {symbol: DJIA,     exchange: NYSE,   name: Dow Jones Industrial Average, aliases: [Dow Jones, the Dow]}
