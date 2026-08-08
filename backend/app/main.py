@@ -2534,7 +2534,13 @@ def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
         if not entity:
             stats = fin_kg.stats(con)
             top = fin_kg.top_entities(con, limit=min(int(limit or 40), 100))
-            return {"stats": stats, "top": top}
+            rows = con.execute(
+                "SELECT subject AS from_entity, object AS to_entity, predicate AS mechanism, "
+                "confidence, 1 AS [order] FROM fin_kg_edges WHERE namespace='finance' "
+                "ORDER BY confidence DESC, updated_at DESC LIMIT ?",
+                (min(int(limit or 60), 120),)).fetchall()
+            edges = [dict(r) for r in rows]
+            return {"stats": stats, "top": top, "links": edges}
         seed = fin_kg.tk.canonical(entity)
         links = fin_kg.cascade(con, [seed], max_hops=max(1, min(int(hops or 2), 4)),
                                max_links=max(1, min(int(limit or 40), 100)))

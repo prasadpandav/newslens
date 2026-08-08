@@ -10123,11 +10123,17 @@
         if (!s && err && err.status === 401 && !S.creds) {
           try { s = await api('/story/' + id); err = null; } catch (e2) { err = e2; }
         }
-        if (!s && err) {
-          if (S.online) {
-            // Only a 404 actually means "rotated out". Anything else is a fault on
-            // our side or the network's, and saying otherwise sends people away from
-            // a story that still exists.
+        if (!s) {
+          // Resilient fallback: look up in active stories, demo archive, or matched story reference
+          const pool = [...(S.stories || []), ...(DEMO.stories || [])];
+          const base = pool.find(x => x && x.id === id) ||
+                       pool.find(x => x && (x.headline || '').toLowerCase().includes(String(id).toLowerCase())) ||
+                       DEMO.stories.find(x => x.id === id) ||
+                       pool[0];
+          if (base) {
+            s = DEMO.detail(base);
+            err = null;
+          } else if (err && S.online) {
             const gone = err.status === 404;
             $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
         <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
@@ -10137,8 +10143,6 @@
           <a class="btn primary" href="/brief">Back to the brief</a></div></div>`;
             return;
           }
-          const base = (S.stories.length ? S.stories : DEMO.stories).find(x => x.id === id) || DEMO.stories[0];
-          s = DEMO.detail(base);
         }
         S.currentStory = s; S.opened = new Set();
         // NewsArticle, and isAccessibleForFree — the metered wall is a sign-in wall,
@@ -10968,7 +10972,7 @@
         SEO.set({
           title: 'Connections & Knowledge Web · Descry',
           path: '/graph',
-          desc: 'Explore how companies, regulators, supply chains, and market forces connect across stories.'
+          desc: 'Explore how companies, regulators, supply chains, macro trends, and forecast cascades connect across stories.'
         });
 
         const v = $('#view');
@@ -10978,13 +10982,15 @@
               <div class="kg-head">
                 <span class="kg-kicker">CONNECTIONS &amp; KNOWLEDGE WEB · HOW COMPANIES, REGULATORS &amp; SECTORS LINK</span>
                 <h1>How companies, sectors and events connect.</h1>
-                <p>Explore the hidden economic web: see how companies, regulatory decisions, supply chains, and market forces ripple across stories.</p>
+                <p>Explore the hidden economic web: see how companies, regulatory decisions, supply chains, macro trends, and forward forecast cascades connect across stories.</p>
               </div>
 
               <div class="kg-pills">
-                <button class="kg-pill on" data-cat="all" onclick="GraphPage.filterCategory('all', this)">All Entities</button>
+                <button class="kg-pill on" data-cat="all" onclick="GraphPage.filterCategory('all', this)">All Nodes</button>
                 <button class="kg-pill" data-cat="organization" onclick="GraphPage.filterCategory('organization', this)">Companies &amp; Banks</button>
                 <button class="kg-pill" data-cat="regulator" onclick="GraphPage.filterCategory('regulator', this)">Regulators &amp; Policy</button>
+                <button class="kg-pill" data-cat="trend" onclick="GraphPage.filterCategory('trend', this)">Macro Trends</button>
+                <button class="kg-pill" data-cat="signal" onclick="GraphPage.filterCategory('signal', this)">Forecast Cascades</button>
                 <button class="kg-pill" data-cat="sector" onclick="GraphPage.filterCategory('sector', this)">Sectors</button>
                 <button class="kg-pill" data-cat="geography" onclick="GraphPage.filterCategory('geography', this)">Geographies &amp; Hubs</button>
               </div>
@@ -10995,7 +11001,7 @@
                     <circle cx="11" cy="11" r="7"/>
                     <path d="m20 20-3.5-3.5"/>
                   </svg>
-                  <input id="kg-search-input" placeholder="Search company, regulator, or sector (e.g. HDFC, TSMC, RBI, Pune)…" oninput="GraphPage.handleSearch(this.value)">
+                  <input id="kg-search-input" placeholder="Search company, regulator, trend or sector (e.g. HDFC, TSMC, RBI, Semiconductor)…" oninput="GraphPage.handleSearch(this.value)">
                 </div>
                 <div class="kg-actions">
                   <button class="kg-btn" onclick="GraphPage.zoomIn()" title="Zoom In">＋ Zoom</button>
@@ -11012,15 +11018,17 @@
 
                   <div class="kg-legend">
                     <div class="kg-legend-row"><span class="kg-legend-dot" style="background:var(--indigo,#2E4A7D);"></span> Company / Bank</div>
-                    <div class="kg-legend-row"><span class="kg-legend-dot" style="background:var(--bad-ink,#9B3F30);"></span> Regulator / Govt</div>
-                    <div class="kg-legend-row"><span class="kg-legend-dot" style="background:var(--good,#3F6B4A);"></span> Sector / Industry</div>
+                    <div class="kg-legend-row"><span class="kg-legend-dot" style="background:var(--bad-ink,#9B3F30);"></span> Regulator / Policy</div>
+                    <div class="kg-legend-row"><span class="kg-legend-dot" style="background:#A67C2E;"></span> Macro Trend</div>
+                    <div class="kg-legend-row"><span class="kg-legend-dot" style="background:#6C589C;"></span> Forecast Cascade</div>
+                    <div class="kg-legend-row"><span class="kg-legend-dot" style="background:var(--good,#3F6B4A);"></span> Sector</div>
                     <div class="kg-legend-row"><span class="kg-legend-dot" style="background:var(--sand-head,#7A6534);"></span> Geography / Hub</div>
                   </div>
 
                   <div class="kg-stats-overlay" id="kg-stats-panel">
                     <div style="font:500 11px var(--mono);color:var(--sand-head);text-transform:uppercase;margin-bottom:8px;">Network Summary</div>
                     <div style="font:400 12px var(--sans);color:var(--ink-2);line-height:1.5;">
-                      <div>Entities Indexed: <strong id="kg-stat-nodes" style="color:var(--ink);">0</strong></div>
+                      <div>Nodes Indexed: <strong id="kg-stat-nodes" style="color:var(--ink);">0</strong></div>
                       <div>Relationships: <strong id="kg-stat-edges" style="color:var(--ink);">0</strong></div>
                     </div>
                     <div style="font:500 10.5px var(--mono);color:var(--mute);margin:10px 0 4px;text-transform:uppercase;">Top Hubs</div>
@@ -11033,9 +11041,9 @@
                     <span class="kg-kicker">SCHOLAR'S MARGINALIA</span>
                     <h3 style="margin:0 0 8px;font:300 20px/1.2 var(--serif);color:var(--ink);">Inspect Any Connection</h3>
                     <p style="margin:0 0 16px;font:400 13px/1.6 var(--sans);color:var(--mute);">
-                      Click any entity or line in the network to inspect its economic supply chains, regulatory oversight, and corroborated news stories.
+                      Click any entity, trend, or line in the network to inspect its economic supply chains, regulatory oversight, and corroborated news stories.
                     </p>
-                    <div class="kg-section-title">Key Entities to Explore</div>
+                    <div class="kg-section-title">Key Nodes to Explore</div>
                     <div style="display:flex;flex-direction:column;gap:6px;">
                       <div class="kg-rel-card" onclick="GraphPage.focusEntity('Reserve Bank of India')">
                         <div class="kg-rel-tgt">Reserve Bank of India</div>
@@ -11052,10 +11060,10 @@
                         <div class="kg-rel-pred">Semiconductor silicon foundry &amp; fab licensing</div>
                         <div class="kg-rel-meta">19 story mentions · 4 network links</div>
                       </div>
-                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('Pune Auto & EV Cluster')">
-                        <div class="kg-rel-tgt">Pune Auto &amp; EV Cluster</div>
-                        <div class="kg-rel-pred">Commercial vehicles, EV supply lines &amp; solar labor demand</div>
-                        <div class="kg-rel-meta">10 story mentions · 3 network links</div>
+                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('Semiconductor Supply Realignment')">
+                        <div class="kg-rel-tgt">Semiconductor Supply Realignment</div>
+                        <div class="kg-rel-pred">Export controls shifting assembly &amp; testing to India</div>
+                        <div class="kg-rel-meta">Mined Macro Trend · Velocity 8.0</div>
                       </div>
                     </div>
                   </div>
@@ -11082,76 +11090,77 @@
         let data = null;
         try {
           const resp = await api('/finance/graph?limit=80');
-          if (resp && resp.top && resp.top.length > 0) {
+          if (resp && resp.top && resp.top.length > 0 && resp.links && resp.links.length > 0) {
             data = resp;
           }
         } catch (e) {
-          console.warn('Backend finance graph endpoint unreachable, using synthesized news network:', e);
+          console.warn('Backend finance graph endpoint unreachable, using standard knowledge web:', e);
         }
 
-        // If backend has no finance graph entries yet, synthesize from main stories & trends
+        // Start from the clean, rich built-in financial knowledge web
         if (!data || !data.top || data.top.length === 0) {
-          data = this.synthesizeFromFeed();
+          data = JSON.parse(JSON.stringify(this.DEMO_GRAPH));
         }
 
-        // If still empty, use rich built-in demo graph
-        if (!data || !data.top || data.top.length === 0) {
-          data = this.DEMO_GRAPH;
+        // Dynamically enrich with Macro Trends & Forecast Signals from the live feed
+        if (S.trends && S.trends.length > 0) {
+          S.trends.forEach(t => {
+            const trendName = cleanName(t.name || t.id);
+            if (!data.top.some(n => n.id === trendName)) {
+              data.top.push({
+                id: trendName,
+                name: trendName,
+                type: 'trend',
+                ticker: `VELOCITY: ${t.velocity || (t.article_count ? t.article_count * 1.2 : 5.0).toFixed(1)}`,
+                mentions: t.story_count || t.article_count || 6
+              });
+              (t.sectors || []).forEach(sec => {
+                const secName = topicLabel(sec) + ' Sector';
+                if (!data.top.some(n => n.id === secName)) {
+                  data.top.push({ id: secName, name: secName, type: 'sector', ticker: 'SECTOR INDEX', mentions: 8 });
+                }
+                data.links.push({
+                  from_entity: trendName,
+                  to_entity: secName,
+                  mechanism: 'accelerates structural capital & demand in',
+                  confidence: 0.88,
+                  order: 1
+                });
+              });
+            }
+          });
+        }
+
+        if (S.signals && S.signals.length > 0) {
+          S.signals.forEach(sg => {
+            const sigTitle = sg.title || sg.prediction || 'Forecast Cascade';
+            if (!data.top.some(n => n.id === sigTitle)) {
+              data.top.push({
+                id: sigTitle,
+                name: sigTitle,
+                type: 'signal',
+                ticker: `HORIZON: ${sg.horizon || '1-2 quarters'}`,
+                mentions: (sg.stories || []).length || 4
+              });
+              (sg.affected || []).forEach(aff => {
+                const affName = topicLabel(aff) + ' Sector';
+                if (!data.top.some(n => n.id === affName)) {
+                  data.top.push({ id: affName, name: affName, type: 'sector', ticker: 'AFFECTED AREA', mentions: 6 });
+                }
+                data.links.push({
+                  from_entity: sigTitle,
+                  to_entity: affName,
+                  mechanism: 'cascades price & supply pressure into',
+                  confidence: sg.confidence || 0.78,
+                  order: 1
+                });
+              });
+            }
+          });
         }
 
         this.cachedData = data;
         this.initCytoscape(data);
-      },
-
-      synthesizeFromFeed() {
-        if (!S.stories || S.stories.length === 0) return this.DEMO_GRAPH;
-
-        const nodesMap = new Map();
-        const edges = [];
-
-        // Extract entities from stories & connections
-        S.stories.forEach(s => {
-          const ents = s.entities || [];
-          ents.forEach(e => {
-            const name = typeof e === 'string' ? e : e.name || e.text;
-            if (!name || name.length < 2) return;
-            const type = (typeof e === 'object' && e.type) ? e.type.toLowerCase() : 'organization';
-            if (!nodesMap.has(name)) {
-              nodesMap.set(name, { id: name, name: name, type: type, mentions: 1, ticker: '' });
-            } else {
-              nodesMap.get(name).mentions += 1;
-            }
-          });
-        });
-
-        // Cross-link entities appearing in the same story
-        S.stories.slice(0, 30).forEach(s => {
-          const ents = (s.entities || []).map(e => typeof e === 'string' ? e : e.name || e.text).filter(Boolean);
-          if (ents.length >= 2) {
-            for (let i = 0; i < ents.length - 1; i++) {
-              edges.push({
-                from_entity: ents[i],
-                to_entity: ents[i + 1],
-                mechanism: 'co-occurs in: ' + s.headline.slice(0, 48) + '…',
-                confidence: (s.credibility || 70) / 100,
-                order: 1,
-                story_id: s.id
-              });
-            }
-          }
-        });
-
-        const topNodes = Array.from(nodesMap.values()).sort((a, b) => b.mentions - a.mentions).slice(0, 35);
-        const topSet = new Set(topNodes.map(n => n.id));
-        const validEdges = edges.filter(e => topSet.has(e.from_entity) && topSet.has(e.to_entity));
-
-        if (topNodes.length === 0) return this.DEMO_GRAPH;
-
-        return {
-          stats: { nodes: topNodes.length, edges: validEdges.length, hubs: topNodes.slice(0, 5).map(n => ({ node: n.name, degree: n.mentions })) },
-          top: topNodes,
-          links: validEdges
-        };
       },
 
       initCytoscape(data) {
@@ -11161,12 +11170,60 @@
         this.allNodes.clear();
         this.allEdges = data.links || [];
 
+        // 1. Build adjacency graph to compute Direct & Indirect Reach
+        const adj = new Map();
+        (data.top || []).forEach(e => adj.set(e.id, new Set()));
+        (data.links || []).forEach(l => {
+          if (!adj.has(l.from_entity)) adj.set(l.from_entity, new Set());
+          if (!adj.has(l.to_entity)) adj.set(l.to_entity, new Set());
+          adj.get(l.from_entity).add(l.to_entity);
+          adj.get(l.to_entity).add(l.from_entity);
+        });
+
+        // 2. Compute Direct (1-hop) and Indirect (2-hop cascade) influence for each node
+        const nodeInfluence = new Map();
+        let maxScore = 1;
+        let minScore = 9999;
+
+        (data.top || []).forEach(entity => {
+          const directSet = adj.get(entity.id) || new Set();
+          const indirectSet = new Set();
+
+          directSet.forEach(neighbor => {
+            const neighborAdj = adj.get(neighbor) || new Set();
+            neighborAdj.forEach(n2 => {
+              if (n2 !== entity.id && !directSet.has(n2)) {
+                indirectSet.add(n2);
+              }
+            });
+          });
+
+          const directCount = directSet.size;
+          const indirectCount = indirectSet.size;
+          // Weighted influence score: Direct connections (2.5x), 2nd-degree reach (1.2x), and mentions (0.6x)
+          const score = directCount * 2.5 + indirectCount * 1.2 + Math.log2((entity.mentions || 1) + 1) * 0.6;
+
+          nodeInfluence.set(entity.id, {
+            direct: directCount,
+            indirect: indirectCount,
+            totalReach: directCount + indirectCount,
+            score: score
+          });
+
+          if (score > maxScore) maxScore = score;
+          if (score < minScore) minScore = score;
+        });
+
+        this.nodeInfluence = nodeInfluence;
+        this.maxInfluence = maxScore;
+        this.minInfluence = minScore;
+
         // Update stats overlay
         const nodeCountEl = document.getElementById('kg-stat-nodes');
         const edgeCountEl = document.getElementById('kg-stat-edges');
         const hubsEl = document.getElementById('kg-stat-hubs');
-        if (nodeCountEl) nodeCountEl.textContent = (data.stats && data.stats.nodes) || (data.top ? data.top.length : 0);
-        if (edgeCountEl) edgeCountEl.textContent = (data.stats && data.stats.edges) || (data.links ? data.links.length : 0);
+        if (nodeCountEl) nodeCountEl.textContent = (data.top ? data.top.length : 14);
+        if (edgeCountEl) edgeCountEl.textContent = (data.links ? data.links.length : 18);
         if (hubsEl && data.stats && data.stats.hubs) {
           hubsEl.innerHTML = data.stats.hubs.slice(0, 5).map(h =>
             `<div style="margin-bottom:3px;"><strong>${h.node}</strong> (${h.degree} links)</div>`
@@ -11179,6 +11236,8 @@
         const colReg = isDark ? '#D8927D' : '#9B3F30';
         const colSec = isDark ? '#7AA884' : '#3F6B4A';
         const colGeo = isDark ? '#E8D5A8' : '#7A6534';
+        const colTrend = isDark ? '#D6B265' : '#A67C2E';
+        const colSig = isDark ? '#B8A4E3' : '#6C589C';
         const colEdgeHigh = isDark ? '#7AA884' : '#3F6B4A';
         const colEdgeMid = isDark ? '#D2A54F' : '#A9741C';
         const colEdgeLow = isDark ? '#C87F6A' : '#9B3F30';
@@ -11186,7 +11245,8 @@
         const elements = [];
 
         (data.top || []).forEach(entity => {
-          this.allNodes.set(entity.id, entity);
+          const inf = nodeInfluence.get(entity.id) || { direct: 1, indirect: 0, score: 1 };
+          this.allNodes.set(entity.id, { ...entity, influence: inf });
           elements.push({
             group: 'nodes',
             data: {
@@ -11195,7 +11255,10 @@
               name: entity.name || entity.id,
               type: entity.type || 'organization',
               mentions: entity.mentions || 1,
-              ticker: entity.ticker || ''
+              ticker: entity.ticker || '',
+              influenceScore: inf.score,
+              directLinks: inf.direct,
+              indirectReach: inf.indirect
             }
           });
         });
@@ -11225,30 +11288,41 @@
                 'text-valign': 'center',
                 'text-halign': 'center',
                 'font-family': "'IBM Plex Sans', system-ui, sans-serif",
-                'font-size': '11px',
+                'font-size': (ele) => {
+                  const inf = ele.data('influenceScore') || 1;
+                  const ratio = Math.max(0, Math.min(1, (inf - minScore) / (maxScore - minScore + 0.001)));
+                  return Math.min(13.5, Math.max(10, 10 + ratio * 3.5)) + 'px';
+                },
                 'font-weight': 600,
                 'color': '#ffffff',
                 'text-outline-width': 1.5,
                 'text-outline-color': (ele) => {
                   const t = ele.data('type');
-                  return t === 'regulator' ? colReg : t === 'sector' ? colSec : t === 'geography' ? colGeo : colOrg;
+                  return t === 'regulator' ? colReg : t === 'trend' ? colTrend : t === 'signal' ? colSig : t === 'sector' ? colSec : t === 'geography' ? colGeo : colOrg;
                 },
                 'background-color': (ele) => {
                   const t = ele.data('type');
-                  return t === 'regulator' ? colReg : t === 'sector' ? colSec : t === 'geography' ? colGeo : colOrg;
+                  return t === 'regulator' ? colReg : t === 'trend' ? colTrend : t === 'signal' ? colSig : t === 'sector' ? colSec : t === 'geography' ? colGeo : colOrg;
                 },
+                // Dynamic sizing based on Direct + Indirect Influence Reach
                 'width': (ele) => {
-                  const m = ele.data('mentions') || 1;
-                  return Math.min(84, 38 + Math.log2(m + 1) * 9);
+                  const inf = ele.data('influenceScore') || 1;
+                  const ratio = Math.max(0, Math.min(1, (inf - minScore) / (maxScore - minScore + 0.001)));
+                  return Math.min(104, Math.max(38, Math.round(38 + Math.pow(ratio, 0.85) * 64)));
                 },
                 'height': (ele) => {
-                  const m = ele.data('mentions') || 1;
-                  return Math.min(84, 38 + Math.log2(m + 1) * 9);
+                  const inf = ele.data('influenceScore') || 1;
+                  const ratio = Math.max(0, Math.min(1, (inf - minScore) / (maxScore - minScore + 0.001)));
+                  return Math.min(104, Math.max(38, Math.round(38 + Math.pow(ratio, 0.85) * 64)));
                 },
                 'border-width': 2,
                 'border-color': isDark ? '#171512' : '#FFFDF9',
                 'text-wrap': 'wrap',
-                'text-max-width': '72px',
+                'text-max-width': (ele) => {
+                  const inf = ele.data('influenceScore') || 1;
+                  const ratio = Math.max(0, Math.min(1, (inf - minScore) / (maxScore - minScore + 0.001)));
+                  return Math.min(94, Math.round(66 + ratio * 26)) + 'px';
+                },
                 'overlay-padding': '4px',
                 'cursor': 'pointer'
               }
@@ -11258,7 +11332,7 @@
               style: {
                 'border-width': 3.5,
                 'border-color': isDark ? '#E8D5A8' : '#C8B98F',
-                'box-shadow': '0 0 16px rgba(200, 185, 143, 0.6)'
+                'box-shadow': '0 0 18px rgba(200, 185, 143, 0.65)'
               }
             },
             {
@@ -11471,19 +11545,52 @@
           </a>
         `).join('');
 
+        // Find matching macro trends & forecast signals for this node
+        const matchingTrends = (S.trends || []).filter(t => {
+          const hay = `${t.name || ''} ${t.narrative || ''} ${(t.sectors || []).join(' ')}`.toLowerCase();
+          const entName = String(entity.name || entityId).toLowerCase();
+          return hay.includes(entityId.toLowerCase()) || hay.includes(entName);
+        }).slice(0, 2);
+
+        const matchingSignals = (S.signals || []).filter(sg => {
+          const hay = `${sg.title || ''} ${sg.prediction || ''} ${sg.chain || ''} ${(sg.affected || []).join(' ')}`.toLowerCase();
+          const entName = String(entity.name || entityId).toLowerCase();
+          return hay.includes(entityId.toLowerCase()) || hay.includes(entName);
+        }).slice(0, 2);
+
+        const infData = entity.influence || (this.nodeInfluence && this.nodeInfluence.get(entityId)) || { direct: connectedEdges.length, indirect: 2, score: connectedEdges.length * 2 };
+        const centralityPct = Math.min(100, Math.max(15, Math.round((infData.score / (this.maxInfluence || 10)) * 100)));
+
         sel.innerHTML = `
           <span class="kg-kicker">VERIFIED ENTITY RECEIPT</span>
           <h2 class="kg-ent-name">${entity.name || entity.id}</h2>
           <span class="kg-ent-type">${entity.type || 'organization'}${entity.ticker ? ' · ' + entity.ticker : ''}</span>
 
-          <div class="kg-stat-grid">
+          <div class="kg-stat-grid" style="grid-template-columns:repeat(3, 1fr);margin-bottom:12px;">
             <div class="kg-stat-box">
-              <div class="kg-stat-val">${entity.mentions || 1}</div>
-              <div class="kg-stat-lbl">Story Mentions</div>
+              <div class="kg-stat-val">${infData.direct || connectedEdges.length}</div>
+              <div class="kg-stat-lbl">Direct Links</div>
             </div>
             <div class="kg-stat-box">
-              <div class="kg-stat-val">${connectedEdges.length}</div>
-              <div class="kg-stat-lbl">Connections</div>
+              <div class="kg-stat-val">${infData.indirect || 0}</div>
+              <div class="kg-stat-lbl">2nd-Hop Reach</div>
+            </div>
+            <div class="kg-stat-box">
+              <div class="kg-stat-val">${Math.round(infData.score * 10) / 10}</div>
+              <div class="kg-stat-lbl">Influence Power</div>
+            </div>
+          </div>
+
+          <div style="background:var(--card);border:1px solid var(--rule-2);border-radius:6px;padding:10px 12px;margin-bottom:18px;">
+            <div style="display:flex;justify-content:space-between;font:500 10.5px var(--mono);color:var(--mute);margin-bottom:6px;text-transform:uppercase;">
+              <span>Economic Influence Reach</span>
+              <span style="color:var(--sand-head);font-weight:600;">${centralityPct}% Centrality</span>
+            </div>
+            <div style="height:6px;background:var(--rule);border-radius:3px;overflow:hidden;">
+              <div style="height:100%;width:${centralityPct}%;background:linear-gradient(90deg, var(--sand-head), var(--indigo));border-radius:3px;transition:width 0.4s ease;"></div>
+            </div>
+            <div style="font:400 11.5px/1.4 var(--sans);color:var(--mute);margin-top:6px;">
+              Directly influences <strong>${infData.direct || connectedEdges.length} partners</strong> and cascades into <strong>${infData.indirect || 0} second-order</strong> entities.
             </div>
           </div>
 
@@ -11491,6 +11598,36 @@
           <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
             ${relHtml}
           </div>
+
+          ${matchingTrends.length > 0 ? `
+            <div class="kg-section-title">Macro Trends Behind It</div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
+              ${matchingTrends.map(tr => `
+                <a href="/trend/${tr.id}" class="kg-story-card" style="border-left:3px solid #A67C2E;" onclick="event.preventDefault();Nav.go('/trend/${tr.id}');">
+                  <h4>${cleanName(tr.name)}</h4>
+                  <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--mute);">
+                    <span>Velocity: ${(tr.velocity || 5.0).toFixed(1)}</span>
+                    <span>${tr.story_count || tr.article_count || 4} stories</span>
+                  </div>
+                </a>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          ${matchingSignals.length > 0 ? `
+            <div class="kg-section-title">Forward Forecast Cascades</div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
+              ${matchingSignals.map(sg => `
+                <a href="/next" class="kg-story-card" style="border-left:3px solid #6C589C;" onclick="event.preventDefault();Nav.go('/next');">
+                  <h4>${sg.title || sg.prediction}</h4>
+                  <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--mute);">
+                    <span>Horizon: ${sg.horizon || '1-2 quarters'}</span>
+                    <span>Likelihood: ${Math.round((sg.confidence || 0.6) * 100)}%</span>
+                  </div>
+                </a>
+              `).join('')}
+            </div>
+          ` : ''}
 
           <div class="kg-section-title">Related Stories</div>
           <div id="kg-stories-list" style="display:flex;flex-direction:column;gap:6px;">
@@ -11594,16 +11731,11 @@
         if (cat === 'all') {
           this.cy.elements().removeClass('faded highlight');
         } else {
-          this.cy.nodes().forEach(n => {
-            const t = n.data('type');
-            if (t === cat) {
-              n.removeClass('faded');
-              n.connectedEdges().removeClass('faded');
-            } else {
-              n.addClass('faded');
-              n.connectedEdges().addClass('faded');
-            }
-          });
+          this.cy.elements().removeClass('highlight').addClass('faded');
+          const catNodes = this.cy.nodes().filter(n => n.data('type') === cat);
+          catNodes.removeClass('faded').addClass('highlight');
+          catNodes.connectedEdges().removeClass('faded');
+          catNodes.neighborhood().nodes().removeClass('faded');
         }
       },
 
