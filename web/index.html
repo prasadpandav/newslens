@@ -83,21 +83,40 @@
       font-size: 12px
     }
 
+    .account {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    #account iframe, #account > div {
+      margin: 0 auto !important;
+      background: transparent !important;
+    }
+
     .gbtn-fallback {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      gap: 10px;
       cursor: pointer;
-      background: #fff;
-      color: #3c4043;
-      border: 1px solid rgba(15, 23, 42, .14);
+      background: var(--bg-2, var(--card));
+      color: var(--ink);
+      border: 1px solid var(--rule-2);
       border-radius: 999px;
-      padding: 8px 14px;
-      font: 600 13px/1 'Inter', sans-serif
+      padding: 9px 20px;
+      font: 500 13px/1 'Inter', var(--sans), sans-serif;
+      margin: 0 auto;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
 
     .gbtn-fallback:hover {
-      background: #f4f6fb
+      background: var(--paper);
+      border-color: var(--sand-head, #A67C2E);
+      color: var(--sand-head, #A67C2E);
     }
 
     .acct-link {
@@ -4896,19 +4915,26 @@
     }
 
     .rx-pill {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 7px;
-      padding: 5px 11px;
-      border: 1px solid var(--rule-2);
+      padding: 6px 14px;
+      border: 1.5px solid var(--sand-head, #A67C2E);
       border-radius: 100px;
-      font: 400 12px var(--sans);
-      color: var(--ink-2);
-      white-space: nowrap
+      font: 500 12px/1 var(--sans);
+      color: var(--ink);
+      background: var(--bg-2, var(--card));
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 
     .rx-pill:hover {
-      border-color: var(--ink)
+      border-color: var(--sand-head, #A67C2E);
+      background: var(--sand-head, #A67C2E);
+      color: #ffffff;
+      transform: translateY(-1px);
     }
 
     .rx-pill .fx-pips i {
@@ -5952,14 +5978,14 @@
     .kg-badge {
       display: inline-flex;
       align-items: center;
-      padding: 2px 7px;
-      border-radius: 4px;
-      font: 500 10.5px var(--mono);
+      padding: 5px 12px;
+      border-radius: 6px;
+      font: 500 11px/1.3 var(--mono);
       letter-spacing: 0.02em;
     }
-    .kg-badge.conf-high { background: rgba(63, 107, 74, 0.12); color: var(--good, #3F6B4A); }
-    .kg-badge.conf-mid { background: rgba(166, 124, 46, 0.12); color: #A67C2E; }
-    .kg-badge.conf-low { background: rgba(155, 63, 48, 0.12); color: var(--bad-ink, #9B3F30); }
+    .kg-badge.conf-high { background: rgba(63, 107, 74, 0.14); color: var(--good, #3F6B4A); }
+    .kg-badge.conf-mid { background: rgba(166, 124, 46, 0.14); color: #A67C2E; }
+    .kg-badge.conf-low { background: rgba(155, 63, 48, 0.14); color: var(--bad-ink, #9B3F30); }
 
     /* Causal Predictions & What-If Simulator Styles */
     .causal-wrap {
@@ -5984,13 +6010,13 @@
     }
     .causal-pills {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       flex-wrap: wrap;
       margin-bottom: 20px;
     }
     .causal-pill {
-      padding: 6px 14px;
-      font: 500 12px var(--sans);
+      padding: 8px 18px;
+      font: 500 12px/1.2 var(--sans);
       border: 1px solid var(--rule-2);
       border-radius: 20px;
       background: var(--card);
@@ -9781,7 +9807,7 @@
       ${(S.signals || []).length ? `<div class="fx-sect">
         <span class="fx-lbl">What's next</span>
         <div class="fx-sigs">${S.signals.slice(0, 3).map(g => `
-          <button class="fx-sig" data-act="go" data-hash="/signal/${esc(g.id)}">
+          <button class="fx-sig" data-act="${isIn ? 'go' : 'unlock'}" ${isIn ? `data-hash="/signal/${esc(g.id)}"` : ''} data-gate="forecast">
             <span class="t">${esc(g.title)}</span>
             <span class="p${isIn ? '' : ' locked-teaser'}">${esc(g.prediction)}</span>
             <span class="c">${g.story_count ?? (g.stories || []).length} stories · ${ODDS(g.confidence).w.toLowerCase()}</span></button>`).join('')}</div>
@@ -12732,17 +12758,18 @@
           <span class="nx-odds ${o.cls}">${o.w}</span>
           ${mine ? '<span class="nx-mine">matters to you</span>' : ''}
         </div>
-        <h3><a href="/signal/${esc(g.id)}">${esc(g.title)}</a></h3>
-        <p class="lede${locked ? ' locked-teaser' : ''}">${esc(g.prediction || '')}</p>
+        <h3>${locked ? `<span style="cursor:pointer;" onclick="Auth.trigger()">${esc(g.title)}</span>` : `<a href="/signal/${esc(g.id)}">${esc(g.title)}</a>`}</h3>
+        <p class="lede${locked ? ' locked-teaser' : ''}" ${locked ? 'onclick="Auth.trigger()" style="cursor:pointer;"' : ''}>${esc(g.prediction || '')}</p>
         ${counts.length ? `<div class="nx-counts">${counts.map(([c, w]) =>
           `<span class="${w ? 'warnk' : ''}">${esc(c)}</span>`).join('')}</div>` : ''}
       </div>
       <div class="nx-side">
         <span class="fx-h">How we got here</span>
-        <p>${g.chain ? esc(String(g.chain).split(/(?<=[.!?])\s/).slice(0, 2).join(' '))
+        <p ${locked ? 'onclick="Auth.trigger()" style="cursor:pointer;"' : ''}>${g.chain ? esc(String(g.chain).split(/(?<=[.!?])\s/).slice(0, 2).join(' '))
             : locked ? 'The reasoning is held back until you sign in — it is the part worth having.'
               : 'No reasoning was recorded for this forecast.'}</p>
-        <a class="nx-more" href="/signal/${esc(g.id)}">See how we got here →</a>
+        ${locked ? `<button class="nx-more" style="background:none;border:none;padding:0;font:inherit;color:var(--sand-head,#A67C2E);cursor:pointer;" onclick="Auth.trigger()">Sign in to see how we got here →</button>`
+          : `<a class="nx-more" href="/signal/${esc(g.id)}">See how we got here →</a>`}
       </div>
     </div></article>`;
       }
@@ -13005,9 +13032,12 @@
         });
         const o = ODDS(g.confidence);
         const when = BY_WHEN(g.horizon, g.created_at);
-        // Same rule as the story reader: a guest who landed ON this URL reads it,
-        // because every /signal/ URL is in the sitemap and a shared forecast has to
-        // open as a forecast. The reasoning is what sign-in buys.
+        if (!signedIn() && !isShared()) {
+          PG.gate("Sign in to view What's Next forecasts",
+            "What's Next stories and detailed cause-and-effect forecast chains are available exclusively to signed in readers.",
+            "signal-signin");
+          return;
+        }
         const open = signedIn() || isShared();
         const stories = g.stories || [];
 
@@ -13222,14 +13252,20 @@
             : s.progress ? `<a class="pg-act" href="/story/${esc(s.id)}">Resume where you left off →</a>`
               : `<a class="pg-act" href="/story/${esc(s.id)}">Start reading →</a>`;
 
-        return `<div class="pg-card">
-      ${when.length ? `<span class="pg-when">${esc(when.join(' · '))}</span>` : ''}
-      <h3><a class="t" href="/story/${esc(s.id)}">${esc(s.headline)}</a></h3>
-      <div class="pg-meta">${bits.join('')}</div>
-      ${FX.correction(s)}
-      ${stopped}
-      ${changed}
-      ${act}
+        const imgUrl = s.image_url || s.image || (S.stories?.find(x => x.id === s.id)?.image_url) || (DEMO.stories?.find(x => x.id === s.id)?.image_url);
+        const imgTag = imgUrl ? `<div style="width:120px;height:84px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--rule-2);margin-top:2px;"><img src="${esc(imgUrl)}" style="width:100%;height:100%;object-fit:cover;" alt="" /></div>` : '';
+
+        return `<div class="pg-card" style="display:flex;gap:18px;align-items:flex-start;">
+      ${imgTag}
+      <div style="flex:1;min-width:0;">
+        ${when.length ? `<span class="pg-when">${esc(when.join(' · '))}</span>` : ''}
+        <h3><a class="t" href="/story/${esc(s.id)}">${esc(s.headline)}</a></h3>
+        <div class="pg-meta">${bits.join('')}</div>
+        ${FX.correction(s)}
+        ${stopped}
+        ${changed}
+        ${act}
+      </div>
     </div>`;
       },
 
@@ -13840,6 +13876,10 @@
       // configured+loaded, otherwise a visible fallback that explains what's missing.
       renderInto(el) {
         if (!el) return;
+        el.style.display = 'flex';
+        el.style.justifyContent = 'center';
+        el.style.alignItems = 'center';
+        el.style.margin = '0 auto';
         if (this.ready) {
           el.innerHTML = '';
           google.accounts.id.renderButton(el,
