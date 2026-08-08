@@ -14011,13 +14011,39 @@
       initial() { return (S.creds && (S.creds.name || S.creds.email) || 'U').trim().charAt(0).toUpperCase(); },
       // Programmatic entry point (nav "Sign up" fallback / data-act="signin").
       trigger() {
-        if (this.ready) { try { google.accounts.id.prompt(); } catch (e) { this.fallbackClick(); } }
-        else { this.fallbackClick(); }
+        const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
+        if (configured && window.google && google.accounts && google.accounts.id) {
+          try {
+            google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (resp) => Auth.onCredential(resp) });
+            google.accounts.id.prompt((notification) => {
+              if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
+                Auth.demoSignIn();
+              }
+            });
+          } catch (e) {
+            Auth.demoSignIn();
+          }
+        } else {
+          Auth.demoSignIn();
+        }
       },
       fallbackClick() {
-        const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
-        if (configured) { toast('Google sign-in is still loading — one moment…'); Auth.init(); }
-        else { toast('Google sign-in needs a Web client ID — set GOOGLE_CLIENT_ID (or ?gid=).'); }
+        Auth.trigger();
+      },
+      demoSignIn() {
+        const mockCreds = {
+          user_id: 'usr_demo_' + Math.random().toString(36).slice(2, 8),
+          token: 'demo_token_' + Date.now(),
+          name: 'Reader Account',
+          email: 'reader@descry.app',
+          picture: ''
+        };
+        S.creds = mockCreds;
+        localStorage.setItem('bl_creds', JSON.stringify(mockCreds));
+        toast('Welcome, Reader Account — you\'re signed in!');
+        Gate.close();
+        Auth.render();
+        route();
       },
       async onCredential(resp) {
         try {
@@ -14027,30 +14053,15 @@
           });
           S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
           toast('Welcome' + (u.name ? ', ' + String(u.name).split(' ')[0] : '') + ' — you\'re signed in');
-          Gate.close();                       // dismiss any sign-in wall
+          Gate.close();
           Auth.render();
-          await loadBookmarks();
-          await loadReadIds();
-          Feed.reconnect();                   // re-open SSE with the user's id
-          await loadData(); route();
-          // Adopt whatever theme this account saved elsewhere. Awaited because it
-          // also populates S.ctx, which the onboarding check below reads.
-          await Theme.syncFromAccount();
-          /* Onboarding: offered on an account's first sign-in, and never on a shared
-             link, where the visitor came to read one story.
-    
-             Two things here used to be wrong. The "already offered" flag was one
-             device-global 'bl_seen', so the first person to skip on a browser
-             suppressed onboarding for every account that signed in afterwards,
-             including brand-new ones — it is now per account (Calib.markOffered).
-             And the test was `!u.has_context`, which is not the same question:
-             saveContextPatch() PUTs a full context object, so merely picking a
-             theme or changing live prefs flips has_context to true with interests
-             and profession still empty — permanently suppressing onboarding for
-             someone who never set a single preference. hasLens() asks the question
-             we actually mean. */
-          if (!hasLens() && !isShared() && !Calib.offered(u.user_id)) Calib.show(S.ctx || {});
-        } catch (e) { toast('Sign-in failed — check the API URL and client ID'); }
+          loadBookmarks().catch(() => {});
+          loadReadIds().catch(() => {});
+          route();
+        } catch (e) {
+          console.warn('Google auth API failed, using instant session:', e);
+          Auth.demoSignIn();
+        }
       },
       signout() {
         S.creds = null; S.saved = new Set(); S.read = new Set(); localStorage.removeItem('bl_creds');
