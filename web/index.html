@@ -5910,6 +5910,184 @@
       .kg-marginalia { max-height: none; }
     }
 
+    /* Knowledge Web Matrix Table */
+    .kg-table-section {
+      margin-top: 36px;
+      border-top: 1px solid var(--rule-2);
+      padding-top: 24px;
+    }
+    .kg-matrix-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--rule-2);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.03);
+    }
+    .kg-matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font: 400 12.5px/1.4 var(--sans);
+      color: var(--ink);
+    }
+    .kg-matrix-table th {
+      padding: 11px 14px;
+      background: var(--bg-2, var(--paper));
+      border-bottom: 1px solid var(--rule-2);
+      font: 600 11px var(--mono);
+      color: var(--mute);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .kg-matrix-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--rule-2);
+      vertical-align: middle;
+    }
+    .kg-matrix-table tr:last-child td {
+      border-bottom: none;
+    }
+    .kg-matrix-table tr:hover td {
+      background: var(--hover, rgba(0,0,0,0.02));
+    }
+    .kg-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font: 500 10.5px var(--mono);
+      letter-spacing: 0.02em;
+    }
+    .kg-badge.conf-high { background: rgba(63, 107, 74, 0.12); color: var(--good, #3F6B4A); }
+    .kg-badge.conf-mid { background: rgba(166, 124, 46, 0.12); color: #A67C2E; }
+    .kg-badge.conf-low { background: rgba(155, 63, 48, 0.12); color: var(--bad-ink, #9B3F30); }
+
+    /* Causal Predictions & What-If Simulator Styles */
+    .causal-wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 24px 64px;
+    }
+    .causal-head {
+      margin-bottom: 24px;
+    }
+    .causal-head h1 {
+      font: 300 32px/1.15 var(--serif);
+      color: var(--ink);
+      margin: 6px 0 10px;
+      letter-spacing: -0.015em;
+    }
+    .causal-head p {
+      font: 400 14px/1.6 var(--sans);
+      color: var(--mute);
+      max-width: 780px;
+      margin: 0;
+    }
+    .causal-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .causal-pill {
+      padding: 6px 14px;
+      font: 500 12px var(--sans);
+      border: 1px solid var(--rule-2);
+      border-radius: 20px;
+      background: var(--card);
+      color: var(--ink-2);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .causal-pill:hover:not(.on) {
+      border-color: var(--sand-head, #A67C2E);
+      color: var(--ink);
+    }
+    .causal-pill.on {
+      background: var(--sand-head, #A67C2E);
+      color: #ffffff;
+      border-color: var(--sand-head, #A67C2E);
+      box-shadow: 0 2px 8px rgba(166, 124, 46, 0.25);
+    }
+    .causal-grid {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .causal-grid { grid-template-columns: 1fr; }
+    }
+    .causal-card {
+      background: var(--card);
+      border: 1px solid var(--rule-2);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.03);
+      margin-bottom: 20px;
+    }
+    .causal-sim-panel {
+      background: linear-gradient(180deg, var(--card) 0%, var(--bg-2, var(--paper)) 100%);
+      border: 1px solid var(--sand-head, #A67C2E);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .causal-step-chain {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      position: relative;
+    }
+    .causal-step-node {
+      display: flex;
+      gap: 14px;
+      background: var(--card);
+      border: 1px solid var(--rule-2);
+      border-radius: 8px;
+      padding: 14px 16px;
+      position: relative;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .causal-step-node:hover {
+      border-color: var(--indigo);
+      transform: translateX(2px);
+    }
+    .causal-step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--sand-head, #A67C2E);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font: 600 12px var(--mono);
+      flex-shrink: 0;
+    }
+    .causal-slider-wrap {
+      margin: 16px 0;
+    }
+    .causal-slider {
+      width: 100%;
+      height: 6px;
+      accent-color: var(--sand-head, #A67C2E);
+      cursor: pointer;
+    }
+    .causal-preset-btn {
+      padding: 4px 10px;
+      font: 500 11px var(--mono);
+      border: 1px solid var(--rule-2);
+      background: var(--card);
+      border-radius: 4px;
+      color: var(--ink-2);
+      cursor: pointer;
+    }
+    .causal-preset-btn:hover, .causal-preset-btn.active {
+      background: var(--sand-head, #A67C2E);
+      color: #ffffff;
+      border-color: var(--sand-head, #A67C2E);
+    }
+
     .tx-rule {
       display: flex;
       align-items: center;
@@ -8358,6 +8536,7 @@
       <a href="/" data-r="home">Feed</a>
       <a href="/trends" data-r="trends">Trends</a>
       <a href="/graph" data-r="graph">Connections</a>
+      <a href="/causal" data-r="causal">Predictions</a>
       <a href="/next" data-r="next">What's Next</a>
       <a href="/saved" data-r="saved">Saved</a>
       <a href="/read" data-r="read">Read</a>
@@ -8408,6 +8587,7 @@
     <a href="/" data-r="home">Feed</a>
     <a href="/trends" data-r="trends">Trends</a>
     <a href="/graph" data-r="graph">Connections</a>
+    <a href="/causal" data-r="causal">Predictions</a>
     <a href="/next" data-r="next">What's Next</a>
     <a href="/saved" data-r="saved">Saved</a>
     <a href="/read" data-r="read">Read</a>
@@ -8929,6 +9109,7 @@
       if (p.startsWith('/trend/')) return TrendPage.render(p.slice(7));
       if (p.startsWith('/trends')) return Trends.render();
       if (p.startsWith('/graph')) return GraphPage.render(p);
+      if (p.startsWith('/causal')) return CausalPage.render(p);
       if (p.startsWith('/next')) return Next.render();
       if (p.startsWith('/saved')) return Saved.render();
       if (p.startsWith('/read')) return ReadPage.render();
@@ -11071,6 +11252,8 @@
                   <div id="kg-inspector-selected" style="display:none;"></div>
                 </div>
               </div>
+
+              <div class="kg-table-section" id="kg-connections-table"></div>
             </div>
           </div>
         `;
@@ -11161,6 +11344,7 @@
 
         this.cachedData = data;
         this.initCytoscape(data);
+        this.renderConnectionsTable();
       },
 
       initCytoscape(data) {
@@ -11800,6 +11984,353 @@
           this.statsOpen = !this.statsOpen;
           p.style.display = this.statsOpen ? 'block' : 'none';
         }
+      },
+
+      renderConnectionsTable() {
+        const wrap = document.getElementById('kg-connections-table');
+        if (!wrap || !this.cachedData) return;
+        const links = [...(this.cachedData.links || [])].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+        if (links.length === 0) { wrap.innerHTML = ''; return; }
+
+        const confBadge = (c) => {
+          const pct = Math.round((c || 0) * 100);
+          const cls = c >= 0.75 ? 'conf-high' : c >= 0.45 ? 'conf-mid' : 'conf-low';
+          return `<span class="kg-badge ${cls}">${pct}%</span>`;
+        };
+
+        const entityType = (name) => {
+          const node = this.allNodes.get(name);
+          return node ? (node.type || 'entity') : 'entity';
+        };
+
+        const typeLabel = (t) => {
+          const labels = { organization: 'Company', regulator: 'Regulator', sector: 'Sector', geography: 'Geography', trend: 'Trend', signal: 'Forecast' };
+          return labels[t] || 'Entity';
+        };
+
+        const rows = links.map(l => {
+          const srcType = entityType(l.from_entity);
+          const tgtType = entityType(l.to_entity);
+          return `
+            <tr>
+              <td><a href="javascript:void(0)" onclick="GraphPage.focusEntity('${l.from_entity.replace(/'/g, "\\'")}')"
+                  style="color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--mute);font-weight:500;">${l.from_entity}</a>
+                <div style="font:400 10px var(--mono);color:var(--mute);margin-top:2px;">${typeLabel(srcType)}</div></td>
+              <td style="text-align:center;color:var(--mute);font:400 13px var(--sans);">→</td>
+              <td><a href="javascript:void(0)" onclick="GraphPage.focusEntity('${l.to_entity.replace(/'/g, "\\'")}')"
+                  style="color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--mute);font-weight:500;">${l.to_entity}</a>
+                <div style="font:400 10px var(--mono);color:var(--mute);margin-top:2px;">${typeLabel(tgtType)}</div></td>
+              <td style="font:400 12.5px/1.5 var(--sans);color:var(--ink-2);">${l.mechanism || '—'}</td>
+              <td style="text-align:center;">${confBadge(l.confidence)}</td>
+            </tr>`;
+        }).join('');
+
+        wrap.innerHTML = `
+          <span class="kg-kicker">RELATIONSHIP MATRIX</span>
+          <h3 style="margin:0 0 16px;font:300 22px/1.2 var(--serif);color:var(--ink);">All Network Connections</h3>
+          <div class="kg-matrix-wrap">
+            <table class="kg-matrix-table">
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th></th>
+                  <th>Target</th>
+                  <th>Mechanism</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;font:400 11px var(--sans);color:var(--mute);">
+            ${links.length} relationships indexed · Click any entity to inspect in the network above
+          </div>
+        `;
+      }
+    };
+    /* ============ Cause & Effect Predictions Engine ============ */
+
+    const CausalPage = {
+      chains: [],
+      selectedChain: null,
+
+      async render(path) {
+        SEO.set({
+          title: 'Cause & Effect Engine · Descry',
+          path: '/causal',
+          desc: 'Explore macroeconomic transmission chains, multi-hop ripple effects, and counterfactual What-If scenario simulations.'
+        });
+
+        const v = $('#view');
+        v.innerHTML = `
+          <div class="fx">
+            <div class="causal-wrap">
+              <div class="causal-head">
+                <span class="kg-kicker">SEMANTIC PREDICTION ENGINE</span>
+                <h1>Cause & Effect Chains</h1>
+                <p>Beyond linear forecasts — trace how catalyst shocks propagate through monetary policy channels, semiconductor supply chains, and commodity markets. Run counterfactual simulations to stress-test outcomes.</p>
+              </div>
+
+              <div class="causal-pills" id="causal-domain-pills">
+                <button class="causal-pill on" onclick="CausalPage.filterDomain('', this)">All Chains</button>
+                <button class="causal-pill" onclick="CausalPage.filterDomain('Monetary', this)">Monetary Policy</button>
+                <button class="causal-pill" onclick="CausalPage.filterDomain('Semiconductor', this)">Semiconductor</button>
+                <button class="causal-pill" onclick="CausalPage.filterDomain('Clean Energy', this)">Clean Energy & EV</button>
+              </div>
+
+              <div class="causal-grid">
+                <div id="causal-chains-list">
+                  <div style="text-align:center;padding:40px;color:var(--mute);font:400 13px var(--sans);">Loading causal chains…</div>
+                </div>
+
+                <div>
+                  <div class="causal-sim-panel">
+                    <div style="font:500 11px var(--mono);color:var(--sand-head,#A67C2E);text-transform:uppercase;margin-bottom:12px;letter-spacing:0.04em;">⚡ What-If Simulator</div>
+                    <div style="font:400 13px/1.5 var(--sans);color:var(--ink-2);margin-bottom:16px;">Apply an exogenous shock to a transmission chain and observe how ripple effects propagate downstream.</div>
+
+                    <label style="font:500 11px var(--mono);color:var(--mute);text-transform:uppercase;display:block;margin-bottom:6px;">Select Chain</label>
+                    <select id="causal-sim-chain" style="width:100%;padding:8px 10px;border:1px solid var(--rule-2);border-radius:6px;background:var(--card);color:var(--ink);font:400 12.5px var(--sans);margin-bottom:14px;">
+                      <option value="chain-monetary-policy-lending">RBI Monetary Policy → Corporate Credit</option>
+                      <option value="chain-semiconductor-fab-cascade">TSMC Packaging → Sovereign AI Compute</option>
+                      <option value="chain-auto-ev-raw-materials">Critical Minerals → EV Battery Pricing</option>
+                    </select>
+
+                    <label style="font:500 11px var(--mono);color:var(--mute);text-transform:uppercase;display:block;margin-bottom:6px;">Shock Intensity</label>
+                    <div class="causal-slider-wrap">
+                      <input type="range" class="causal-slider" id="causal-sim-intensity" min="-100" max="100" value="25" oninput="document.getElementById('causal-intensity-val').textContent = this.value + '%'">
+                      <div style="display:flex;justify-content:space-between;font:400 10.5px var(--mono);color:var(--mute);margin-top:4px;">
+                        <span>−100% (Relief)</span>
+                        <strong id="causal-intensity-val" style="color:var(--ink);">25%</strong>
+                        <span>+100% (Severe)</span>
+                      </div>
+                    </div>
+
+                    <div style="display:flex;gap:6px;margin:10px 0 16px;flex-wrap:wrap;">
+                      <button class="causal-preset-btn" onclick="CausalPage.setIntensity(-50)">−50%</button>
+                      <button class="causal-preset-btn" onclick="CausalPage.setIntensity(-25)">−25%</button>
+                      <button class="causal-preset-btn" onclick="CausalPage.setIntensity(0)">0%</button>
+                      <button class="causal-preset-btn active" onclick="CausalPage.setIntensity(25)">+25%</button>
+                      <button class="causal-preset-btn" onclick="CausalPage.setIntensity(50)">+50%</button>
+                    </div>
+
+                    <button onclick="CausalPage.runSimulation()" style="width:100%;padding:10px;background:var(--sand-head,#A67C2E);color:#fff;border:none;border-radius:6px;font:600 12.5px var(--sans);cursor:pointer;letter-spacing:0.02em;transition:opacity 0.15s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Run Counterfactual Simulation →</button>
+                  </div>
+
+                  <div id="causal-sim-results"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        await this.loadChains('');
+      },
+
+      setIntensity(val) {
+        const slider = document.getElementById('causal-sim-intensity');
+        const label = document.getElementById('causal-intensity-val');
+        if (slider) slider.value = val;
+        if (label) label.textContent = val + '%';
+        document.querySelectorAll('.causal-preset-btn').forEach(b => {
+          b.classList.toggle('active', parseInt(b.textContent) === val);
+        });
+      },
+
+      async loadChains(domain) {
+        const wrap = document.getElementById('causal-chains-list');
+        if (!wrap) return;
+        try {
+          const resp = await api('/finance/causal/chains' + (domain ? '?domain=' + encodeURIComponent(domain) : ''));
+          this.chains = (resp && resp.chains) ? resp.chains : [];
+        } catch (e) {
+          console.warn('Causal API unreachable, using demo data:', e);
+          this.chains = [];
+        }
+
+        if (this.chains.length === 0) {
+          wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--mute);font:400 13px var(--sans);">No causal chains found for this domain.</div>';
+          return;
+        }
+
+        wrap.innerHTML = this.chains.map(ch => this.renderChainCard(ch)).join('');
+      },
+
+      renderChainCard(ch) {
+        const confPct = Math.round((ch.overall_confidence || 0) * 100);
+        const probPct = Math.round((ch.base_probability || 0) * 100);
+        const confCls = ch.overall_confidence >= 0.85 ? 'conf-high' : ch.overall_confidence >= 0.6 ? 'conf-mid' : 'conf-low';
+
+        const stepsHtml = (ch.steps || []).map(s => {
+          const elastPct = Math.round((s.elasticity_score || 0) * 100);
+          const barColor = s.elasticity_score >= 0.85 ? 'var(--good,#3F6B4A)' : s.elasticity_score >= 0.7 ? 'var(--sand-head,#A67C2E)' : 'var(--bad-ink,#9B3F30)';
+          return `
+            <div class="causal-step-node">
+              <div class="causal-step-num">${s.step_order}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font:600 12px var(--sans);color:var(--ink);margin-bottom:3px;">${s.stage_name}</div>
+                <div style="font:500 12.5px var(--sans);color:var(--ink-2);margin-bottom:4px;">${s.entity}</div>
+                <div style="font:400 12px/1.5 var(--sans);color:var(--mute);">${s.action_or_friction}</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                  <div style="flex:1;height:4px;background:var(--rule-2);border-radius:2px;overflow:hidden;">
+                    <div style="width:${elastPct}%;height:100%;background:${barColor};border-radius:2px;transition:width 0.4s ease;"></div>
+                  </div>
+                  <span style="font:500 10px var(--mono);color:var(--mute);">${elastPct}% elasticity</span>
+                </div>
+                <div style="font:400 10.5px var(--mono);color:var(--mute);margin-top:4px;">⏱ ${s.propagation_horizon} · 📊 ${(s.affected_tickers || []).join(', ') || '—'}</div>
+              </div>
+            </div>`;
+        }).join('');
+
+        const dampHtml = (ch.dampeners || []).map(d => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule-2);">
+            <div style="width:36px;height:36px;border-radius:50%;background:rgba(63,107,74,0.1);display:flex;align-items:center;justify-content:center;font:600 11px var(--mono);color:var(--good,#3F6B4A);flex-shrink:0;">${d.absorption_capacity_pct}%</div>
+            <div style="flex:1;">
+              <div style="font:500 12px var(--sans);color:var(--ink);">${d.name}</div>
+              <div style="font:400 11px/1.4 var(--sans);color:var(--mute);">${d.mechanism}</div>
+              <div style="font:400 10px var(--mono);color:var(--mute);margin-top:2px;">Sponsor: ${d.sponsor_entity}</div>
+            </div>
+          </div>
+        `).join('');
+
+        return `
+          <div class="causal-card">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <span class="kg-badge ${confCls}">${confPct}% confidence</span>
+              <span class="kg-badge conf-mid">${probPct}% base probability</span>
+              <span style="font:400 10.5px var(--mono);color:var(--mute);margin-left:auto;">⏱ ${ch.time_horizon}</span>
+            </div>
+            <h3 style="font:600 17px/1.3 var(--sans);color:var(--ink);margin:0 0 6px;">${ch.title}</h3>
+            <div style="font:400 13px/1.6 var(--sans);color:var(--ink-2);margin-bottom:4px;">
+              <strong>Catalyst:</strong> ${ch.catalyst_event}
+            </div>
+            <div style="font:400 12.5px/1.5 var(--sans);color:var(--mute);margin-bottom:4px;">
+              <strong style="color:var(--ink-2);">Channel:</strong> ${ch.transmission_channel}
+            </div>
+            <div style="font:400 12.5px/1.5 var(--sans);color:var(--mute);margin-bottom:14px;">
+              <strong style="color:var(--ink-2);">Terminal Outcome:</strong> ${ch.terminal_outcome}
+            </div>
+
+            <div style="font:500 10.5px var(--mono);color:var(--sand-head,#A67C2E);text-transform:uppercase;margin-bottom:10px;letter-spacing:0.04em;">Transmission Steps</div>
+            <div class="causal-step-chain">${stepsHtml}</div>
+
+            ${(ch.dampeners && ch.dampeners.length > 0) ? `
+              <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule-2);">
+                <div style="font:500 10.5px var(--mono);color:var(--good,#3F6B4A);text-transform:uppercase;margin-bottom:8px;letter-spacing:0.04em;">🛡 Counter-Dampeners</div>
+                ${dampHtml}
+              </div>
+            ` : ''}
+
+            <div style="margin-top:14px;padding:10px 12px;background:var(--bg-2,var(--paper));border-radius:6px;border:1px solid var(--rule-2);">
+              <div style="font:500 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:4px;">Historical Precedent</div>
+              <div style="font:400 12px/1.5 var(--sans);color:var(--ink-2);">${ch.historical_precedent}</div>
+            </div>
+
+            <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px;">
+              ${(ch.affected_sectors || []).map(s => `<span style="padding:2px 8px;background:rgba(63,107,74,0.08);color:var(--good,#3F6B4A);border-radius:4px;font:500 10px var(--mono);">${s}</span>`).join('')}
+              ${(ch.sensitive_tickers || []).map(t => `<span style="padding:2px 8px;background:rgba(46,74,125,0.08);color:var(--indigo,#2E4A7D);border-radius:4px;font:500 10px var(--mono);">${t}</span>`).join('')}
+            </div>
+          </div>
+        `;
+      },
+
+      filterDomain(domain, el) {
+        document.querySelectorAll('.causal-pill').forEach(p => p.classList.remove('on'));
+        if (el) el.classList.add('on');
+        this.loadChains(domain);
+      },
+
+      async runSimulation() {
+        const chainId = document.getElementById('causal-sim-chain')?.value || 'chain-monetary-policy-lending';
+        const intensity = parseFloat(document.getElementById('causal-sim-intensity')?.value || '25');
+        const resultsWrap = document.getElementById('causal-sim-results');
+        if (!resultsWrap) return;
+
+        resultsWrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--mute);font:400 12px var(--sans);">Running simulation…</div>';
+
+        let data;
+        try {
+          data = await api(`/finance/causal/simulate?shock_id=${encodeURIComponent(chainId)}&intensity=${intensity}`);
+        } catch (e) {
+          resultsWrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--bad-ink,#9B3F30);font:400 12px var(--sans);">Simulation endpoint unreachable.</div>';
+          return;
+        }
+
+        if (!data) {
+          resultsWrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--mute);font:400 12px var(--sans);">No simulation data returned.</div>';
+          return;
+        }
+
+        const probPct = Math.round((data.simulated_ripple_probability || 0) * 100);
+        const basePct = Math.round((data.base_probability || 0) * 100);
+        const delta = probPct - basePct;
+        const deltaSign = delta >= 0 ? '+' : '';
+        const dampPct = data.dampener_absorption_pct || 0;
+        const direction = intensity >= 0 ? 'CONTRACTION' : 'EXPANSION';
+        const dirColor = intensity >= 0 ? 'var(--bad-ink,#9B3F30)' : 'var(--good,#3F6B4A)';
+
+        const stepsHtml = (data.simulated_steps || []).map(s => {
+          const impactPct = Math.round(s.computed_impact_pct || 0);
+          const barColor = impactPct > 50 ? 'var(--bad-ink,#9B3F30)' : impactPct > 25 ? 'var(--sand-head,#A67C2E)' : 'var(--good,#3F6B4A)';
+          return `
+            <div style="padding:8px 0;border-bottom:1px solid var(--rule-2);">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font:600 10px var(--mono);color:var(--sand-head,#A67C2E);">${s.step_order}.</span>
+                <span style="font:500 12px var(--sans);color:var(--ink);">${s.entity}</span>
+                <span style="margin-left:auto;font:600 11px var(--mono);color:${barColor};">${impactPct}% impact</span>
+              </div>
+              <div style="height:3px;background:var(--rule-2);border-radius:2px;margin-top:4px;overflow:hidden;">
+                <div style="width:${Math.min(impactPct, 100)}%;height:100%;background:${barColor};border-radius:2px;transition:width 0.5s ease;"></div>
+              </div>
+              <div style="font:400 10px var(--mono);color:var(--mute);margin-top:3px;">⏱ ${s.propagation_horizon}</div>
+            </div>`;
+        }).join('');
+
+        const tickerHtml = Object.entries(data.ticker_impacts || {}).map(([ticker, info]) => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--rule-2);">
+            <span style="font:600 11px var(--mono);color:var(--indigo,#2E4A7D);">${ticker}</span>
+            <span class="kg-badge ${info.exposure_tier === 'HIGH' ? 'conf-low' : 'conf-mid'}">${info.exposure_tier}</span>
+            <span style="font:400 10.5px var(--sans);color:var(--mute);margin-left:auto;">${info.expected_transmission}</span>
+          </div>
+        `).join('');
+
+        resultsWrap.innerHTML = `
+          <div class="causal-card" style="border-color:var(--sand-head,#A67C2E);">
+            <div style="font:500 10.5px var(--mono);color:var(--sand-head,#A67C2E);text-transform:uppercase;margin-bottom:10px;letter-spacing:0.04em;">⚡ Simulation Results</div>
+            <h4 style="font:600 14px/1.3 var(--sans);color:var(--ink);margin:0 0 10px;">${data.shock_title || 'Counterfactual Scenario'}</h4>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+              <div style="text-align:center;padding:12px;background:var(--bg-2,var(--paper));border-radius:6px;border:1px solid var(--rule-2);">
+                <div style="font:400 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:4px;">Simulated Probability</div>
+                <div style="font:700 28px var(--mono);color:var(--ink);">${probPct}%</div>
+                <div style="font:500 11px var(--mono);color:${delta >= 0 ? 'var(--bad-ink,#9B3F30)' : 'var(--good,#3F6B4A)'};">${deltaSign}${delta}pp vs base</div>
+              </div>
+              <div style="text-align:center;padding:12px;background:var(--bg-2,var(--paper));border-radius:6px;border:1px solid var(--rule-2);">
+                <div style="font:400 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:4px;">Dampener Absorption</div>
+                <div style="font:700 28px var(--mono);color:var(--good,#3F6B4A);">${dampPct}%</div>
+                <div style="font:500 11px var(--mono);color:var(--mute);">Shock absorbed</div>
+              </div>
+            </div>
+
+            <div style="padding:8px 12px;border-radius:6px;background:${dirColor}11;border:1px solid ${dirColor}33;margin-bottom:14px;">
+              <span style="font:600 10px var(--mono);color:${dirColor};">${direction}</span>
+              <span style="font:400 12px var(--sans);color:var(--ink-2);margin-left:6px;">${data.terminal_outcome}</span>
+            </div>
+
+            <div style="font:500 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:6px;">Step-by-Step Impact</div>
+            ${stepsHtml}
+
+            ${tickerHtml ? `
+              <div style="margin-top:12px;">
+                <div style="font:500 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:6px;">Ticker Exposure</div>
+                ${tickerHtml}
+              </div>
+            ` : ''}
+
+            <div style="margin-top:12px;padding:8px 10px;background:var(--bg-2,var(--paper));border-radius:6px;font:400 11px/1.4 var(--sans);color:var(--mute);border:1px solid var(--rule-2);">
+              <strong style="color:var(--ink-2);">Precedent:</strong> ${data.historical_precedent || '—'}
+            </div>
+          </div>
+        `;
       }
     };
 

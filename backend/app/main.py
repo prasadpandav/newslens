@@ -22,6 +22,7 @@ from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 from .finance import kg as fin_kg
+from .finance import causal as fin_causal
 from .finance.orchestrator import (run_finance_pipeline, unresolved_report,
                                    STAGES as FIN_STAGES)
 
@@ -2549,6 +2550,22 @@ def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
                 "count": len(links)}
     finally:
         con.close()
+
+
+@app.get("/finance/causal/chains")
+def finance_causal_chains(domain: str = ""):
+    """Intelligent semantic cause-and-effect transmission chains."""
+    con = db.connect()
+    try:
+        return {"chains": fin_causal.list_causal_chains(con, domain=domain)}
+    finally:
+        con.close()
+
+
+@app.get("/finance/causal/simulate")
+def finance_causal_simulate(shock_id: str = "chain-monetary-policy-lending", intensity: float = 0.0, horizon: str = ""):
+    """Run counterfactual scenario simulation with custom shocks and magnitudes."""
+    return fin_causal.simulate_counterfactual_shock(shock_id=shock_id, intensity_pct=intensity, horizon_override=horizon)
 
 
 @app.get("/finance/graph/{entity_name}/stories")
