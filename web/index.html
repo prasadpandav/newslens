@@ -13997,6 +13997,22 @@
         el.style.justifyContent = 'center';
         el.style.alignItems = 'center';
         el.style.margin = '0 auto';
+
+        const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
+        if (configured && window.google && google.accounts && google.accounts.id) {
+          try {
+            google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: Auth.onCredential });
+            el.innerHTML = '';
+            google.accounts.id.renderButton(el, {
+              type: 'standard',
+              theme: 'outline',
+              size: 'large',
+              shape: 'pill',
+              width: 240
+            });
+            return;
+          } catch (e) { }
+        }
         el.innerHTML = Auth.gbtnHTML();
       },
       gbtnHTML() {
@@ -14009,58 +14025,55 @@
           `</svg><span>Sign in with Google</span></button>`;
       },
       initial() { return (S.creds && (S.creds.name || S.creds.email) || 'U').trim().charAt(0).toUpperCase(); },
-      // Programmatic entry point (nav "Sign up" fallback / data-act="signin").
       trigger() {
         const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
         if (configured && window.google && google.accounts && google.accounts.id) {
           try {
-            google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (resp) => Auth.onCredential(resp) });
-            google.accounts.id.prompt((notification) => {
-              if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
-                Auth.demoSignIn();
-              }
-            });
-          } catch (e) {
-            Auth.demoSignIn();
-          }
+            google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: Auth.onCredential });
+            google.accounts.id.prompt();
+          } catch (e) { }
         } else {
-          Auth.demoSignIn();
+          Gate.show();
         }
       },
-      fallbackClick() {
-        Auth.trigger();
-      },
-      demoSignIn() {
-        const mockCreds = {
-          user_id: 'usr_demo_' + Math.random().toString(36).slice(2, 8),
-          token: 'demo_token_' + Date.now(),
-          name: 'Reader Account',
-          email: 'reader@descry.app',
-          picture: ''
-        };
-        S.creds = mockCreds;
-        localStorage.setItem('bl_creds', JSON.stringify(mockCreds));
-        toast('Welcome, Reader Account — you\'re signed in!');
-        Gate.close();
-        Auth.render();
-        route();
-      },
       async onCredential(resp) {
+        let u = null;
         try {
-          const u = await api('/auth/google', {
+          u = await api('/auth/google', {
             method: 'POST',
             body: JSON.stringify({ id_token: resp.credential })
           });
-          S.creds = u; localStorage.setItem('bl_creds', JSON.stringify(u));
+        } catch (e) { }
+
+        if (!u && resp && resp.credential) {
+          try {
+            const base64Url = resp.credential.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+              '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+            ).join(''));
+            const payload = JSON.parse(jsonPayload);
+            u = {
+              user_id: 'g_' + (payload.sub || Math.random().toString(36).slice(2, 9)),
+              token: resp.credential,
+              name: payload.name || payload.email || 'Google User',
+              email: payload.email || '',
+              picture: payload.picture || ''
+            };
+          } catch (e2) { }
+        }
+
+        if (u) {
+          S.creds = u;
+          localStorage.setItem('bl_creds', JSON.stringify(u));
           toast('Welcome' + (u.name ? ', ' + String(u.name).split(' ')[0] : '') + ' — you\'re signed in');
           Gate.close();
           Auth.render();
           loadBookmarks().catch(() => {});
           loadReadIds().catch(() => {});
           route();
-        } catch (e) {
-          console.warn('Google auth API failed, using instant session:', e);
-          Auth.demoSignIn();
+        } else {
+          toast('Could not sign in with Google — please try again');
         }
       },
       signout() {
