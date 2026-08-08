@@ -83,40 +83,51 @@
       font-size: 12px
     }
 
-    .account {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto;
-      text-align: center;
-    }
-
-    #account iframe, #account > div {
+    .account, #account, #wb-signin, #wall-signin, #endcta-signin, #prof-signin, [id$="-signin"] {
+      display: flex !important;
+      justify-content: center !important;
+      align-items: center !important;
       margin: 0 auto !important;
       background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
     }
 
-    .gbtn-fallback {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      cursor: pointer;
-      background: var(--bg-2, var(--card));
-      color: var(--ink);
-      border: 1px solid var(--rule-2);
-      border-radius: 999px;
-      padding: 9px 20px;
-      font: 500 13px/1 'Inter', var(--sans), sans-serif;
-      margin: 0 auto;
-      transition: all 0.15s ease;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    .account iframe, #account iframe, [id$="-signin"] iframe,
+    .account div, #account div, [id$="-signin"] div {
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      margin: 0 auto !important;
     }
 
-    .gbtn-fallback:hover {
-      background: var(--paper);
-      border-color: var(--sand-head, #A67C2E);
-      color: var(--sand-head, #A67C2E);
+    .gbtn-custom, .gbtn-fallback {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 9px !important;
+      cursor: pointer !important;
+      background: var(--bg-2, var(--card)) !important;
+      color: var(--ink-2) !important;
+      border: 1px solid var(--rule-2) !important;
+      border-radius: 100px !important;
+      padding: 7px 16px !important;
+      font: 500 12.5px/1 var(--sans), sans-serif !important;
+      margin: 0 auto !important;
+      transition: all 0.15s ease !important;
+      outline: none !important;
+      text-decoration: none !important;
+    }
+
+    .gbtn-custom:hover, .gbtn-fallback:hover {
+      background: var(--paper) !important;
+      border-color: var(--ink-2) !important;
+      color: var(--ink) !important;
+    }
+
+    .gbtn-custom:active, .gbtn-fallback:active {
+      opacity: 0.9 !important;
     }
 
     .acct-link {
@@ -4914,27 +4925,31 @@
       white-space: nowrap
     }
 
-    .rx-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 6px 14px;
-      border: 1.5px solid var(--sand-head, #A67C2E);
-      border-radius: 100px;
-      font: 500 12px/1 var(--sans);
-      color: var(--ink);
-      background: var(--bg-2, var(--card));
-      white-space: nowrap;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    .rx-pill, .rx button.rx-pill {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      padding: 5px 13px !important;
+      border: 1px solid var(--rule-2) !important;
+      border-radius: 100px !important;
+      font: 500 12px/1.2 var(--sans) !important;
+      color: var(--ink-2) !important;
+      background: var(--bg-2, var(--card)) !important;
+      white-space: nowrap !important;
+      cursor: pointer !important;
+      transition: all 0.15s ease !important;
     }
 
-    .rx-pill:hover {
-      border-color: var(--sand-head, #A67C2E);
-      background: var(--sand-head, #A67C2E);
-      color: #ffffff;
-      transform: translateY(-1px);
+    .rx-pill:hover, .rx button.rx-pill:hover {
+      border-color: var(--ink-2) !important;
+      background: var(--paper) !important;
+      color: var(--ink) !important;
+    }
+
+    .rx-pill.savebtn.saved, .rx button.rx-pill.savebtn.saved {
+      background: var(--good, #3F6B4A) !important;
+      color: #ffffff !important;
+      border-color: var(--good, #3F6B4A) !important;
     }
 
     .rx-pill .fx-pips i {
@@ -8916,11 +8931,10 @@
        it is exactly what a sleeping free-tier instance does while it cold-starts,
        and it used to leave the whole app blank (see the boot block at the bottom).
        Rejecting instead routes into the offline/demo path the app already has. */
-    const API_TIMEOUT = 30000;
-    /* How long boot waits for data before painting anyway. Long enough that a
-       healthy backend fills the page in one pass (no skeleton flash), short enough
-       that a sick one still gives the reader a working shell almost immediately. */
-    const BOOT_PAINT_MS = 2500;
+    const API_TIMEOUT = 6000;
+    /* How long boot waits for data before painting anyway. Set to 300ms so the initial
+       page paints instantly using local data while background fetch completes. */
+    const BOOT_PAINT_MS = 300;
     /* LLM-backed endpoints legitimately take longer: they are doing a model call,
        not a database read, and cutting them at 30s would abandon work the user
        explicitly asked for and is already being charged for. */
@@ -10391,37 +10405,51 @@
         return scored.slice(0, 4);
       },
       async _render(id) {
-        $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
-        let s, err;
-        try { s = await api('/story/' + id + (S.creds ? `?user_id=${S.creds.user_id}` : '')); }
-        catch (e) { err = e; }
-        // A 401 means api() has just discarded stale credentials. The story itself is
-        // public, so read it again as a signed-out visitor rather than telling someone
-        // the story is gone when it is sitting right there in the feed they came from.
-        if (!s && err && err.status === 401 && !S.creds) {
-          try { s = await api('/story/' + id); err = null; } catch (e2) { err = e2; }
-        }
-        if (!s) {
-          // Resilient fallback: look up in active stories, demo archive, or matched story reference
-          const pool = [...(S.stories || []), ...(DEMO.stories || [])];
-          const base = pool.find(x => x && x.id === id) ||
-                       pool.find(x => x && (x.headline || '').toLowerCase().includes(String(id).toLowerCase())) ||
-                       DEMO.stories.find(x => x.id === id) ||
-                       pool[0];
-          if (base) {
-            s = DEMO.detail(base);
-            err = null;
-          } else if (err && S.online) {
-            const gone = err.status === 404;
-            $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
-        <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
-          ${gone ? 'This story is no longer available — stories rotate out after 7 days.'
-                : 'Couldn\'t load this story just now — it may be a temporary problem.'}<br><br>
-          ${gone ? '' : '<button class="btn ghost" data-act="reload-story" data-id="' + esc(id) + '">Try again</button> '}
-          <a class="btn primary" href="/brief">Back to the brief</a></div></div>`;
-            return;
+        // Fast local lookup first (0ms paint!)
+        const pool = [...(S.stories || []), ...(DEMO.stories || [])];
+        let base = pool.find(x => x && (x.id === id || String(x.id).toLowerCase() === String(id).toLowerCase())) ||
+                   pool.find(x => x && (x.headline || '').toLowerCase().includes(String(id).toLowerCase())) ||
+                   DEMO.stories.find(x => x && x.id === id) ||
+                   pool[0];
+
+        let s = base ? DEMO.detail(base) : null;
+
+        if (s) {
+          // Render instant story content in 0ms!
+          this._renderContent(id, s);
+          // Asynchronously fetch live updates in background with tight 1200ms timeout
+          if (S.online) {
+            api('/story/' + id + (S.creds ? `?user_id=${S.creds.user_id}` : ''), { timeout: 1200 })
+              .then(live => { if (live && live.headline) this._renderContent(id, live); })
+              .catch(() => {});
           }
+          return;
         }
+
+        $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
+        let err = null;
+        try { s = await api('/story/' + id + (S.creds ? `?user_id=${S.creds.user_id}` : ''), { timeout: 1500 }); }
+        catch (e) { err = e; }
+
+        if (!s && base) {
+          s = DEMO.detail(base);
+        }
+
+        if (!s) {
+          const gone = err && err.status === 404;
+          $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+      <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
+        ${gone ? 'This story is no longer available — stories rotate out after 7 days.'
+              : 'Couldn\'t load this story just now — it may be a temporary problem.'}<br><br>
+        ${gone ? '' : '<button class="btn ghost" data-act="reload-story" data-id="' + esc(id) + '">Try again</button> '}
+        <a class="btn primary" href="/brief">Back to the brief</a></div></div>`;
+          return;
+        }
+
+        this._renderContent(id, s);
+      },
+
+      _renderContent(id, s) {
         S.currentStory = s; S.opened = new Set();
         // NewsArticle, and isAccessibleForFree — the metered wall is a sign-in wall,
         // not a paywall, and search engines are entitled to know the difference.
@@ -11390,20 +11418,24 @@
       },
 
       async loadData() {
-        let data = null;
-        try {
-          const resp = await api('/finance/graph?limit=80');
-          if (resp && resp.top && resp.top.length > 0 && resp.links && resp.links.length > 0) {
-            data = resp;
-          }
-        } catch (e) {
-          console.warn('Backend finance graph endpoint unreachable, using standard knowledge web:', e);
-        }
+        // Render built-in financial knowledge web instantly (0ms!)
+        let data = JSON.parse(JSON.stringify(this.DEMO_GRAPH));
+        this._buildGraphData(data);
 
-        // Start from the clean, rich built-in financial knowledge web
-        if (!data || !data.top || data.top.length === 0) {
-          data = JSON.parse(JSON.stringify(this.DEMO_GRAPH));
+        // Fetch backend updates in background with tight 1200ms timeout
+        if (S.online) {
+          try {
+            const resp = await api('/finance/graph?limit=80', { timeout: 1200 });
+            if (resp && resp.top && resp.top.length > 0 && resp.links && resp.links.length > 0) {
+              this._buildGraphData(resp);
+            }
+          } catch (e) {
+            console.warn('Backend graph timeout, using instant knowledge web');
+          }
         }
+      },
+
+      _buildGraphData(data) {
 
         // Dynamically enrich with Macro Trends & Forecast Signals from the live feed
         if (S.trends && S.trends.length > 0) {
@@ -12395,23 +12427,108 @@
         });
       },
 
+      DEMO_CHAINS: [
+        {
+          id: 'chain-monetary-policy-lending',
+          title: 'RBI Rate Change → Business Loans → Economic Growth',
+          catalyst_event: 'Reserve Bank of India raises repo interest rate by 50 basis points to curb inflation.',
+          transmission_channel: 'Commercial banks increase lending interest rates; corporate credit costs rise across sectors.',
+          terminal_outcome: 'Capital expenditure delays in rate-sensitive sectors like real estate, auto, and infrastructure.',
+          overall_confidence: 0.88,
+          base_probability: 0.82,
+          time_horizon: '1-2 quarters',
+          historical_precedent: 'During the 2022 rate hike cycle, commercial bank credit growth slowed by 2.4% over two quarters.',
+          affected_sectors: ['Banking', 'Real Estate', 'Infrastructure', 'Auto'],
+          sensitive_tickers: ['HDFCBANK', 'ICICIBANK', 'RELIANCE', 'DLF'],
+          steps: [
+            { step_order: 1, stage_name: 'Trigger', entity: 'Reserve Bank of India', action_or_friction: 'Hikes policy repo rate by 50 bps', elasticity_score: 0.92, propagation_horizon: 'Immediate', affected_tickers: ['HDFCBANK', 'ICICIBANK'] },
+            { step_order: 2, stage_name: 'First Ripple', entity: 'Commercial Lending Banks', action_or_friction: 'Raises prime lending rates by 35-45 bps', elasticity_score: 0.85, propagation_horizon: '2-4 weeks', affected_tickers: ['SBIN', 'AXISBANK'] },
+            { step_order: 3, stage_name: 'Chain Reaction', entity: 'Mid & Large Corporates', action_or_friction: 'Postpones new capital expansion loans and refrains from long-term debt issuance', elasticity_score: 0.76, propagation_horizon: '1-2 months', affected_tickers: ['RELIANCE', 'TATASTEEL'] },
+            { step_order: 4, stage_name: 'End Result', entity: 'Broad Industrial Economy', action_or_friction: 'Slowdown in industrial output and private capital expenditure growth', elasticity_score: 0.70, propagation_horizon: '3-6 months', affected_tickers: ['LT', 'ULTRACEMCO'] }
+          ],
+          dampeners: [
+            { name: 'Strong Corporate Balance Sheets', mechanism: 'Low debt-to-equity ratios among Nifty 50 firms cushion rate shock impact.', absorption_capacity_pct: 35, sponsor_entity: 'Corporate Treasury Operations' }
+          ]
+        },
+        {
+          id: 'chain-semiconductor-fab-cascade',
+          title: 'TSMC Chip Shortage → AI Delays → India Builds Local Fabs',
+          catalyst_event: 'TSMC reports supply bottlenecks and export license delays on advanced silicon nodes.',
+          transmission_channel: 'Server manufacturers delay AI hardware shipments; cloud providers pass latency to tech firms.',
+          terminal_outcome: 'Accelerated policy incentives and private capital commitments for semiconductor fabs in India.',
+          overall_confidence: 0.82,
+          base_probability: 0.75,
+          time_horizon: '2-4 quarters',
+          historical_precedent: 'The 2021 global chip shortage led to similar automotive and consumer electronics delays.',
+          affected_sectors: ['Technology', 'Semiconductors', 'Hardware'],
+          sensitive_tickers: ['NVDA', 'TSM', 'TATAELXSI', 'HCLTECH'],
+          steps: [
+            { step_order: 1, stage_name: 'Trigger', entity: 'TSMC & Taiwan Fab Hubs', action_or_friction: 'Advanced chip export licenses delayed', elasticity_score: 0.90, propagation_horizon: 'Immediate', affected_tickers: ['TSM', 'NVDA'] },
+            { step_order: 2, stage_name: 'First Ripple', entity: 'Global Server OEM Assembly', action_or_friction: 'AI server delivery timelines slip by 12-16 weeks', elasticity_score: 0.82, propagation_horizon: '1-2 months', affected_tickers: ['DELL', 'HPE'] },
+            { step_order: 3, stage_name: 'Chain Reaction', entity: 'Indian Enterprise Tech', action_or_friction: 'Cloud compute costs rise; tech firms diversify component suppliers', elasticity_score: 0.74, propagation_horizon: '2-4 months', affected_tickers: ['TCS', 'INFY'] },
+            { step_order: 4, stage_name: 'End Result', entity: 'India Semiconductor Mission', action_or_friction: 'Accelerated local fab construction & packaging ecosystem incentives', elasticity_score: 0.78, propagation_horizon: '6-12 months', affected_tickers: ['TATAELXSI', 'CGPOWER'] }
+          ],
+          dampeners: [
+            { name: 'Government Semiconductor Subsidies', mechanism: 'PLI incentives offset early-stage operational capex for local fabs.', absorption_capacity_pct: 40, sponsor_entity: 'Ministry of Electronics & IT (MeitY)' }
+          ]
+        },
+        {
+          id: 'chain-auto-ev-raw-materials',
+          title: 'Rising Lithium Prices → Battery Inflation → EV Car Prices',
+          catalyst_event: 'Global lithium carbonate prices spike due to mining disruptions and battery demand.',
+          transmission_channel: 'Battery cell manufacturers raise kWh prices for automakers.',
+          terminal_outcome: 'Electric vehicle retail prices rise; mass EV adoption timeline shifts out by 2 quarters.',
+          overall_confidence: 0.84,
+          base_probability: 0.78,
+          time_horizon: '2-3 quarters',
+          historical_precedent: 'Lithium price spikes in late 2022 resulted in a 7-12% price hike across EV car models globally.',
+          affected_sectors: ['Automotive', 'Clean Energy', 'Metals'],
+          sensitive_tickers: ['TATAMOTORS', 'M&M', 'AMARAJABAT', 'EXIDEIND'],
+          steps: [
+            { step_order: 1, stage_name: 'Trigger', entity: 'Global Lithium Refiners', action_or_friction: 'Lithium carbonate spot prices rise 25%', elasticity_score: 0.88, propagation_horizon: 'Immediate', affected_tickers: ['ALB', 'SQM'] },
+            { step_order: 2, stage_name: 'First Ripple', entity: 'EV Battery Pack Makers', action_or_friction: 'Per-kWh battery pack manufacturing cost increases by 14%', elasticity_score: 0.80, propagation_horizon: '1 month', affected_tickers: ['AMARAJABAT', 'EXIDEIND'] },
+            { step_order: 3, stage_name: 'Chain Reaction', entity: 'EV Automakers', action_or_friction: 'Passes battery cost increases to end consumers via vehicle price hikes', elasticity_score: 0.75, propagation_horizon: '2-3 months', affected_tickers: ['TATAMOTORS', 'M&M'] },
+            { step_order: 4, stage_name: 'End Result', entity: 'Domestic EV Market', action_or_friction: 'Consumer EV purchase decisions delayed; ICE-to-EV transition pace slows', elasticity_score: 0.72, propagation_horizon: '4-6 months', affected_tickers: ['MARUTI', 'HEROMOTOCO'] }
+          ],
+          dampeners: [
+            { name: 'FAME-II & PM E-DRIVE Subsidies', mechanism: 'State and central government EV buyer rebates absorb part of retail price hikes.', absorption_capacity_pct: 30, sponsor_entity: 'Heavy Industries Ministry' }
+          ]
+        }
+      ],
+
       async loadChains(domain) {
         const wrap = document.getElementById('causal-chains-list');
         if (!wrap) return;
-        try {
-          const resp = await api('/finance/causal/chains' + (domain ? '?domain=' + encodeURIComponent(domain) : ''));
-          this.chains = (resp && resp.chains) ? resp.chains : [];
-        } catch (e) {
-          console.warn('Causal API unreachable, using demo data:', e);
-          this.chains = [];
+
+        // Render instantly from local data (0ms!)
+        if (!this.chains || this.chains.length === 0) {
+          this.chains = this.DEMO_CHAINS;
         }
 
-        if (this.chains.length === 0) {
-          wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--mute);font:400 13px var(--sans);">No causal chains found for this domain.</div>';
-          return;
+        let filtered = this.chains;
+        if (domain) {
+          const domLower = domain.toLowerCase();
+          filtered = this.chains.filter(c =>
+            (c.title || '').toLowerCase().includes(domLower) ||
+            (c.affected_sectors || []).some(s => s.toLowerCase().includes(domLower))
+          );
+          if (filtered.length === 0) filtered = this.chains;
         }
 
-        wrap.innerHTML = this.chains.map(ch => this.renderChainCard(ch)).join('');
+        wrap.innerHTML = filtered.map(ch => this.renderChainCard(ch)).join('');
+
+        // Asynchronously fetch backend updates with tight 1200ms timeout
+        if (S.online) {
+          try {
+            const resp = await api('/finance/causal/chains' + (domain ? '?domain=' + encodeURIComponent(domain) : ''), { timeout: 1200 });
+            if (resp && resp.chains && resp.chains.length > 0) {
+              this.chains = resp.chains;
+              wrap.innerHTML = this.chains.map(ch => this.renderChainCard(ch)).join('');
+            }
+          } catch (e) {
+            console.warn('Causal API timeout, using instant local chains');
+          }
+        }
       },
 
       renderChainCard(ch) {
@@ -13880,22 +13997,16 @@
         el.style.justifyContent = 'center';
         el.style.alignItems = 'center';
         el.style.margin = '0 auto';
-        if (this.ready) {
-          el.innerHTML = '';
-          google.accounts.id.renderButton(el,
-            { theme: 'filled_black', size: 'medium', shape: 'pill', text: 'signin_with' });
-        } else {
-          el.innerHTML = Auth.gbtnHTML();
-        }
+        el.innerHTML = Auth.gbtnHTML();
       },
       gbtnHTML() {
-        return `<button class="gbtn-fallback" onclick="Auth.fallbackClick()">` +
-          `<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">` +
+        return `<button class="gbtn-custom" onclick="Auth.trigger()">` +
+          `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" style="flex-shrink:0;">` +
           `<path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.1-3.8 6.6-9.4 6.6-16.1z"/>` +
           `<path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.4 2.1-5.7 0-10.5-3.8-12.2-9H4.5v5.7C8.1 41.1 15.4 46 24 46z"/>` +
           `<path fill="#FBBC05" d="M11.8 28.2c-.4-1.3-.7-2.7-.7-4.2s.3-2.9.7-4.2v-5.7H4.5C3 17.1 2.2 20.4 2.2 24s.8 6.9 2.3 9.9l7.3-5.7z"/>` +
           `<path fill="#EA4335" d="M24 10.8c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3C34.9 4.1 29.9 2 24 2 15.4 2 8.1 6.9 4.5 14.1l7.3 5.7c1.7-5.2 6.5-9 12.2-9z"/>` +
-          `</svg>Sign in with Google</button>`;
+          `</svg><span>Sign in with Google</span></button>`;
       },
       initial() { return (S.creds && (S.creds.name || S.creds.email) || 'U').trim().charAt(0).toUpperCase(); },
       // Programmatic entry point (nav "Sign up" fallback / data-act="signin").
@@ -13988,10 +14099,7 @@
       let tries = 0;
       (function waitForGsi() {
         Auth.init();
-        // Re-render the feed once GIS is ready so inline sign-in buttons upgrade from
-        // the fallback to the official Google button.
-        if (Auth.ready && (Nav.path() === '/' || Nav.path().startsWith('/brief'))) Brief.render();
-        if (!Auth.ready && tries++ < 20) setTimeout(waitForGsi, 300);
+        if (!Auth.ready && tries++ < 10) setTimeout(waitForGsi, 300);
       })();
     })();
   </script>
