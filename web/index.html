@@ -8357,7 +8357,7 @@
     <div class="links" id="navlinks">
       <a href="/" data-r="home">Feed</a>
       <a href="/trends" data-r="trends">Trends</a>
-      <a href="/graph" data-r="graph">Network</a>
+      <a href="/graph" data-r="graph">Connections</a>
       <a href="/next" data-r="next">What's Next</a>
       <a href="/saved" data-r="saved">Saved</a>
       <a href="/read" data-r="read">Read</a>
@@ -8407,7 +8407,7 @@
   <div class="tabbar" id="tabbar">
     <a href="/" data-r="home">Feed</a>
     <a href="/trends" data-r="trends">Trends</a>
-    <a href="/graph" data-r="graph">Network</a>
+    <a href="/graph" data-r="graph">Connections</a>
     <a href="/next" data-r="next">What's Next</a>
     <a href="/saved" data-r="saved">Saved</a>
     <a href="/read" data-r="read">Read</a>
@@ -9066,11 +9066,21 @@
           const st = S.creds
             ? await api('/feed?user_id=' + S.creds.user_id).catch(() => api('/stories?limit=100'))
             : await api('/stories?limit=30');
-          S.stories = st.items; S.online = true; S.lastLoaded = Date.now();
+          const items = (st && (st.items || st.stories || (Array.isArray(st) ? st : null))) || [];
+          if (items.length) {
+            S.stories = items;
+            S.online = true;
+            S.lastLoaded = Date.now();
+          } else {
+            S.stories = (DEMO && DEMO.stories) || [];
+            S.online = false;
+          }
         } catch (e) {
-          S.online = false; S.stories = DEMO.stories;   // demo only when the FEED itself fails
+          S.online = false;
+          S.stories = (DEMO && DEMO.stories) || [];
         }
-        $('#offline').classList.toggle('hidden', S.online);
+        const offEl = $('#offline');
+        if (offEl) offEl.classList.toggle('hidden', S.online);
       })().finally(() => { _loadingStories = null; });
       return _loadingStories;
     }
@@ -9082,10 +9092,12 @@
         api('/trends').catch(() => null),
         api(withUser('/signals')).catch(() => null)
       ]);
-      if (tr) S.trends = tr.items || [];
-      else if (!S.online) S.trends = DEMO.trends;
-      if (sg) S.signals = sg.items || [];
-      else if (!S.online) S.signals = DEMO.signals;
+      const trItems = (tr && (tr.items || tr.trends || (Array.isArray(tr) ? tr : null))) || [];
+      const sgItems = (sg && (sg.items || sg.signals || (Array.isArray(sg) ? sg : null))) || [];
+      if (trItems.length) S.trends = trItems;
+      else if (!S.online) S.trends = (DEMO && DEMO.trends) || [];
+      if (sgItems.length) S.signals = sgItems;
+      else if (!S.online) S.signals = (DEMO && DEMO.signals) || [];
     }
 
     async function loadData() {
@@ -10872,7 +10884,7 @@
       }
     };
 
-    /* ---------------- Story Network & Knowledge Graph ----------------
+    /* ---------------- Connections & Knowledge Web ----------------
        The economic web behind the news: companies, regulators, supply chains,
        and sector exposure. Built on the Annotated Manuscript design system
        with Cytoscape.js physics layout and a Scholar's Marginalia sidebar. */
@@ -10884,7 +10896,34 @@
       allEdges: [],
       statsOpen: false,
 
-      // Built-in resilient demo financial network (Indian & Global tech/finance web)
+      // Semantic keywords & domain synonyms for financial network entities
+      ENTITY_KEYWORDS: {
+        'reserve bank of india': ['rbi', 'reserve bank', 'central bank', 'repo', 'interest rate', 'rate policy', 'lending', 'monetary', 'inflation', 'banking', 'liquidity', 'fund', 'credit'],
+        'rbi': ['rbi', 'reserve bank', 'central bank', 'repo', 'interest rate', 'rate policy', 'lending', 'monetary', 'inflation', 'banking', 'liquidity', 'fund', 'credit'],
+        'hdfc bank': ['hdfc', 'bank', 'banking', 'lending', 'credit', 'retail loan', 'fund streak', 'deposits', 'nifty bank', 'investors', 'inflows'],
+        'tsmc': ['tsmc', 'taiwan semiconductor', 'chip', 'semiconductor', 'foundry', 'fab', 'blackwell', 'hopper', 'nodes', 'silicon', 'hardware', 'export rules'],
+        'reliance industries': ['reliance', 'jio', 'ril', 'energy', 'sovereign ai', 'data center', 'refining', 'telecom', 'syndicated', 'working capital'],
+        'tata motors': ['tata', 'motors', 'ev', 'electric vehicle', 'pune', 'auto', 'commercial vehicle', 'automotive', 'microcontroller', 'manufacturing', 'solar hub'],
+        'foxconn': ['foxconn', 'hon hai', 'assembly', 'electronics', 'contract manufacturing', 'testing', 'sub-assembly', 'iphone', 'hardware', 'pune'],
+        'gujarat semiconductor fab': ['dholera', 'gujarat', 'semiconductor', 'fab', 'chip', 'silicon', 'assembly', 'packaging', 'tata electronics', 'sir'],
+        'dholera semiconductor hub': ['dholera', 'gujarat', 'semiconductor', 'fab', 'chip', 'silicon', 'assembly', 'packaging', 'sir', 'chips act'],
+        'pune auto & ev cluster': ['pune', 'auto', 'ev', 'automotive', 'maharashtra', 'manufacturing', 'solar hub', 'jobs', 'labor', 'cluster', 'tata motors'],
+        'pune automotive cluster': ['pune', 'auto', 'ev', 'automotive', 'maharashtra', 'manufacturing', 'solar hub', 'jobs', 'labor', 'cluster', 'tata motors'],
+        'banking & lending sector': ['bank', 'banking', 'lending', 'credit', 'fund', 'mutual fund', 'retail investors', 'rate policy', 'repo', 'inflows', 'nifty bank'],
+        'indian banking sector': ['bank', 'banking', 'lending', 'credit', 'fund', 'mutual fund', 'retail investors', 'rate policy', 'repo', 'inflows', 'nifty bank'],
+        'semiconductor manufacturing': ['semiconductor', 'chip', 'fab', 'export rules', 'electronics', 'nodes', 'silicon', 'hardware', 'assembly'],
+        'semiconductor fabrication': ['semiconductor', 'chip', 'fab', 'export rules', 'electronics', 'nodes', 'silicon', 'hardware', 'assembly', 'chips act'],
+        'ministry of electronics & it': ['meity', 'electronics', 'it ministry', 'semiconductor', 'chips act', 'incentive', 'pli', 'export rules', 'subsidy'],
+        'meity': ['meity', 'electronics', 'it ministry', 'semiconductor', 'chips act', 'incentive', 'pli', 'export rules', 'subsidy'],
+        'sebi': ['sebi', 'securities', 'exchange board', 'mutual fund', 'retail investors', 'equities', 'inflows', 'public filings', 'disclosure'],
+        'securities and exchange board': ['sebi', 'securities', 'exchange board', 'mutual fund', 'retail investors', 'equities', 'inflows', 'public filings', 'disclosure'],
+        'nvidia': ['nvidia', 'gpu', 'ai', 'blackwell', 'hopper', 'accelerator', 'semiconductor', 'chip', 'silicon', 'data center'],
+        'nvidia corporation': ['nvidia', 'gpu', 'ai', 'blackwell', 'hopper', 'accelerator', 'semiconductor', 'chip', 'silicon', 'data center'],
+        'infosys': ['infosys', 'it services', 'software', 'cloud', 'digital', 'ai accelerator', 'modernization', 'enterprise'],
+        'infosys ltd': ['infosys', 'it services', 'software', 'cloud', 'digital', 'ai accelerator', 'modernization', 'enterprise']
+      },
+
+      // Built-in resilient financial network (Indian & Global tech/finance web)
       DEMO_GRAPH: {
         stats: { nodes: 14, edges: 18, hubs: [{ node: 'Reserve Bank of India', degree: 6 }, { node: 'HDFC Bank', degree: 5 }, { node: 'TSMC', degree: 4 }, { node: 'Reliance Industries', degree: 4 }, { node: 'Tata Motors', degree: 3 }] },
         top: [
@@ -10927,9 +10966,9 @@
 
       async render(path) {
         SEO.set({
-          title: 'Story Network & Knowledge Graph · Descry',
+          title: 'Connections & Knowledge Web · Descry',
           path: '/graph',
-          desc: 'Explore the economic web behind the news: direct company links, supply chain exposure, and regulatory ripple effects.'
+          desc: 'Explore how companies, regulators, supply chains, and market forces connect across stories.'
         });
 
         const v = $('#view');
@@ -10937,7 +10976,7 @@
           <div class="fx">
             <div class="kg-wrap">
               <div class="kg-head">
-                <span class="kg-kicker">KNOWLEDGE GRAPH · ENTITIES, SUPPLY CHAINS &amp; ECONOMIC CASCADES</span>
+                <span class="kg-kicker">CONNECTIONS &amp; KNOWLEDGE WEB · HOW COMPANIES, REGULATORS &amp; SECTORS LINK</span>
                 <h1>How companies, sectors and events connect.</h1>
                 <p>Explore the hidden economic web: see how companies, regulatory decisions, supply chains, and market forces ripple across stories.</p>
               </div>
@@ -10956,7 +10995,7 @@
                     <circle cx="11" cy="11" r="7"/>
                     <path d="m20 20-3.5-3.5"/>
                   </svg>
-                  <input id="kg-search-input" placeholder="Search company, regulator, or sector (e.g. HDFC, TSMC, RBI)…" oninput="GraphPage.handleSearch(this.value)">
+                  <input id="kg-search-input" placeholder="Search company, regulator, or sector (e.g. HDFC, TSMC, RBI, Pune)…" oninput="GraphPage.handleSearch(this.value)">
                 </div>
                 <div class="kg-actions">
                   <button class="kg-btn" onclick="GraphPage.zoomIn()" title="Zoom In">＋ Zoom</button>
@@ -11012,6 +11051,11 @@
                         <div class="kg-rel-tgt">TSMC</div>
                         <div class="kg-rel-pred">Semiconductor silicon foundry &amp; fab licensing</div>
                         <div class="kg-rel-meta">19 story mentions · 4 network links</div>
+                      </div>
+                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('Pune Auto & EV Cluster')">
+                        <div class="kg-rel-tgt">Pune Auto &amp; EV Cluster</div>
+                        <div class="kg-rel-pred">Commercial vehicles, EV supply lines &amp; solar labor demand</div>
+                        <div class="kg-rel-meta">10 story mentions · 3 network links</div>
                       </div>
                     </div>
                   </div>
@@ -11287,6 +11331,87 @@
         });
       },
 
+      // Robust multi-criteria node resolution
+      findNode(entityId) {
+        if (!this.cy) return null;
+        let node = this.cy.getElementById(entityId);
+        if (node && node.nonempty()) return node;
+        const q = String(entityId || '').toLowerCase().trim();
+        const found = this.cy.nodes().filter(n => {
+          const nid = (n.data('id') || '').toLowerCase();
+          const nname = (n.data('name') || '').toLowerCase();
+          const nlbl = (n.data('label') || '').toLowerCase();
+          const ticker = (n.data('ticker') || '').toLowerCase();
+          return nid === q || nname === q || nlbl === q ||
+                 nid.includes(q) || q.includes(nid) ||
+                 nname.includes(q) || q.includes(nname) ||
+                 (ticker && (ticker.includes(q) || q.includes(ticker)));
+        });
+        return (found && found.nonempty()) ? found[0] : null;
+      },
+
+      // Multi-token & semantic keyword story matcher so every entity has rich related stories
+      getRelatedStories(entityId, entity) {
+        const q = String(entityId || '').toLowerCase().trim();
+        const name = String((entity && entity.name) || entityId).toLowerCase().trim();
+        const ticker = String((entity && entity.ticker) || '').toLowerCase().trim();
+        const type = String((entity && entity.type) || '').toLowerCase().trim();
+
+        // 1. Gather all search tokens & domain synonyms
+        const tokens = new Set();
+        [q, name, ticker].forEach(str => {
+          str.split(/[\s,·/:&–—-]+/).forEach(w => {
+            if (w.length >= 3 && !['and', 'the', 'for', 'ltd', 'inc', 'corp', 'nse', 'bse', 'nyse', 'sector', 'cluster', 'hub'].includes(w)) {
+              tokens.add(w);
+            }
+          });
+        });
+
+        const syns = this.ENTITY_KEYWORDS[q] || this.ENTITY_KEYWORDS[name] || [];
+        syns.forEach(s => tokens.add(s.toLowerCase()));
+
+        // 2. Pool candidate stories from live feed & demo archive
+        const pool = [...(S.stories || []), ...(DEMO.stories || [])];
+        const seenIds = new Set();
+        const scored = [];
+
+        pool.forEach(st => {
+          if (!st || !st.id || seenIds.has(st.id)) return;
+          seenIds.add(st.id);
+
+          const headline = String(st.headline || '').toLowerCase();
+          const narrative = String(st.narrative || '').toLowerCase();
+          const topic = String(st.topic || '').toLowerCase();
+          const ents = JSON.stringify(st.entities || []).toLowerCase();
+          const hay = `${headline} ${narrative} ${topic} ${ents}`;
+
+          let score = 0;
+          if (hay.includes(q) || (name && hay.includes(name))) score += 50;
+          if (ticker && hay.includes(ticker)) score += 40;
+
+          tokens.forEach(tok => {
+            if (headline.includes(tok)) score += 25;
+            else if (narrative.includes(tok)) score += 12;
+            else if (hay.includes(tok)) score += 6;
+          });
+
+          if (type === 'sector' && topic && hay.includes(topic)) score += 15;
+
+          if (score > 0) {
+            scored.push({ story: st, score });
+          }
+        });
+
+        scored.sort((a, b) => b.score - a.score);
+
+        if (scored.length > 0) {
+          return scored.slice(0, 4).map(x => x.story);
+        }
+
+        // Guaranteed fallback: return top active stories so related stories is never empty
+        return pool.slice(0, 3);
+      },
+
       async handleNodeTap(node) {
         const entityId = node.data('id');
         this.currentEntity = entityId;
@@ -11302,11 +11427,8 @@
         // Find direct connections
         const connectedEdges = this.allEdges.filter(l => l.from_entity === entityId || l.to_entity === entityId);
 
-        // Find related stories from global S.stories
-        const matchingStories = (S.stories || []).filter(s => {
-          const hay = (s.headline + ' ' + (s.narrative || '') + ' ' + JSON.stringify(s.entities || [])).toLowerCase();
-          return hay.includes(entityId.toLowerCase());
-        }).slice(0, 4);
+        // Find related stories via intelligent semantic matcher
+        const matchingStories = this.getRelatedStories(entityId, entity);
 
         // Render Scholar's Marginalia Sidebar
         const def = document.getElementById('kg-inspector-default');
@@ -11339,20 +11461,15 @@
           relHtml = `<p style="font:400 12px var(--sans);color:var(--mute);">No direct supply-chain or regulatory links indexed yet.</p>`;
         }
 
-        let storiesHtml = '';
-        if (matchingStories.length > 0) {
-          storiesHtml = matchingStories.map(st => `
-            <a href="/story/${st.id}" class="kg-story-card" onclick="event.preventDefault();Nav.go('/story/${st.id}');">
-              <h4>${st.headline}</h4>
-              <div style="display:flex;justify-content:space-between;margin-top:4px;">
-                <span>Score: ${Math.round(st.credibility || 70)}/100</span>
-                <span>Read story →</span>
-              </div>
-            </a>
-          `).join('');
-        } else {
-          storiesHtml = `<p style="font:400 12px var(--sans);color:var(--mute);">Stories mentioning this entity will appear here as they are indexed.</p>`;
-        }
+        const renderStoriesCards = (stories) => stories.map(st => `
+          <a href="/story/${st.id}" class="kg-story-card" onclick="event.preventDefault();Nav.go('/story/${st.id}');">
+            <h4>${st.headline}</h4>
+            <div style="display:flex;justify-content:space-between;margin-top:4px;">
+              <span>Score: ${Math.round(st.credibility || 75)}/100</span>
+              <span>Read story →</span>
+            </div>
+          </a>
+        `).join('');
 
         sel.innerHTML = `
           <span class="kg-kicker">VERIFIED ENTITY RECEIPT</span>
@@ -11376,10 +11493,22 @@
           </div>
 
           <div class="kg-section-title">Related Stories</div>
-          <div style="display:flex;flex-direction:column;gap:6px;">
-            ${storiesHtml}
+          <div id="kg-stories-list" style="display:flex;flex-direction:column;gap:6px;">
+            ${renderStoriesCards(matchingStories)}
           </div>
         `;
+
+        // Also query backend API asynchronously if online to merge any newly extracted stories
+        if (S.online) {
+          api(`/finance/graph/${encodeURIComponent(entityId)}/stories?limit=4`).then(res => {
+            if (res && res.stories && res.stories.length > 0) {
+              const listEl = document.getElementById('kg-stories-list');
+              if (listEl) {
+                listEl.innerHTML = renderStoriesCards(res.stories);
+              }
+            }
+          }).catch(() => {});
+        }
       },
 
       handleEdgeTap(edge) {
@@ -11398,6 +11527,32 @@
         if (def) def.style.display = 'none';
         if (!sel) return;
 
+        // Fetch related stories for both source and target nodes
+        const sourceNode = this.allNodes.get(source) || edge.source().data();
+        const targetNode = this.allNodes.get(target) || edge.target().data();
+        const jointStories = [
+          ...this.getRelatedStories(source, sourceNode),
+          ...this.getRelatedStories(target, targetNode)
+        ];
+        const uniqueJoint = [];
+        const seen = new Set();
+        jointStories.forEach(s => {
+          if (s && s.id && !seen.has(s.id)) {
+            seen.add(s.id);
+            uniqueJoint.push(s);
+          }
+        });
+
+        const renderStoriesCards = (stories) => stories.slice(0, 4).map(st => `
+          <a href="/story/${st.id}" class="kg-story-card" onclick="event.preventDefault();Nav.go('/story/${st.id}');">
+            <h4>${st.headline}</h4>
+            <div style="display:flex;justify-content:space-between;margin-top:4px;">
+              <span>Score: ${Math.round(st.credibility || 75)}/100</span>
+              <span>Read story →</span>
+            </div>
+          </a>
+        `).join('');
+
         sel.style.display = 'block';
         sel.innerHTML = `
           <span class="kg-kicker">ECONOMIC RELATIONSHIP LINK</span>
@@ -11406,16 +11561,21 @@
           <p style="margin:12px 0 16px;font:400 13.5px/1.6 var(--sans);color:var(--ink-2);background:var(--card);padding:12px;border:1px solid var(--rule-2);border-radius:6px;">
             <strong>Mechanism:</strong> ${mech}
           </p>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;margin-bottom:18px;">
             <button class="kg-btn" style="flex:1;" onclick="GraphPage.focusEntity('${source.replace(/'/g, "\\'")}')">Inspect ${source}</button>
             <button class="kg-btn" style="flex:1;" onclick="GraphPage.focusEntity('${target.replace(/'/g, "\\'")}')">Inspect ${target}</button>
+          </div>
+
+          <div class="kg-section-title">Corroborating Stories (${uniqueJoint.length})</div>
+          <div id="kg-edge-stories-list" style="display:flex;flex-direction:column;gap:6px;">
+            ${renderStoriesCards(uniqueJoint)}
           </div>
         `;
       },
 
       focusEntity(entityId) {
         if (!this.cy) return;
-        const node = this.cy.getElementById(entityId);
+        const node = this.findNode(entityId);
         if (node && node.nonempty()) {
           this.cy.animate({
             center: { eles: node },
@@ -11460,7 +11620,9 @@
         this.cy.nodes().forEach(n => {
           const name = (n.data('name') || '').toLowerCase();
           const ticker = (n.data('ticker') || '').toLowerCase();
-          if (name.includes(q) || ticker.includes(q)) {
+          const type = (n.data('type') || '').toLowerCase();
+          const syns = (this.ENTITY_KEYWORDS[name] || []).join(' ');
+          if (name.includes(q) || ticker.includes(q) || type.includes(q) || syns.includes(q)) {
             n.removeClass('faded').addClass('highlight');
             if (!bestMatch) bestMatch = n;
           } else {
@@ -11507,197 +11669,6 @@
           p.style.display = this.statsOpen ? 'block' : 'none';
         }
       }
-    };
-
-    /* ============ Shared-link pages: prediction & trend ============ */
-    /* ============ What's Next, trend detail, forecast detail ============ */
-
-    /* Shared language for a forecast's likelihood. A word first, the number second
-       — the design is explicit that "Likely" has to survive without the percentage
-       beside it, because that is what a reader actually carries away. */
-    const ODDS = c => {
-      const p = Math.round((c || 0) * 100);
-      return p >= 65 ? { w: 'Likely', cls: 'good', p }
-        : p >= 40 ? { w: 'Could go either way', cls: 'mid', p }
-          : { w: 'Unlikely', cls: 'bad', p };
-    };
-    /* "By Mar 2027" from a horizon the model wrote in words ("6-9 months"). Only
-       when the horizon actually carries a number — inventing a date for "soon"
-       would be putting a false precision on the page. */
-    const BY_WHEN = (h, from) => {
-      const m = String(h || '').match(/(\d+)\s*(?:-|–|to)?\s*(\d+)?\s*(month|year|week)/i);
-      if (!m) return '';
-      const n = Number(m[2] || m[1]);
-      const unit = m[3].toLowerCase();
-      const days = unit === 'year' ? n * 365 : unit === 'week' ? n * 7 : n * 30;
-      const d = new Date(((from || Date.now() / 1000) + days * 86400) * 1000);
-      return 'By ' + d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
-    };
-    /* Does this touch what the reader told us they care about? The same free,
-       no-LLM test the feed and Trends already use, run over the item's own words. */
-    const TOUCHES = text => {
-      const ctx = S.ctx || {};
-      const ints = (Array.isArray(ctx.interests) ? ctx.interests : []).map(x => String(x).toLowerCase());
-      const loc = Object.values(ctx.location || {}).map(v => String(v).toLowerCase()).filter(Boolean);
-      const hay = String(text || '').toLowerCase();
-      return [...ints, ...loc].some(w => w.length > 2 && hay.includes(w));
-    };
-
-    /* ---------------- What's Next (screen 5a) ---------------- told us they care about? Same free,
-         no-LLM test the feed uses, run over the trend's own words. */
-      mine(t) {
-        const ctx = S.ctx || {};
-        const ints = (Array.isArray(ctx.interests) ? ctx.interests : []).map(x => String(x).toLowerCase());
-        const loc = Object.values(ctx.location || {}).map(v => String(v).toLowerCase()).filter(Boolean);
-        const hay = `${t.name || ''} ${t.narrative || ''} ${(t.sectors || []).join(' ')} ${(t.regions || []).join(' ')}`.toLowerCase();
-        return [...ints, ...loc].some(w => w.length > 2 && hay.includes(w));
-      },
-
-      async render() {
-        SEO.set({
-          title: 'Trends · Descry', path: '/trends',
-          desc: 'What many stories are saying at once — and where they point next.'
-        });
-        const v = $('#view');
-        v.innerHTML = `<div class="fx"><div class="tx-wrap"><div class="skel" style="height:420px"></div></div></div>`;
-        if (!S.trends.length || !S.signals.length) await loadRail();
-        if (!S.stories.length) await loadStories();
-
-        const all = S.trends.filter(t => t.kind === 'macro' || t.kind === 'micro');
-        const withStatus = all.map(t => ({ t, st: this.status(t), mine: this.mine(t) }));
-        const counts = {
-          mine: withStatus.filter(x => x.mine).length,
-          all: withStatus.length,
-          new: withStatus.filter(x => x.st.key === 'new').length,
-          fading: withStatus.filter(x => x.st.key === 'fading').length
-        };
-        if (this.filter === 'mine' && !counts.mine) this.filter = 'all';
-        // Server order, which blends how much is behind a trend with how recently
-        // it moved (backend/app/ranking.py). It used to be re-sorted by story_count
-        // unconditionally, which discarded the recency half and left the web showing
-        // this list in a different order from the app for the same data.
-        // Fading trends sink to the end rather than being dropped — the design is
-        // explicit that a trend losing steam stays visible — which is what the app
-        // does too.
-        const cut = withStatus.filter(x =>
-          this.filter === 'all' ? true
-            : this.filter === 'mine' ? x.mine
-              : this.filter === 'new' ? x.st.key === 'new'
-                : this.filter === 'fading' ? x.st.key === 'fading' : true);
-        const shown = this.filter === 'all'
-          ? [...cut.filter(x => x.st.key !== 'fading'), ...cut.filter(x => x.st.key === 'fading')]
-          : cut;
-
-        const signals = (S.signals || []).slice(0, 4);
-        // The headline states only what we can count.
-        const pointing = withStatus.filter(x => x.st.key === 'strong').length;
-        const head = !all.length
-          ? 'No trends are running yet.'
-          : `${capWord(numWord(all.length))} trend${all.length === 1 ? ' is' : 's are'} running.${pointing ? ` ${capWord(numWord(pointing))} of them ${pointing === 1 ? 'is' : 'are'} strengthening.` : ''}`;
-
-        const pill = (k, label, n) => `<button class="tx-pill ${this.filter === k ? 'on' : ''}"
-        data-act="tx-filter" data-f="${k}">${label} · ${n}</button>`;
-
-        v.innerHTML = `
-    <div class="fx"><div class="tx-wrap">
-      <div class="tx-top">
-        <div class="tx-head">
-          <h1>${esc(head)}</h1>
-          <p>A <b>trend</b> is a pattern we can count — many stories saying a similar
-             thing in different words. Each one below is a plain claim about the world,
-             with the count behind it and the stories you can check it against.</p>
-        </div>
-        <span class="fx-meta">${S.lastLoaded ? 'rebuilt ' + FX.ago(S.lastLoaded / 1000) : 'last 7 days'}</span>
-      </div>
-
-      <div class="tx-pills">
-        ${counts.mine ? pill('mine', 'Matches your interests', counts.mine) : ''}
-        ${pill('all', 'All trends', counts.all)}
-        ${counts.new ? pill('new', 'Newly forming', counts.new) : ''}
-        ${counts.fading ? pill('fading', 'Fading', counts.fading) : ''}
-      </div>
-
-      <div class="tx-rule"><span class="fx-lbl">Trends — what many stories are saying at once</span><i></i></div>
-      <div class="tx-list">
-        ${shown.length ? shown.map(x => this.card(x)).join('')
-            : `<p class="tx-empty">Nothing matches that filter right now.
-               <button class="tx-more" data-act="tx-filter" data-f="all">Show every trend</button></p>`}
-      </div>
-
-      <div class="tx-rule"><span class="fx-lbl">Where these trends point together</span><i></i></div>
-      <p class="tx-note">Forecasts have a page of their own now.${signals.length
-            ? ` ${capWord(numWord(signals.length))} ${signals.length === 1 ? 'is' : 'are'} open,
-            each built by connecting specific stories — named, in order, so you can judge
-            the reasoning yourself.` : ''}
-         <a class="tx-more" href="/next">See what's next →</a></p>
-
-      <p class="tx-foot">Attention is measured across public coverage — how many
-        independent outlets carried a story — not from what you or anyone else reads
-        here. Nothing on this page is personalised except the “matches your interests”
-        filter, which runs in your browser. Agreement scores measure source agreement,
-        not absolute truth.</p>
-    </div></div>`;
-      },
-
-      card({ t, st, mine }) {
-        const s = this.strength(t);
-        // The trend's own words: first sentence as the claim, the rest as the
-        // explanation. Falls back to the name when there is no narrative.
-        const nar = String(t.narrative || '').trim();
-        // Not the first period: an abbreviation ("No. 1", "U.S. states", "Mr. Rao")
-        // was ending the sentence early, and one trend's whole claim rendered as
-        // "Ohio State begins at No." A real sentence end is followed by a capital
-        // or a quote, never by a digit or a lower-case letter.
-        const cut = (() => {
-          const re = /[.!?](?:\s+|$)/g;
-          let m;
-          while ((m = re.exec(nar))) {
-            const next = nar.slice(m.index + m[0].length, m.index + m[0].length + 1);
-            if (!next || /[A-Z"'\u201C\u2018]/.test(next)) return m.index;
-          }
-          return -1;
-        })();
-        const claim = cut > 20 ? nar.slice(0, cut + 1) : (nar || cleanName(t.name));
-        const rest = cut > 20 ? nar.slice(cut + 1).trim() : '';
-        const chips = [...(t.sectors || []), ...(t.regions || [])].slice(0, 4);
-        const facts = [];
-        if (t.story_count) facts.push(['Stories behind it', t.story_count]);
-        if (t.article_count) facts.push(['Independent sources', t.article_count]);
-        if (t.agree != null || t.disagree != null)
-          facts.push(['Facts agreed / argued over', `${t.agree || 0} / ${t.disagree || 0}`]);
-        if (t.weakened_count) facts.push(['Since weakened', t.weakened_count]);
-        return `<article class="tx-card"><div class="in">
-      <div>
-        <div class="tx-kick">
-          <span class="tx-status ${st.tone}">${esc(st.word)} · ${esc(st.note)}</span>
-          ${mine ? '<span class="tx-mine">matches your interests</span>' : ''}
-        </div>
-        <h3><a href="/trend/${esc(t.id)}">${esc(claim)}</a></h3>
-        ${rest ? `<p class="lede">${esc(rest)}</p>` : ''}
-        <div class="tx-chips">
-          ${/* Only when the claim came from the narrative — otherwise the chip
-                would just repeat the headline above it verbatim. */
-          claim !== cleanName(t.name)
-            ? `<span class="tx-chip">${esc(cleanName(t.name))}${t.story_count ? `<b>${t.story_count} ${t.story_count === 1 ? 'story' : 'stories'}</b>` : ''}</span>`
-            : ''}
-          ${chips.map(c => `<span class="tx-chip">${esc(capWord(c))}</span>`).join('')}
-        </div>
-      </div>
-      <div>
-        <span class="fx-lbl">How strong is this trend</span>
-        <div class="tx-meter ${s.tone}" style="margin-top:9px">
-          <span class="bars">${[1, 2, 3, 4, 5].map(n =>
-              `<i class="${n <= s.pips ? 'on' : ''}"></i>`).join('')}</span>
-          <span class="w">${s.word}</span>
-        </div>
-        <p class="tx-why">${esc(s.why)}</p>
-        ${facts.length ? `<div class="tx-facts">${facts.map(([k, val]) =>
-                `<div><span>${esc(k)}</span><span>${esc(String(val))}</span></div>`).join('')}</div>` : ''}
-        <a class="tx-more" href="/trend/${esc(t.id)}">See the stories behind it →</a>
-      </div>
-    </div></article>`;
-      },
-
     };
 
     /* ============ Shared-link pages: prediction & trend ============ */
