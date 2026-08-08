@@ -12305,7 +12305,18 @@
 
               <div class="causal-pills" id="causal-domain-pills">
                 <button class="causal-pill on" onclick="CausalPage.filterDomain('', this)">All</button>
-                                 <div class="causal-sim-panel">
+                <button class="causal-pill" onclick="CausalPage.filterDomain('Monetary', this)">Interest Rates & Banking</button>
+                <button class="causal-pill" onclick="CausalPage.filterDomain('Semiconductor', this)">Chips & AI</button>
+                <button class="causal-pill" onclick="CausalPage.filterDomain('Clean Energy', this)">EVs & Clean Energy</button>
+              </div>
+
+              <div class="causal-grid">
+                <div id="causal-chains-list">
+                  <div style="text-align:center;padding:40px;color:var(--mute);font:400 13px var(--sans);">Loading causal chains…</div>
+                </div>
+
+                <div>
+                  <div class="causal-sim-panel">
                     <div style="font:500 11px var(--mono);color:var(--sand-head,#A67C2E);text-transform:uppercase;margin-bottom:8px;letter-spacing:0.04em;">Interactive Scenario Simulator</div>
                     <h3 style="font:600 16px/1.2 var(--sans);color:var(--ink);margin:0 0 6px;">Explore "What If" Scenarios</h3>
                     <div style="font:400 12.5px/1.5 var(--sans);color:var(--ink-2);margin-bottom:16px;">What if interest rates spike higher? What if chip shortages worsen? Pick a real-world event below, adjust the severity, and see how the consequences ripple through businesses and markets.</div>
