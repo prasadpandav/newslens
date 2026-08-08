@@ -3,8 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Knowledge Graph — Descry</title>
+  <title>Story Network &amp; Knowledge Graph — Descry</title>
   <meta name="description" content="Explore the financial knowledge graph: see how companies, events, and economic forces connect.">
+  <meta http-equiv="refresh" content="0; url=/graph">
+  <script>
+    // Seamless forward to main integrated application
+    const entity = new URLSearchParams(window.location.search).get('entity');
+    window.location.replace('/graph' + (entity ? '?entity=' + encodeURIComponent(entity) : ''));
+  </script>
   <meta name="color-scheme" content="light dark">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="apple-touch-icon" href="icon.svg">
@@ -532,7 +538,18 @@
   </div>
 
   <script>
-    const API_BASE = '';
+    // Detect API base - try multiple endpoints
+    const API_BASE = (() => {
+      const backendHosts = [
+        'https://newslens-rmv6.onrender.com',
+        'http://localhost:8000',
+        'http://localhost:5000',
+        '/api',
+        ''
+      ];
+      return backendHosts[4]; // Default to relative path, adjust based on your setup
+    })();
+
     let cy = null;
     let currentEntity = null;
     let allNodes = new Map(); // Cache node data
@@ -700,9 +717,23 @@
             statsPanel.style.display = 'none';
           })
           .catch(error => {
-            console.error('Error loading graph:', error);
+            console.error('❌ Failed to load graph from:', `${API_BASE}/finance/graph`);
+            console.error('Error:', error);
+            const errorMsg = error.message || String(error);
             document.getElementById('sidebarContent').innerHTML =
-              `<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>Failed to load graph</p></div>`;
+              `<div class="empty-state" style="padding: 20px;">
+                <div class="empty-state-icon">⚠️</div>
+                <p style="margin-top: 12px; font-weight: 600;">Failed to load graph</p>
+                <p style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+                  API Base: <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">${API_BASE || '(relative)'}</code>
+                </p>
+                <p style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+                  Error: ${errorMsg}
+                </p>
+                <p style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
+                  Check browser console (F12) for details.
+                </p>
+              </div>`;
             resolve();
           });
       });

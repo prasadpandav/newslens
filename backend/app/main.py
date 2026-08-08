@@ -2532,8 +2532,9 @@ def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
     con = db.connect()
     try:
         if not entity:
-            return {"stats": fin_kg.stats(con),
-                    "top": fin_kg.top_entities(con, limit=min(int(limit or 40), 100))}
+            stats = fin_kg.stats(con)
+            top = fin_kg.top_entities(con, limit=min(int(limit or 40), 100))
+            return {"stats": stats, "top": top}
         seed = fin_kg.tk.canonical(entity)
         links = fin_kg.cascade(con, [seed], max_hops=max(1, min(int(hops or 2), 4)),
                                max_links=max(1, min(int(limit or 40), 100)))
@@ -2553,7 +2554,7 @@ def finance_entity_stories(entity_name: str, limit: int = 10):
         limit = max(1, min(int(limit or 10), 50))
 
         # Find stories that mention this entity. First try by canonical ID (ticker),
-        # then by entity name. The entities JSON column stores extracted entities.
+        # then by entity name.
         search_pattern = f"%{entity_name}%"
         search_ticker_pattern = f"%{canonical_id}%"
 
@@ -2564,12 +2565,27 @@ def finance_entity_stories(entity_name: str, limit: int = 10):
             (search_pattern, search_ticker_pattern, limit)).fetchall()
 
         out = [_fin_story_row(r) for r in rows]
-        con.close()
+
+        # Fallback to main stories table if fin_stories is empty
+        if not out:
+            main_rows = con.execute(
+                "SELECT * FROM stories "
+                "WHERE headline LIKE ? OR narrative LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (search_pattern, search_pattern, limit)).fetchall()
+            out = [{
+                "id": r["id"], "headline": r["headline"],
+                "narrative": r["narrative"], "credibility": r["credibility"],
+                "credibility_note": r["credibility_note"],
+                "created_at": r["created_at"]
+            } for r in main_rows]
+
         return {"entity": entity_name, "resolved_to": canonical_id,
                 "stories": out, "count": len(out)}
     except Exception as e:
-        con.close()
         return {"entity": entity_name, "stories": [], "count": 0, "error": str(e)}
+    finally:
+        con.close()
 
 
 @app.post("/admin/run-finance")
