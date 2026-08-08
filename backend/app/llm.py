@@ -84,8 +84,18 @@ def _note(kind, provider, task, msg):
         "kind": kind, "provider": provider, "task": task, "context": ctx, "detail": msg})
 
 # Pace calls to stay under free-tier requests-per-minute limits.
-_last_call: dict[str, float] = {}
-MIN_INTERVAL = {"groq": 2.1, "gemini": 6.5, "deepseek": 0.5, "openai": 0.5}
+# Keys are (provider, model) tuples; provider-only fallback for unknown models.
+_last_call: dict[tuple | str, float] = {}
+MIN_INTERVAL = {
+    ("groq", None): 2.1,
+    # Gemini models have different free-tier RPM limits
+    ("gemini", "gemini-2.5-flash-lite"): 4.3,  # 15 RPM limit → 14 calls/min
+    ("gemini", "gemini-3.5-flash-lite"): 4.3,  # 15 RPM limit → 14 calls/min
+    ("gemini", "gemini-2.5-flash"): 6.7,       # 10 RPM limit → 9 calls/min
+    ("gemini", "gemini-3-flash"): 6.7,         # 10 RPM limit → 9 calls/min
+    ("deepseek", None): 0.5,
+    ("openai", None): 0.5,
+}
 
 # When a provider rate-limits us, bench it for a while instead of knocking on
 # its door for every call. It gets retried automatically after the cooldown.
@@ -124,11 +134,13 @@ def _throttle():
         time.sleep(min(max(wait, 0.0), 60))
 
 
-def _pace(provider):
-    wait = MIN_INTERVAL.get(provider, 0) - (time.time() - _last_call.get(provider, 0.0))
+def _pace(provider, model=None):
+    key = (provider, model)
+    interval = MIN_INTERVAL.get(key) or MIN_INTERVAL.get((provider, None), 0)
+    wait = interval - (time.time() - _last_call.get(key, 0.0))
     if wait > 0:
         time.sleep(wait)
-    _last_call[provider] = time.time()
+    _last_call[key] = time.time()
 
 
 def _has_key(provider):
@@ -210,7 +222,8 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
                 _attempt.recorded = False
                 _throttle()   # global per-minute cap across all tasks/providers
-                _pace(p)
+                model = _model_for(p, task)
+                _pace(p, model)
                 text = _call(p, prompt if attempt == 0 else
                              f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
                              f"Reply with ONLY valid JSON.", task)
