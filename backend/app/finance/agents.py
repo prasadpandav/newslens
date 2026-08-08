@@ -524,17 +524,28 @@ class FinancialTrendAgent:
             f"{l.order} hop(s), confidence {l.confidence:.2f}" for l in links[:30])
 
     def _cascade_for(self, t, links, sids):
-        """The trend's cascade: graph links whose endpoints the model actually
-        named, plus its own second-order claims — but the model's claims are
-        capped at order 2 and given lower confidence, because unlike the graph
-        links they are not backed by a stored relationship."""
+        """The trend's cascade: graph links, plus the model's second-order claims.
+
+        If the trend explicitly names entities (via tickers/sectors/second_order),
+        prioritize graph links touching those. Otherwise include the strongest
+        graph links regardless — an established relationship always speaks louder
+        than a model's guess."""
         named = {str(x).casefold() for x in
                  (_strs(t.get("tickers")) + _strs(t.get("sectors")))}
         for so in (t.get("second_order") or []):
             if isinstance(so, dict):
                 named.add(str(so.get("entity") or "").casefold())
-        out = [l for l in links
-               if l.from_entity.casefold() in named or l.to_entity.casefold() in named]
+
+        # Filter graph links: prioritize those matching named entities, but if
+        # nothing matches (named is empty or no overlap), include high-confidence
+        # links directly. A silent cascade kills the trend's credibility.
+        if named:
+            out = [l for l in links
+                   if l.from_entity.casefold() in named or l.to_entity.casefold() in named]
+        else:
+            out = links
+
+        # Append model's second-order claims (lower confidence than stored edges).
         for so in (t.get("second_order") or [])[:6]:
             if not isinstance(so, dict):
                 continue

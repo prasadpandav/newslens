@@ -2544,6 +2544,34 @@ def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
         con.close()
 
 
+@app.get("/finance/graph/{entity_name}/stories")
+def finance_entity_stories(entity_name: str, limit: int = 10):
+    """Stories mentioning a specific entity in the knowledge graph."""
+    con = db.connect()
+    try:
+        canonical_id = fin_kg.tk.canonical(entity_name)
+        limit = max(1, min(int(limit or 10), 50))
+
+        # Find stories that mention this entity. First try by canonical ID (ticker),
+        # then by entity name. The entities JSON column stores extracted entities.
+        search_pattern = f"%{entity_name}%"
+        search_ticker_pattern = f"%{canonical_id}%"
+
+        rows = con.execute(
+            "SELECT * FROM fin_stories "
+            "WHERE entities LIKE ? OR tickers LIKE ? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (search_pattern, search_ticker_pattern, limit)).fetchall()
+
+        out = [_fin_story_row(r) for r in rows]
+        con.close()
+        return {"entity": entity_name, "resolved_to": canonical_id,
+                "stories": out, "count": len(out)}
+    except Exception as e:
+        con.close()
+        return {"entity": entity_name, "stories": [], "count": 0, "error": str(e)}
+
+
 @app.post("/admin/run-finance")
 def admin_run_finance(stage: str = "", token: str = "",
                       authorization: str = Header("")):

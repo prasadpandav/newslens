@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowledge Graph — Descry</title>
+  <meta name="description" content="Explore the financial knowledge graph: see how companies, events, and economic forces connect.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #1a1a1a;
+      --text-secondary: #666666;
+      --border: #e0e0e0;
+      --accent: #0066cc;
+      --accent-hover: #0052a3;
+      --success: #00b341;
+      --danger: #cc0000;
+      --warning: #ff8800;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #0f0f0f;
+        --bg-secondary: #1a1a1a;
+        --text-primary: #f0f0f0;
+        --text-secondary: #a0a0a0;
+        --border: #333333;
+        --accent: #4db8ff;
+        --accent-hover: #66c2ff;
+      }
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+    }
+
+    .header-title {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .search-box {
+      flex: 1;
+      max-width: 400px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+    }
+
+    .search-box input {
+      flex: 1;
+      background: none;
+      border: none;
+      color: var(--text-primary);
+      font-size: 14px;
+      outline: none;
+    }
+
+    .search-box input::placeholder {
+      color: var(--text-secondary);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--border);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    .main {
+      display: flex;
+      flex: 1;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    #cy {
+      flex: 1;
+      background: var(--bg-primary);
+      position: relative;
+    }
+
+    .sidebar {
+      width: 350px;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar.hidden {
+      display: none;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .close-sidebar {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 20px;
+      padding: 0;
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .entity-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .entity-card.node-info {
+      border-color: var(--accent);
+      background: var(--bg-primary);
+    }
+
+    .entity-type {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .entity-name {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+
+    .entity-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .relationships-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      margin-top: 16px;
+      letter-spacing: 0.5px;
+    }
+
+    .relationship {
+      padding: 12px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .relationship:hover {
+      border-color: var(--accent);
+      background: var(--bg-secondary);
+    }
+
+    .rel-predicate {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .rel-entity {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .rel-confidence {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .stories-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      margin-top: 16px;
+      letter-spacing: 0.5px;
+    }
+
+    .story-link {
+      display: block;
+      padding: 12px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      text-decoration: none;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+
+    .story-link:hover {
+      border-color: var(--accent);
+      border-left-color: var(--accent);
+      background: var(--bg-secondary);
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-secondary);
+      gap: 8px;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .controls {
+      position: absolute;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .control-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: all 0.2s;
+    }
+
+    .control-btn:hover {
+      background: var(--bg-secondary);
+      border-color: var(--accent);
+    }
+
+    .stats-panel {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      max-width: 300px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .stats-item {
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stats-item:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .stats-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .stats-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-secondary);
+      padding: 40px;
+      text-align: center;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 1000;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        width: 100%;
+        z-index: 100;
+        border-left: none;
+        border-radius: 0;
+      }
+
+      .header {
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .search-box {
+        max-width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-left">
+        <div class="header-title">Financial Knowledge Graph</div>
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="6" cy="6" r="4.5"></circle>
+            <path d="M10 10l4 4"></path>
+          </svg>
+          <input type="text" id="searchInput" placeholder="Search entities...">
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn" id="resetBtn">Reset View</button>
+        <button class="btn btn-primary" id="statsBtn">Show Stats</button>
+      </div>
+    </header>
+
+    <div class="main">
+      <div id="cy"></div>
+
+      <div class="controls">
+        <button class="control-btn" id="zoomInBtn" title="Zoom In">+</button>
+        <button class="control-btn" id="zoomOutBtn" title="Zoom Out">−</button>
+        <button class="control-btn" id="fitBtn" title="Fit to Screen">⊡</button>
+      </div>
+
+      <div class="stats-panel" id="statsPanel" style="display: none;">
+        <div class="stats-item">
+          <div class="stats-label">Nodes</div>
+          <div class="stats-value" id="nodeCount">0</div>
+        </div>
+        <div class="stats-item">
+          <div class="stats-label">Edges</div>
+          <div class="stats-value" id="edgeCount">0</div>
+        </div>
+        <div class="stats-item">
+          <div class="stats-label">Top Hubs</div>
+          <div id="hubsList" style="margin-top: 8px;"></div>
+        </div>
+      </div>
+
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <h3>Entity Details</h3>
+          <button class="close-sidebar" id="closeSidebarBtn">✕</button>
+        </div>
+        <div class="sidebar-content" id="sidebarContent">
+          <div class="loading">
+            <div class="spinner"></div>
+            <span>Loading...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '';
+    let cy = null;
+    let currentEntity = null;
+    let allNodes = new Map(); // Cache node data
+
+    // Initialize Cytoscape
+    function initCytoscape() {
+      cy = cytoscape({
+        container: document.getElementById('cy'),
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'content': 'data(label)',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'background-color': (ele) => {
+                const type = ele.data('type');
+                if (type === 'regulator') return '#ff6b6b';
+                if (type === 'organization') return '#4db8ff';
+                if (type === 'sector') return '#00b341';
+                if (type === 'geography') return '#ffa500';
+                return '#9b59b6';
+              },
+              'width': (ele) => {
+                const mentions = ele.data('mentions') || 1;
+                return Math.min(150, 40 + Math.log(mentions) * 10);
+              },
+              'height': (ele) => {
+                const mentions = ele.data('mentions') || 1;
+                return Math.min(150, 40 + Math.log(mentions) * 10);
+              },
+              'border-width': 2,
+              'border-color': '#ffffff',
+              'color': '#ffffff',
+              'font-size': '12px',
+              'font-weight': 'bold',
+              'text-wrap': 'wrap',
+              'text-max-width': '80px',
+              'overlay-padding': '5px',
+            }
+          },
+          {
+            selector: 'node:selected',
+            style: {
+              'border-width': 3,
+              'border-color': '#ffff00',
+              'box-shadow': '0 0 10px rgba(255,255,0,0.5)'
+            }
+          },
+          {
+            selector: 'node:hover',
+            style: {
+              'border-color': '#cccccc',
+              'border-width': 3,
+              'cursor': 'pointer'
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'target-arrow-shape': 'triangle',
+              'line-color': (ele) => {
+                const confidence = ele.data('confidence') || 0.5;
+                return confidence > 0.7 ? '#4db8ff' : confidence > 0.4 ? '#ffa500' : '#ff6b6b';
+              },
+              'stroke-width': (ele) => {
+                const confidence = ele.data('confidence') || 0.5;
+                return 1 + confidence * 2;
+              },
+              'arrow-scale': 1.5,
+              'curve-style': 'bezier',
+              'opacity': 0.6,
+            }
+          },
+          {
+            selector: 'edge:hover',
+            style: {
+              'opacity': 1,
+              'stroke-width': 3,
+            }
+          }
+        ],
+        layout: {
+          name: 'cose',
+          directed: true,
+          animate: true,
+          animationDuration: 500,
+          avoidOverlap: true,
+          nodeSpacing: 20,
+          padding: 50,
+          randomize: false,
+          componentSpacing: 50,
+          nodeRepulsion: 100000,
+          edgeElasticity: 0.5,
+          nestingFactor: 1.2,
+        }
+      });
+
+      // Event handlers
+      cy.on('tap', 'node', handleNodeClick);
+      cy.on('tap', handleCanvasTap);
+
+      document.getElementById('zoomInBtn').addEventListener('click', () => cy.zoom(cy.zoom() * 1.2));
+      document.getElementById('zoomOutBtn').addEventListener('click', () => cy.zoom(cy.zoom() / 1.2));
+      document.getElementById('fitBtn').addEventListener('click', () => cy.fit());
+      document.getElementById('resetBtn').addEventListener('click', loadFullGraph);
+      document.getElementById('closeSidebarBtn').addEventListener('click', () => document.getElementById('sidebar').classList.add('hidden'));
+      document.getElementById('statsBtn').addEventListener('click', () => {
+        document.getElementById('statsPanel').style.display =
+          document.getElementById('statsPanel').style.display === 'none' ? 'block' : 'none';
+      });
+
+      document.getElementById('searchInput').addEventListener('input', handleSearch);
+    }
+
+    function loadFullGraph() {
+      return new Promise((resolve) => {
+        const sidebar = document.getElementById('sidebar');
+        const statsPanel = document.getElementById('statsPanel');
+
+        fetch(`${API_BASE}/finance/graph`)
+          .then(response => response.json())
+          .then(data => {
+            // Clear existing
+            cy.elements().remove();
+            allNodes.clear();
+
+            // Add top entities as nodes
+            if (data.top) {
+              data.top.forEach((entity) => {
+                allNodes.set(entity.id, entity);
+                cy.add({
+                  data: {
+                    id: entity.id,
+                    label: entity.name,
+                    name: entity.name,
+                    type: entity.type,
+                    mentions: entity.mentions,
+                    ticker: entity.ticker
+                  }
+                });
+              });
+            }
+
+            // Update stats
+            if (data.stats) {
+              document.getElementById('nodeCount').textContent = data.stats.nodes;
+              document.getElementById('edgeCount').textContent = data.stats.edges;
+
+              const hubsList = document.getElementById('hubsList');
+              hubsList.innerHTML = data.stats.hubs.map(h =>
+                `<div style="font-size: 12px; margin-bottom: 4px;">
+                  <strong>${h.node}</strong><br>
+                  <span style="color: var(--text-secondary);">${h.degree} connections</span>
+                </div>`
+              ).join('');
+            }
+
+            // Layout
+            const layout = cy.layout({ name: 'cose' });
+            layout.on('layoutstop', () => resolve());
+            layout.run();
+
+            sidebar.classList.add('hidden');
+            statsPanel.style.display = 'none';
+          })
+          .catch(error => {
+            console.error('Error loading graph:', error);
+            document.getElementById('sidebarContent').innerHTML =
+              `<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>Failed to load graph</p></div>`;
+            resolve();
+          });
+      });
+    }
+
+    async function handleNodeClick(event) {
+      const node = event.target;
+      currentEntity = node.data('id');
+
+      // Highlight path
+      cy.elements().removeClass('highlight');
+      node.addClass('highlight');
+      node.successors().addClass('highlight');
+      node.predecessors().addClass('highlight');
+
+      // Load and display details
+      await loadEntityDetails(currentEntity);
+
+      // Load cascade
+      await loadCascade(currentEntity);
+
+      document.getElementById('sidebar').classList.remove('hidden');
+    }
+
+    function handleCanvasTap(event) {
+      if (event.target === cy) {
+        cy.elements().removeClass('highlight');
+        document.getElementById('sidebar').classList.add('hidden');
+      }
+    }
+
+    async function loadEntityDetails(entityId) {
+      const content = document.getElementById('sidebarContent');
+      content.innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading...</span></div>';
+
+      try {
+        const entity = allNodes.get(entityId) || { id: entityId, name: entityId, type: 'unknown', mentions: 0 };
+
+        // Get related stories for this entity
+        let relatedStories = [];
+        try {
+          const storiesResponse = await fetch(`${API_BASE}/finance/graph/${encodeURIComponent(entityId)}/stories?limit=10`);
+          if (storiesResponse.ok) {
+            const storiesData = await storiesResponse.json();
+            relatedStories = storiesData.stories || [];
+          }
+        } catch (e) {
+          console.warn('Could not fetch entity-specific stories:', e);
+          // Fallback: fetch all and filter
+          const storiesResponse = await fetch(`${API_BASE}/finance/stories?limit=50`);
+          const storiesData = await storiesResponse.json();
+          relatedStories = storiesData.stories.slice(0, 5);
+        }
+
+        // Build HTML
+        let html = `
+          <div class="entity-card node-info">
+            <div class="entity-type">${entity.type}</div>
+            <div class="entity-name">${entity.name}</div>
+            <div class="entity-stats">
+              <div class="stat">
+                <div class="stat-value">${entity.mentions || 0}</div>
+                <div class="stat-label">Mentions</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value" id="connectionCount">0</div>
+                <div class="stat-label">Connections</div>
+              </div>
+            </div>
+        `;
+
+        if (entity.ticker) {
+          html += `<div style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Symbol: <strong>${entity.ticker}</strong></div>`;
+        }
+
+        html += '</div>';
+
+        if (relatedStories.length > 0) {
+          html += `<div class="stories-title">Related Stories</div>`;
+          relatedStories.forEach(story => {
+            html += `<a href="/finance/story/${story.id}" class="story-link" target="_blank">${story.headline}</a>`;
+          });
+        }
+
+        content.innerHTML = html;
+      } catch (error) {
+        console.error('Error loading entity details:', error);
+        content.innerHTML = '<div class="empty-state"><p>Failed to load details</p></div>';
+      }
+    }
+
+    async function loadCascade(entityId) {
+      try {
+        const response = await fetch(`${API_BASE}/finance/graph?entity=${encodeURIComponent(entityId)}&hops=3&limit=50`);
+        const data = await response.json();
+
+        if (!data.links || data.links.length === 0) {
+          return;
+        }
+
+        // Update connection count
+        document.getElementById('connectionCount').textContent = data.links.length;
+
+        // Add cascade to graph
+        const newNodes = new Set();
+        const edges = [];
+
+        data.links.forEach(link => {
+          if (!cy.getElementById(link.from_entity).nonempty()) {
+            newNodes.add(link.from_entity);
+            cy.add({
+              data: {
+                id: link.from_entity,
+                label: link.from_entity,
+                name: link.from_entity,
+                type: 'unknown',
+                mentions: 0
+              }
+            });
+          }
+
+          if (!cy.getElementById(link.to_entity).nonempty()) {
+            newNodes.add(link.to_entity);
+            cy.add({
+              data: {
+                id: link.to_entity,
+                label: link.to_entity,
+                name: link.to_entity,
+                type: 'unknown',
+                mentions: 0
+              }
+            });
+          }
+
+          edges.push({
+            data: {
+              id: `${link.from_entity}-${link.to_entity}`,
+              source: link.from_entity,
+              target: link.to_entity,
+              predicate: link.mechanism,
+              confidence: link.confidence,
+              order: link.order
+            }
+          });
+        });
+
+        cy.add(edges);
+
+        // Add relationships to sidebar
+        const content = document.getElementById('sidebarContent');
+        let html = content.innerHTML;
+
+        html += `<div class="relationships-title">Connections (${data.links.length})</div>`;
+        data.links.slice(0, 10).forEach(link => {
+          html += `
+            <div class="relationship" onclick="focusNode('${link.to_entity}')">
+              <div class="rel-predicate">${link.mechanism}</div>
+              <div class="rel-entity">→ ${link.to_entity}</div>
+              <div class="rel-confidence">Confidence: ${(link.confidence * 100).toFixed(0)}% • Hops: ${link.order}</div>
+            </div>
+          `;
+        });
+
+        content.innerHTML = html;
+      } catch (error) {
+        console.error('Error loading cascade:', error);
+      }
+    }
+
+    function handleSearch(event) {
+      const query = event.target.value.toLowerCase();
+
+      if (!query) {
+        cy.elements().removeClass('highlight');
+        return;
+      }
+
+      cy.elements().forEach(ele => {
+        const label = (ele.data('label') || '').toLowerCase();
+        const name = (ele.data('name') || '').toLowerCase();
+
+        if (label.includes(query) || name.includes(query)) {
+          ele.addClass('highlight');
+          if (ele.isNode()) {
+            ele.successors().addClass('highlight');
+          }
+        } else {
+          ele.removeClass('highlight');
+        }
+      });
+    }
+
+    function focusNode(nodeId) {
+      const node = cy.getElementById(nodeId);
+      if (node.nonempty()) {
+        cy.animate({
+          center: { eles: node },
+          zoom: 2
+        }, { duration: 500 });
+        node.emit('tap');
+      }
+    }
+
+    // Parse query parameters
+    function getQueryParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+
+    // Initialize
+    initCytoscape();
+
+    // Check if a specific entity was requested via query parameter
+    const entityParam = getQueryParam('entity');
+    if (entityParam) {
+      loadFullGraph().then(() => {
+        // Focus on the requested entity after graph loads
+        setTimeout(() => {
+          focusNode(decodeURIComponent(entityParam));
+        }, 1500);
+      });
+    } else {
+      loadFullGraph();
+    }
+
+    // Expose function for HTML onclick
+    window.focusNode = focusNode;
+  </script>
+</body>
+</html>
