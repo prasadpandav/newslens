@@ -53,78 +53,78 @@ class CausalChain(BaseModel):
     corroborating_story_ids: List[str] = Field(default_factory=list)
 
 
-# Curated, macroeconomic causal models reflecting systemic transmission channels
+# Curated cause-and-effect chains explained in plain English
 CANONICAL_CAUSAL_CHAINS: List[Dict[str, Any]] = [
     {
         "id": "chain-monetary-policy-lending",
-        "title": "RBI Monetary Policy Transmission to Corporate Syndicated Credit",
-        "catalyst_event": "Reserve Bank of India Monetary Policy Committee Shifts Repo Rate",
+        "title": "How RBI Interest Rate Changes Affect Business Loans & Growth",
+        "catalyst_event": "RBI changes the key interest rate (repo rate) that banks pay to borrow money",
         "catalyst_entity": "Reserve Bank of India",
         "catalyst_domain": "Monetary Policy & Central Banking",
-        "terminal_outcome": "Margin Compression & Capex Delay in Capital-Intensive Sectors",
-        "transmission_channel": "Bank Cost of Funds & Liquidity Transmission Channel",
+        "terminal_outcome": "Companies delay expansion plans as borrowing becomes more expensive across the economy",
+        "transmission_channel": "Interest rates flow from RBI → banks → businesses → consumers",
         "overall_confidence": 0.89,
         "base_probability": 0.82,
-        "time_horizon": "1-2 quarters",
-        "affected_sectors": ["Banking & Retail Credit", "Infrastructure", "Automotive & Manufacturing"],
+        "time_horizon": "3-6 months",
+        "affected_sectors": ["Banking & Loans", "Infrastructure", "Auto & Manufacturing"],
         "sensitive_tickers": ["HDFCBANK", "RELIANCE", "TATAMOTORS"],
-        "historical_precedent": "2022-2023 Global Rate Hike Cycle & Corporate Debt Spread Widening",
+        "historical_precedent": "In 2022-23, global central banks raised rates sharply — corporate borrowing costs spiked, slowing business expansion worldwide",
         "steps": [
             {
                 "step_order": 1,
-                "stage_name": "Catalyst Shock",
+                "stage_name": "Trigger",
                 "entity": "Reserve Bank of India",
-                "action_or_friction": "Adjusts baseline repo rate and tightens liquidity absorption facilities (LAF).",
-                "channel": "Central Bank Policy Rate Setting",
+                "action_or_friction": "RBI raises or lowers the repo rate — this is the base rate at which all banks borrow money from the central bank.",
+                "channel": "Central Bank Rate Decision",
                 "elasticity_score": 1.0,
                 "propagation_horizon": "Immediate (1-3 days)",
                 "affected_tickers": ["HDFCBANK"],
-                "evidence_quote": "RBI monetary policy decisions directly reset marginal cost of funds across Scheduled Commercial Banks."
+                "evidence_quote": "When RBI changes rates, every bank in India must adjust what it costs them to lend money."
             },
             {
                 "step_order": 2,
-                "stage_name": "Primary Transmission",
-                "entity": "HDFC Bank & Tier-1 Commercial Lenders",
-                "action_or_friction": "Repo rate pass-through increases MCLR and external benchmark lending rates by 35-50 bps.",
-                "channel": "Retail & Wholesale Credit Repricing Channel",
+                "stage_name": "First Ripple",
+                "entity": "HDFC Bank & Major Banks",
+                "action_or_friction": "Banks pass on the rate change to customers — home loans, business loans, and credit lines all get repriced within weeks.",
+                "channel": "Bank Loan Repricing",
                 "elasticity_score": 0.88,
                 "propagation_horizon": "2-4 weeks",
                 "affected_tickers": ["HDFCBANK"],
-                "evidence_quote": "Commercial banks reprice floating-rate working capital loans and commercial paper facilities."
+                "evidence_quote": "Banks adjust their lending rates, making loans cheaper or more expensive for everyone."
             },
             {
                 "step_order": 3,
-                "stage_name": "Intermediate Friction",
-                "entity": "Reliance Industries & Large Corporate Borrowers",
-                "action_or_friction": "Debt refinancing costs increase for syndicated capital expenditure pipelines.",
-                "channel": "Corporate Working Capital & Syndication Channel",
+                "stage_name": "Chain Reaction",
+                "entity": "Reliance, Tata & Large Companies",
+                "action_or_friction": "Big companies find it costlier to borrow for new projects — factory expansions, new plants, and large deals get reconsidered.",
+                "channel": "Corporate Borrowing Costs",
                 "elasticity_score": 0.74,
-                "propagation_horizon": "1-2 quarters",
+                "propagation_horizon": "3-6 months",
                 "affected_tickers": ["RELIANCE", "TATAMOTORS"],
-                "evidence_quote": "Large corporate balance sheets adjust debt-to-equity ratios and prioritize internal cash generation."
+                "evidence_quote": "Large companies rethink how much debt they take on and may postpone expensive projects."
             },
             {
                 "step_order": 4,
-                "stage_name": "Structural Terminal Impact",
-                "entity": "Indian Manufacturing & Auto EV Clusters",
-                "action_or_friction": "Downstream tier-2 suppliers face higher factoring costs, moderating private capex momentum.",
-                "channel": "Real Economy Capex Propagation",
+                "stage_name": "End Result",
+                "entity": "Manufacturing & Auto Sector",
+                "action_or_friction": "Smaller suppliers and manufacturers also face higher costs — hiring slows, new orders dip, and overall industrial growth moderates.",
+                "channel": "Real Economy Slowdown",
                 "elasticity_score": 0.65,
-                "propagation_horizon": "2-4 quarters",
+                "propagation_horizon": "6-12 months",
                 "affected_tickers": ["TATAMOTORS"],
-                "evidence_quote": "Industrial supply chains experience inventory destocking and working capital recalibration."
+                "evidence_quote": "The ripple reaches everyday factories and workshops — the real economy feels the squeeze."
             }
         ],
         "dampeners": [
             {
-                "name": "Fixed-Rate Bond Portfolio Hedging",
-                "mechanism": "Pre-hedged long-term corporate debt insulates against immediate 1-year rate shocks.",
+                "name": "Fixed-Rate Loans Already Locked In",
+                "mechanism": "Many companies already have loans at fixed rates — they don't feel the impact immediately, buying time to adjust.",
                 "absorption_capacity_pct": 28,
-                "sponsor_entity": "HDFC Bank & Reliance Treasury"
+                "sponsor_entity": "HDFC Bank & Reliance"
             },
             {
-                "name": "Surplus Retail Deposit Sticky Base",
-                "mechanism": "Granular low-cost CASA deposits dampen wholesale interbank borrowing spikes.",
+                "name": "Strong Bank Deposits as a Buffer",
+                "mechanism": "Banks with large savings deposits don't need to borrow as much at higher rates — this cushions the blow.",
                 "absorption_capacity_pct": 22,
                 "sponsor_entity": "HDFC Bank"
             }
@@ -132,74 +132,74 @@ CANONICAL_CAUSAL_CHAINS: List[Dict[str, Any]] = [
     },
     {
         "id": "chain-semiconductor-fab-cascade",
-        "title": "Advanced Silicon Packaging Bottleneck to Sovereign AI Compute Deployments",
-        "catalyst_event": "TSMC Advanced Packaging (CoWoS) Capacity Reallocation",
+        "title": "How Chip Shortages at TSMC Delay AI Infrastructure in India",
+        "catalyst_event": "TSMC's advanced chip packaging lines hit capacity limits due to surging AI demand",
         "catalyst_entity": "TSMC",
         "catalyst_domain": "Semiconductor Fabrication & Packaging",
-        "terminal_outcome": "Delivery Backlog & Sovereign AI Server Capex Shift into Domestic Fabs",
-        "transmission_channel": "Advanced Silicon Packaging & Sub-10nm Supply Pass-Through",
+        "terminal_outcome": "AI server deliveries get delayed, pushing India to accelerate its own chip manufacturing",
+        "transmission_channel": "Chip shortage at TSMC → GPU delays at NVIDIA → India builds local alternatives",
         "overall_confidence": 0.93,
         "base_probability": 0.86,
-        "time_horizon": "2-4 quarters",
-        "affected_sectors": ["Semiconductor Fabrication", "AI & Enterprise Cloud", "Electronics Assembly"],
+        "time_horizon": "6-12 months",
+        "affected_sectors": ["Chip Manufacturing", "AI & Cloud Computing", "Electronics Assembly"],
         "sensitive_tickers": ["TSM", "NVDA", "INFY"],
-        "historical_precedent": "2021-2022 Global Automotive Semiconductor Lead Time Extension (52+ weeks)",
+        "historical_precedent": "In 2021-22, a global chip shortage caused 52+ week wait times for car manufacturers worldwide",
         "steps": [
             {
                 "step_order": 1,
-                "stage_name": "Catalyst Shock",
+                "stage_name": "Trigger",
                 "entity": "TSMC",
-                "action_or_friction": "Constrains 3nm / CoWoS advanced substrate packaging lines due to hyperscaler demand surges.",
-                "channel": "Foundry Wafer & Packaging Allocation",
+                "action_or_friction": "TSMC's factories that package advanced AI chips can't keep up with demand from big tech companies like Google, Microsoft, and Meta.",
+                "channel": "Chip Factory Capacity",
                 "elasticity_score": 0.95,
                 "propagation_horizon": "1-2 weeks",
                 "affected_tickers": ["TSM", "NVDA"],
-                "evidence_quote": "Advanced packaging bottlenecks throttle GPU accelerator assembly throughput globally."
+                "evidence_quote": "When TSMC's packaging lines max out, fewer AI chips can be assembled for the entire world."
             },
             {
                 "step_order": 2,
-                "stage_name": "Primary Transmission",
-                "entity": "NVIDIA Corporation",
-                "action_or_friction": "Blackwell and Hopper accelerator shipment lead times stretch to 30-38 weeks.",
-                "channel": "AI Accelerator Supply Allocation Channel",
+                "stage_name": "First Ripple",
+                "entity": "NVIDIA",
+                "action_or_friction": "NVIDIA's latest AI chips (Blackwell, Hopper) face delivery delays of 30-38 weeks — companies have to wait months to get their orders.",
+                "channel": "AI Chip Delivery Delays",
                 "elasticity_score": 0.91,
                 "propagation_horizon": "1-2 months",
                 "affected_tickers": ["NVDA"],
-                "evidence_quote": "Enterprise cloud GPU allocations prioritized for tier-1 sovereign and hyperscale contracts."
+                "evidence_quote": "Big cloud companies get priority, while smaller buyers and countries like India face longer waits."
             },
             {
                 "step_order": 3,
-                "stage_name": "Intermediate Friction",
-                "entity": "Foxconn & Gujarat Semiconductor Fab Hub",
-                "action_or_friction": "Accelerates secondary assembly and advanced packaging fab commissioning in Dholera & Sanand.",
-                "channel": "Sovereign Supply Chain Diversification",
+                "stage_name": "Chain Reaction",
+                "entity": "Foxconn & Gujarat Chip Hub",
+                "action_or_friction": "India fast-tracks its own chip packaging and testing facilities in Gujarat (Dholera & Sanand) to reduce dependence on TSMC.",
+                "channel": "Building Local Alternatives",
                 "elasticity_score": 0.82,
-                "propagation_horizon": "2-3 quarters",
+                "propagation_horizon": "6-9 months",
                 "affected_tickers": ["INFY"],
-                "evidence_quote": "Government and joint ventures fast-track domestic testing and packaging (ATMP) infrastructure."
+                "evidence_quote": "Government-backed projects and joint ventures rush to set up domestic chip infrastructure."
             },
             {
                 "step_order": 4,
-                "stage_name": "Structural Terminal Impact",
-                "entity": "Infosys & Enterprise AI Service Integrators",
-                "action_or_friction": "Clients reallocate budgets from on-premise hardware buys to optimized sovereign AI cloud services.",
-                "channel": "Enterprise Software & Cloud Optimization Channel",
+                "stage_name": "End Result",
+                "entity": "Infosys & IT Services Companies",
+                "action_or_friction": "Companies switch from buying expensive hardware to using cloud-based AI services — IT firms like Infosys benefit as they help manage this transition.",
+                "channel": "Shift to Cloud AI Services",
                 "elasticity_score": 0.70,
-                "propagation_horizon": "3-4 quarters",
+                "propagation_horizon": "9-12 months",
                 "affected_tickers": ["INFY"],
-                "evidence_quote": "Enterprises shift to quantized LLMs and managed AI infrastructure to circumvent silicon lead times."
+                "evidence_quote": "Businesses adapt by using optimized, cloud-hosted AI instead of waiting for physical hardware."
             }
         ],
         "dampeners": [
             {
-                "name": "Ministry of Electronics & IT (MeitY) PLI Subsidies",
-                "mechanism": "50% fiscal capital support absorbs setup risk for domestic packaging fabs.",
+                "name": "Government Subsidies (MeitY PLI Scheme)",
+                "mechanism": "The Indian government covers up to 50% of setup costs for domestic chip factories — making it viable to build locally.",
                 "absorption_capacity_pct": 35,
                 "sponsor_entity": "Ministry of Electronics & IT"
             },
             {
-                "name": "Secondary Foundry Architecture Licensing",
-                "mechanism": "Multi-sourcing packaging substrates across alternative Asian hubs.",
+                "name": "Multiple Supplier Strategy",
+                "mechanism": "Companies source chip components from multiple factories across Asia — not just TSMC — reducing single-point risk.",
                 "absorption_capacity_pct": 20,
                 "sponsor_entity": "Foxconn Consortium"
             }
@@ -207,76 +207,76 @@ CANONICAL_CAUSAL_CHAINS: List[Dict[str, Any]] = [
     },
     {
         "id": "chain-auto-ev-raw-materials",
-        "title": "Critical Mineral Sourcing & Battery Cell Localization to Commercial EV Pricing",
-        "catalyst_event": "Global Battery Lithium & Cathode Material Export Constraints",
-        "catalyst_entity": "Global Critical Mineral Suppliers",
+        "title": "How Rising Lithium Prices Make Electric Vehicles More Expensive",
+        "catalyst_event": "Countries that mine lithium and battery materials impose export restrictions, driving up prices",
+        "catalyst_entity": "Global Mineral Suppliers",
         "catalyst_domain": "Clean Energy & Mineral Supply Chains",
-        "terminal_outcome": "Battery Pack Cost Escalation & Accelerated Sodium-Ion / Domestic Cell Localization",
-        "transmission_channel": "Raw Material Commodity Cost Pass-Through & Cell Assembly",
+        "terminal_outcome": "EV prices rise in the short term, but India accelerates building its own battery factories",
+        "transmission_channel": "Raw material costs rise → battery packs get expensive → EVs cost more → India builds local supply",
         "overall_confidence": 0.85,
         "base_probability": 0.78,
-        "time_horizon": "2-3 quarters",
-        "affected_sectors": ["Automotive & EV", "Renewable Energy & Battery Storage", "Electronics Manufacturing"],
+        "time_horizon": "6-9 months",
+        "affected_sectors": ["Auto & Electric Vehicles", "Batteries & Clean Energy", "Electronics Manufacturing"],
         "sensitive_tickers": ["TATAMOTORS", "RELIANCE"],
-        "historical_precedent": "2022 Nickel & Lithium Carbonate Price Shock on Passenger EV Margins",
+        "historical_precedent": "In 2022, nickel and lithium prices spiked suddenly — EV makers worldwide saw their margins squeezed overnight",
         "steps": [
             {
                 "step_order": 1,
-                "stage_name": "Catalyst Shock",
-                "entity": "Global Critical Mineral Suppliers",
-                "action_or_friction": "Export quotas and processing tariffs increase lithium carbonate spot prices.",
-                "channel": "Upstream Commodity Sourcing",
+                "stage_name": "Trigger",
+                "entity": "Global Mineral Suppliers",
+                "action_or_friction": "Countries that control lithium, cobalt, and nickel impose export quotas or tariffs — the price of raw battery materials jumps.",
+                "channel": "Raw Material Prices",
                 "elasticity_score": 0.90,
                 "propagation_horizon": "2-4 weeks",
                 "affected_tickers": ["TATAMOTORS", "RELIANCE"],
-                "evidence_quote": "Upstream mineral refining bottlenecks raise raw material input costs for cell manufacturers."
+                "evidence_quote": "When mining countries restrict exports, battery material costs shoot up globally."
             },
             {
                 "step_order": 2,
-                "stage_name": "Primary Transmission",
-                "entity": "Tata Motors & Pune Automotive EV Cluster",
-                "action_or_friction": "Battery pack manufacturing cost per kWh rises 8-12%, putting pressure on gross vehicle margins.",
-                "channel": "Automotive Cell Integration Channel",
+                "stage_name": "First Ripple",
+                "entity": "Tata Motors & EV Makers",
+                "action_or_friction": "The cost to build each battery pack rises 8-12% — car companies must decide whether to absorb the cost or raise vehicle prices.",
+                "channel": "Battery Cost Increase",
                 "elasticity_score": 0.84,
-                "propagation_horizon": "1-2 quarters",
+                "propagation_horizon": "3-6 months",
                 "affected_tickers": ["TATAMOTORS"],
-                "evidence_quote": "Automakers face trade-offs between absorbing component inflation and hiking fleet sticker prices."
+                "evidence_quote": "Automakers face a tough choice: eat into profits or pass higher costs to buyers."
             },
             {
                 "step_order": 3,
-                "stage_name": "Intermediate Friction",
-                "entity": "Commercial Fleet Operators & EV Buyers",
-                "action_or_friction": "Total cost of ownership (TCO) parity shifts outward by 6-9 months.",
-                "channel": "Fleet Adoption & Consumer Demand Elasticity",
+                "stage_name": "Chain Reaction",
+                "entity": "EV Buyers & Fleet Operators",
+                "action_or_friction": "EVs become less attractive vs. petrol/diesel cars — buyers delay purchases, and fleet operators slow their switch to electric.",
+                "channel": "Consumer Demand Softens",
                 "elasticity_score": 0.72,
-                "propagation_horizon": "2-3 quarters",
+                "propagation_horizon": "6-9 months",
                 "affected_tickers": ["TATAMOTORS"],
-                "evidence_quote": "Fleet electrification pacing moderates in commercial logistics while passenger EV adoption stabilizes."
+                "evidence_quote": "The cost advantage of owning an EV shrinks, and some buyers wait for prices to stabilize."
             },
             {
                 "step_order": 4,
-                "stage_name": "Structural Terminal Impact",
-                "entity": "Reliance Gigafactory & Domestic Battery Projects",
-                "action_or_friction": "Accelerates long-term capital deployment into domestic cathode refining and LFP/Sodium cell plants.",
-                "channel": "Domestic Energy Storage Localization",
+                "stage_name": "End Result",
+                "entity": "Reliance & Domestic Battery Projects",
+                "action_or_friction": "India doubles down on building its own battery factories using alternative chemistries (like sodium-ion) to avoid depending on imported lithium.",
+                "channel": "Building Local Battery Supply",
                 "elasticity_score": 0.68,
-                "propagation_horizon": "4-6 quarters",
+                "propagation_horizon": "12-18 months",
                 "affected_tickers": ["RELIANCE"],
-                "evidence_quote": "Industrial groups invest heavily in localized gigafactories under National ACC PLI schemes."
+                "evidence_quote": "Indian companies invest in homegrown gigafactories to insulate the market from global supply shocks."
             }
         ],
         "dampeners": [
             {
-                "name": "FAME / EMPS EV Fleet Adoption Subsidies",
-                "mechanism": "Government purchase incentives offset battery pack cost differentials for commercial logistics.",
+                "name": "Government EV Subsidies (FAME / EMPS)",
+                "mechanism": "Government incentives for EV buyers offset some of the battery cost increase — keeping EVs competitive for fleet operators.",
                 "absorption_capacity_pct": 25,
                 "sponsor_entity": "Ministry of Heavy Industries"
             },
             {
-                "name": "Long-Term Bilateral Supply Offtake Contracts",
-                "mechanism": "Multi-year fixed-price offtake contracts insulate tier-1 automakers from spot commodity swings.",
+                "name": "Long-Term Supply Contracts",
+                "mechanism": "Smart automakers lock in multi-year deals at fixed prices — protecting them from sudden price spikes in raw materials.",
                 "absorption_capacity_pct": 30,
-                "sponsor_entity": "Tata Motors Procurement"
+                "sponsor_entity": "Tata Motors"
             }
         ]
     }
