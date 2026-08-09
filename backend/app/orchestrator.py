@@ -3,7 +3,7 @@ logs every stage. Re-runnable: each stage skips work already done."""
 import gc
 import time
 import uuid
-from . import db, diag, fulltext, llm
+from . import db, diag, fulltext, gazetteer, llm, llmcache
 from .agents import (Scout, Deduper, EntityTagger, TrendLinker, MicroTrendDetector,
                      ConnectionFinder, Verifier, Storyteller, Foresight)
 
@@ -76,6 +76,24 @@ def run_pipeline(stage=None):
             db.log_run(con, "history", "ok", f"pruned {dropped} stale history rows")
     except Exception as e:                       # never fail a run over cleanup
         db.log_run(con, "history", "warn", f"prune failed: {e}")
+    # The answer cache only IGNORES expired rows on read, so its sweep lives
+    # here — once per run, next to the other bounded-growth cleanups, rather
+    # than on the request path.
+    try:
+        expired = llmcache.purge(con)
+        if expired:
+            db.log_run(con, "llm_cache", "ok", f"purged {expired} expired answers")
+    except Exception as e:                       # never fail a run over cleanup
+        db.log_run(con, "llm_cache", "warn", f"purge failed: {e}")
+    # Same reasoning: the gazetteer grows with the news, and the terms seen once
+    # and never again are the ones that would crowd out the recurring vocabulary
+    # under load()'s cap.
+    try:
+        stale = gazetteer.prune(con)
+        if stale:
+            db.log_run(con, "gazetteer", "ok", f"pruned {stale} one-off terms")
+    except Exception as e:                       # never fail a run over cleanup
+        db.log_run(con, "gazetteer", "warn", f"prune failed: {e}")
     db.log_run(con, "pipeline", "done", str(results),
                llm_calls=llm.usage["calls"], llm_tokens=llm.usage["tokens"])
     con.close()

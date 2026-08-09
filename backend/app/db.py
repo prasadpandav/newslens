@@ -122,6 +122,34 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   PRIMARY KEY (day, provider, model, task, peak));
 CREATE INDEX IF NOT EXISTS llm_usage_day ON llm_usage(day);
 
+-- Answers keyed by a hash of (task, prompt), so an identical prompt is served
+-- from here instead of from the provider. The pipeline is re-runnable by design
+-- and every stage skips work it already did, but a stage re-run after a PARTIAL
+-- failure re-asks the prompts that succeeded — the cache is what makes a retry
+-- cost only the part that actually failed. Rows expire on read (see llmcache)
+-- and are swept on each pipeline run, so this never grows without bound.
+CREATE TABLE IF NOT EXISTS llm_cache (
+  hash TEXT PRIMARY KEY, task TEXT, response TEXT, created_at REAL);
+CREATE INDEX IF NOT EXISTS llm_cache_created ON llm_cache(created_at);
+
+-- Every entity name the extractor has ever returned, with how often it has been
+-- seen. This is a memory of work already paid for: the vocabulary of a news beat
+-- turns over slowly, so most articles name organisations, people and places that
+-- a previous extraction already resolved. EntityTagger matches against this
+-- first and only pays an LLM for articles carrying proper nouns it has never
+-- seen. `kind` is entities|sectors|regions, matching the extractor's own keys.
+-- `tokens` is the term's matchable words, precomputed at write time so the read
+-- path never re-tokenises the whole vocabulary. `assoc` records which sectors and
+-- regions this entity has been extracted ALONGSIDE, with counts: "banking" is
+-- almost never a literal word in a story about HDFC Bank, so a text match cannot
+-- recover it and an association learned from past extractions can.
+CREATE TABLE IF NOT EXISTS entity_gazetteer (
+  term TEXT, kind TEXT, norm TEXT, tokens TEXT, assoc TEXT,
+  seen_count INTEGER DEFAULT 0, first_seen REAL, last_seen REAL,
+  PRIMARY KEY (norm, kind));
+CREATE INDEX IF NOT EXISTS entity_gazetteer_rank
+  ON entity_gazetteer(seen_count DESC, last_seen DESC);
+
 -- ------------------------------------------------------- finance pipeline
 -- A parallel, domain-isolated pipeline over the finance/business beats. These
 -- tables are entirely separate from stories/trends/signals: the app reads none

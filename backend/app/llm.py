@@ -19,11 +19,17 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 import httpx
-from . import config, llmcost
+from . import config, llmcache, llmcost
 
 usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "provider_attempts": {},
          "model_calls": {}, "model_tokens": {}, "cost_usd": 0.0,
-         "rate_limited": 0, "failed": 0, "throttle_waits": 0}
+         "rate_limited": 0, "failed": 0, "throttle_waits": 0,
+         "cache_hits": 0, "budget_blocked": 0}
+
+#: How many times one complete_json call may wait on a full per-minute window
+#: before giving up. Each pass sleeps at most 60s, so this bounds a throttled
+#: call at ~3 minutes rather than letting a misconfigured cap stall a stage.
+MAX_THROTTLE_PASSES = 3
 
 # ------------------------------------------------------------ observability
 log = logging.getLogger("newslens.llm")
@@ -68,8 +74,36 @@ def provider_status():
     """Live view: which providers are benched and for how much longer."""
     now = time.time()
     return {p: {"benched": now < until,
-                "benched_for_seconds": max(0, int(until - now))}
+                "benched_for_seconds": max(0, int(until - now)),
+                "consecutive_rate_limits": _bench_strikes.get(p, 0)}
             for p, until in _benched_until.items()}
+
+
+def routing_status():
+    """Which model each tier resolves to, and how much of the daily ceiling is
+    gone. This is the answer to "why is task X landing on that model" — the
+    question the old flat provider order gave no way to ask, and the reason an
+    entity extraction could be served by a frontier model unnoticed."""
+    spend, calls = llmcost.today_usage()
+    probe = {"cheap": "entities", "standard": "story", "reasoning": "trend"}
+    tiers = {}
+    for tier, task in probe.items():
+        tiers[tier] = {p: _model_for(p, task)
+                       for p in ("groq", "gemini", "deepseek", "openai")
+                       if _has_key(p)}
+    budget = config.LLM_DAILY_BUDGET_USD
+    return {"tier_models": tiers,
+            "warnings": unpaced_models(),
+            "free_providers": sorted(config.FREE_PROVIDERS),
+            # Paid only — free-tier traffic is priced in the report for
+            # comparison but is not money. See llmcost.today_usage.
+            "today_paid_spend_usd": round(spend, 6),
+            "today_calls_by_provider": calls,
+            "daily_budget_usd": budget,
+            "budget_exhausted": bool(budget > 0 and spend >= budget),
+            "daily_call_limits": config.PROVIDER_DAILY_CALL_LIMITS,
+            "per_minute_caps": config.PROVIDER_MAX_CALLS_PER_MIN,
+            "global_per_minute_cap": config.LLM_MAX_CALLS_PER_MIN}
 
 
 def _note(kind, provider, task, msg):
@@ -88,19 +122,88 @@ def _note(kind, provider, task, msg):
 _last_call: dict[tuple | str, float] = {}
 MIN_INTERVAL = {
     ("groq", None): 2.1,
-    # Gemini models have different free-tier RPM limits
+    # Gemini models have different free-tier RPM limits. Listed per model, but
+    # resolved by FAMILY too — see _interval_for. Naming a model here that is
+    # one character off the one actually configured (gemini-3.5-flash-lite vs
+    # the deployed gemini-3.1-flash-lite) silently removed all pacing, which is
+    # why the family fallback exists rather than a longer list.
     ("gemini", "gemini-2.5-flash-lite"): 4.3,  # 15 RPM limit → 14 calls/min
     ("gemini", "gemini-3.5-flash-lite"): 4.3,  # 15 RPM limit → 14 calls/min
     ("gemini", "gemini-2.5-flash"): 6.7,       # 10 RPM limit → 9 calls/min
     ("gemini", "gemini-3-flash"): 6.7,         # 10 RPM limit → 9 calls/min
+    # Fail-safe for any Gemini model not named above: the slowest known limit.
+    # Without it the lookup returned 0 and an unrecognised model was sent at the
+    # global cap — straight into a 429 and a bench, every run.
+    ("gemini", None): 6.7,
     ("deepseek", None): 0.5,
     ("openai", None): 0.5,
 }
+
+#: Suffix -> interval, applied when the exact model is not in MIN_INTERVAL.
+#: Google's tiers track the family name, so a new point release inherits its
+#: family's limit instead of inheriting no limit at all.
+_FAMILY_INTERVAL = (("flash-lite", 4.3), ("flash", 6.7))
+
+
+def _interval_for(provider, model):
+    """Minimum seconds between calls for this provider+model.
+
+    Exact model first, then family, then the provider default. The order matters:
+    an operator who names a specific model is overriding the family, and a
+    provider default that is too slow is a throughput problem, while one that is
+    too fast is a rate-limit ban."""
+    if (provider, model) in MIN_INTERVAL:
+        return MIN_INTERVAL[(provider, model)]
+    name = str(model or "").lower()
+    for suffix, interval in _FAMILY_INTERVAL:
+        if (provider, None) in MIN_INTERVAL and name.endswith(suffix):
+            return max(interval, 0)
+    return MIN_INTERVAL.get((provider, None), 0)
+
+
+def unpaced_models():
+    """Configured models that would be sent at the global cap, and priced models
+    that would be costed at $0. Surfaced at startup and on /admin/usage: both
+    failures are silent, and both were live in production."""
+    out = {"unpaced": [], "unpriced": []}
+    for p in ("groq", "gemini", "deepseek", "openai"):
+        if not _has_key(p):
+            continue
+        for task in ("entities", "story", "trend"):
+            model = _model_for(p, task)
+            if not model:
+                continue
+            entry = f"{p}/{model}"
+            if not _interval_for(p, model) and entry not in out["unpaced"]:
+                out["unpaced"].append(entry)
+            _, source = llmcost.price_for(p, model)
+            if source == "unpriced" and entry not in out["unpriced"]:
+                out["unpriced"].append(entry)
+    return out
 
 # When a provider rate-limits us, bench it for a while instead of knocking on
 # its door for every call. It gets retried automatically after the cooldown.
 _benched_until: dict[str, float] = {}
 COOLDOWN_SECONDS = 900  # 15 min
+
+#: Consecutive rate-limits per provider, reset by its next success. A flat 15
+#: minute bench is right for a per-MINUTE limit, which clears by itself, and
+#: wrong for a per-DAY allowance, which does not: it re-probes an exhausted quota
+#: four times an hour until midnight, and every probe pushes the run onto the
+#: paid provider. Doubling the bench per strike turns that into a handful of
+#: probes a day; the first success clears the count, so a genuine per-minute
+#: blip still recovers in 15 minutes.
+_bench_strikes: dict[str, int] = {}
+
+
+def _bench(provider, seconds=None):
+    """Bench `provider`, doubling the cooldown for repeat offenders."""
+    strikes = _bench_strikes[provider] = _bench_strikes.get(provider, 0) + 1
+    if seconds is None:
+        seconds = min(COOLDOWN_SECONDS * (2 ** (strikes - 1)),
+                      config.PROVIDER_BENCH_MAX_SECONDS)
+    _benched_until[provider] = time.time() + seconds
+    return int(seconds)
 # A provider that is out of credit, or whose key was revoked, is benched for
 # much longer than a rate-limited one: a 429 clears by itself, a 402 waits for a
 # human to top up. 15 minutes would mean re-discovering an empty account four
@@ -109,34 +212,49 @@ COOLDOWN_SECONDS = 900  # 15 min
 PROVIDER_DOWN_COOLDOWN_SECONDS = int(
     os.environ.get("PROVIDER_DOWN_COOLDOWN_SECONDS", str(60 * 60)))
 
-# Global sliding-window throttle: ≤ LLM_MAX_CALLS_PER_MIN real calls in any 60s,
-# across ALL tasks/providers/threads. Guards free-tier RPM and caps token burn.
+# Sliding-window throttles: ≤ LLM_MAX_CALLS_PER_MIN real calls in any 60s across
+# ALL tasks/providers/threads, and ≤ PROVIDER_MAX_CALLS_PER_MIN[p] for each
+# provider within that. Guards free-tier RPM and caps token burn.
 _call_times: deque = deque()
+_provider_call_times: dict[str, deque] = {}
 _throttle_lock = threading.Lock()
 
 
-def _throttle():
-    """Block until making a call keeps us at/under the per-minute cap. Reserves the
-    slot atomically, sleeps outside the lock so concurrent callers don't stampede."""
-    limit = config.LLM_MAX_CALLS_PER_MIN
-    if limit <= 0:
-        return
-    while True:
-        with _throttle_lock:
-            now = time.time()
-            while _call_times and now - _call_times[0] >= 60:
-                _call_times.popleft()
-            if len(_call_times) < limit:
-                _call_times.append(now)
-                return
-            wait = 60 - (now - _call_times[0]) + 0.01
-        usage["throttle_waits"] += 1
-        time.sleep(min(max(wait, 0.0), 60))
+def _prune(times, now):
+    while times and now - times[0] >= 60:
+        times.popleft()
+
+
+def _try_reserve(provider):
+    """Reserve one call slot for `provider`. Returns 0.0 when reserved, else the
+    seconds until the tightest of the two windows frees up.
+
+    Non-blocking on purpose. The caller can then offer the call to the NEXT
+    provider in the order instead of waiting — which is the whole point of the
+    per-provider slice, since blocking here is what let one provider hold the
+    entire global budget while the others sat idle."""
+    with _throttle_lock:
+        now = time.time()
+        waits = []
+        g_limit = config.LLM_MAX_CALLS_PER_MIN
+        _prune(_call_times, now)
+        if g_limit > 0 and len(_call_times) >= g_limit:
+            waits.append(60 - (now - _call_times[0]) + 0.01)
+        p_limit = config.PROVIDER_MAX_CALLS_PER_MIN.get(provider, 0)
+        p_times = _provider_call_times.setdefault(provider, deque())
+        _prune(p_times, now)
+        if p_limit > 0 and len(p_times) >= p_limit:
+            waits.append(60 - (now - p_times[0]) + 0.01)
+        if waits:
+            return max(max(waits), 0.0)
+        _call_times.append(now)
+        p_times.append(now)
+        return 0.0
 
 
 def _pace(provider, model=None):
     key = (provider, model)
-    interval = MIN_INTERVAL.get(key) or MIN_INTERVAL.get((provider, None), 0)
+    interval = _interval_for(provider, model)
     wait = interval - (time.time() - _last_call.get(key, 0.0))
     if wait > 0:
         time.sleep(wait)
@@ -177,20 +295,71 @@ def pricing_status():
 
 
 def _model_for(provider, task):
-    """Pick the model for this provider+task. Tasks in REASONING_TASKS get the
-    provider's stronger 'thinking' model when one is configured, so trend and
-    forecast synthesis reason more deeply. Everything else uses the base model.
-    Falls back to the base model when no reasoning model is set."""
-    base_reason = {
-        "groq": (config.GROQ_MODEL, config.GROQ_REASONING_MODEL),
-        "gemini": (config.GEMINI_MODEL, config.GEMINI_REASONING_MODEL),
-        "deepseek": (config.DEEPSEEK_MODEL, config.DEEPSEEK_REASONING_MODEL),
-        "openai": (config.OPENAI_MODEL, config.OPENAI_REASONING_MODEL),
+    """Pick the model for this provider+task, by the task's TIER.
+
+    reasoning — the provider's stronger 'thinking' model, so trend and forecast
+                synthesis reason more deeply.
+    cheap     — the provider's small model. This is a ceiling, not a preference:
+                a mechanical extraction must not be answerable by a frontier
+                model just because it happened to be that provider's base.
+    standard  — the base model, i.e. the behaviour every task had before tiers.
+
+    Each falls back to the base model when its tier's model is unset."""
+    tiers = {
+        "groq": (config.GROQ_CHEAP_MODEL, config.GROQ_MODEL,
+                 config.GROQ_REASONING_MODEL),
+        "gemini": (config.GEMINI_CHEAP_MODEL, config.GEMINI_MODEL,
+                   config.GEMINI_REASONING_MODEL),
+        "deepseek": (config.DEEPSEEK_CHEAP_MODEL, config.DEEPSEEK_MODEL,
+                     config.DEEPSEEK_REASONING_MODEL),
+        "openai": (config.OPENAI_CHEAP_MODEL, config.OPENAI_MODEL,
+                   config.OPENAI_REASONING_MODEL),
     }
-    base, reason = base_reason.get(provider, ("", ""))
-    if task in config.REASONING_TASKS and reason:
-        return reason
+    cheap, base, reason = tiers.get(provider, ("", "", ""))
+    tier = config.tier_of(task)
+    if tier == "reasoning":
+        return reason or base
+    if tier == "cheap":
+        return cheap or base
     return base
+
+
+def _is_paid(provider, task):
+    """True when this provider would bill us for this task's model. Derived from
+    the rate card rather than a hardcoded list, so a provider that becomes paid
+    (or a model priced for the first time) is picked up without a code change.
+    An UNPRICED model reads as paid: an unknown price is not a free one, and
+    treating it as free is how an unpriced model escapes every ceiling below."""
+    if provider == "mock" or provider in config.FREE_PROVIDERS:
+        return False
+    rate, source = llmcost.price_for(provider, _model_for(provider, task))
+    if source == "unpriced":
+        return True
+    return any(r > 0 for r in rate)
+
+
+def _affordable(order, task):
+    """Drop providers we should not spend on right now: over the daily dollar
+    budget, or past their own daily call allowance.
+
+    Returns (order, notes). An empty order means every remaining provider is
+    priced out — complete_json then returns None and the caller retries the item
+    on the next run, which is the same path a total provider outage takes."""
+    spend, calls = llmcost.today_usage()
+    notes = []
+    budget = config.LLM_DAILY_BUDGET_USD
+    over_budget = budget > 0 and spend >= budget
+    kept = []
+    for p in order:
+        limit = config.PROVIDER_DAILY_CALL_LIMITS.get(p, 0)
+        if limit and calls.get(p, 0) >= limit:
+            notes.append(f"{p}: daily call limit {limit} reached")
+            continue
+        if over_budget and _is_paid(p, task):
+            notes.append(f"{p}: daily budget ${budget:g} spent (${spend:.4f})")
+            continue
+        kept.append(p)
+    return kept, notes
 
 
 def complete_json(task: str, prompt: str, retries: int = 1):
@@ -203,41 +372,73 @@ def complete_json(task: str, prompt: str, retries: int = 1):
     provider = config.LLM_PROVIDER
     if provider == "mock":
         return _mock(task, prompt)
+    cached = llmcache.get(task, prompt)
+    if cached is not None:
+        usage["cache_hits"] += 1
+        return cached
     if provider == "auto":
-        # Reasoning tasks prefer the strongest thinking model first (DeepSeek),
-        # then groq/gemini; ordinary tasks keep the cheaper free-first order.
-        base = (config.REASONING_PROVIDER_ORDER if task in config.REASONING_TASKS
-                else ["groq", "gemini", "deepseek", "openai"])
+        # Each tier has its own running order: reasoning prefers the strongest
+        # thinking model first (DeepSeek), cheap and standard keep the free-first
+        # order. The tier also decides the MODEL each provider serves — see
+        # _model_for — which is what stops a mechanical task reaching a frontier
+        # model simply by falling through to the last provider in the list.
+        tier = config.tier_of(task)
+        base = (config.REASONING_PROVIDER_ORDER if tier == "reasoning"
+                else config.CHEAP_PROVIDER_ORDER if tier == "cheap"
+                else config.STANDARD_PROVIDER_ORDER)
         # During DeepSeek peak hours, demote it behind the free providers to dodge
         # the 2x charge (unless DEEPSEEK_AVOID_PEAK is off).
         order = _apply_peak_order([p for p in base if _has_key(p)])
     else:
         order = [provider]
+    # Applied in BOTH modes. A daily ceiling that a pinned LLM_PROVIDER can walk
+    # straight through is not a ceiling — and pinning one provider is exactly the
+    # configuration with no fallback to absorb an overrun.
+    order, priced_out = _affordable(order, task)
+    if not order:
+        usage["budget_blocked"] += 1
+        _note("budget_blocked", "all", task, "; ".join(priced_out) or "no provider left")
+        return None
     last_err = None
-    for attempt in range(retries + 1):
+    attempt = 0
+    # Passes spent waiting on a full per-minute window don't consume a retry —
+    # a throttle is not a failed answer. Bounded separately so a misconfigured
+    # cap can never spin here forever.
+    throttle_passes = 0
+    while attempt <= retries:
+        deferred = []      # providers whose per-minute window is momentarily full
         for p in order:
             if time.time() < _benched_until.get(p, 0):
                 continue  # provider is cooling down after a rate limit
+            # Non-blocking: a provider at its per-minute slice is skipped so the
+            # next one in the order can take the call. Only if EVERY provider is
+            # full do we wait (below), and then only for the soonest slot.
+            wait = _try_reserve(p)
+            if wait:
+                deferred.append(wait)
+                continue
             try:
                 usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
                 _attempt.recorded = False
-                _throttle()   # global per-minute cap across all tasks/providers
                 model = _model_for(p, task)
                 _pace(p, model)
                 text = _call(p, prompt if attempt == 0 else
                              f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
                              f"Reply with ONLY valid JSON.", task)
                 _benched_until.pop(p, None)
-                return _extract_json(text)
+                _bench_strikes.pop(p, None)   # it answered — forgive past 429s
+                out = _extract_json(text)
+                llmcache.put(task, prompt, out)
+                return out
             except RateLimited:
                 usage["rate_limited"] += 1
                 _record_failure(p, task)
-                _benched_until[p] = time.time() + COOLDOWN_SECONDS
-                _note("rate_limited", p, task, f"429 — benched {COOLDOWN_SECONDS // 60} min")
+                secs = _bench(p)
+                _note("rate_limited", p, task, f"429 — benched {secs // 60} min")
                 provider_events.appendleft({
                     "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "provider": p, "event": "rate_limited_benched",
-                    "task": task})
+                    "benched_minutes": secs // 60, "task": task})
                 continue
             except ProviderDown as e:
                 # Bench it exactly like a rate limit. Nothing this run will make
@@ -248,7 +449,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 # key) is picked up without a redeploy.
                 last_err = str(e)[:200]
                 _record_failure(p, task)
-                _benched_until[p] = time.time() + PROVIDER_DOWN_COOLDOWN_SECONDS
+                _bench(p, PROVIDER_DOWN_COOLDOWN_SECONDS)
                 _note("provider_down", p, task,
                       f"{last_err} — benched {PROVIDER_DOWN_COOLDOWN_SECONDS // 60} min")
                 provider_events.appendleft({
@@ -271,6 +472,16 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 _record_failure(p, task)
                 _note("error", p, task, last_err)
                 continue
+        # Nothing was attempted because every candidate was inside its
+        # per-minute window. Wait for the soonest slot and re-run the order
+        # WITHOUT spending a retry — otherwise the non-blocking reserve above
+        # would turn a momentary throttle into a dropped item.
+        if deferred and len(deferred) == len(order) and throttle_passes < MAX_THROTTLE_PASSES:
+            throttle_passes += 1
+            usage["throttle_waits"] += 1
+            time.sleep(min(max(min(deferred), 0.0), 60))
+            continue
+        attempt += 1
     usage["failed"] += 1
     _note("gave_up", "all", task,
           last_err or f"providers {order} all unavailable or benched "
@@ -542,6 +753,17 @@ def _mock(task, prompt):
     label = " ".join(k.capitalize() for k in kws[:2]) or "General News"
     if task == "entities":
         return {"entities": kws, "sectors": kws[:1], "regions": []}
+    if task == "entities_batch":
+        # Answer PER ITEM from that item's own line, not from the whole prompt:
+        # a batch mock that returns the same keywords for all 20 items would
+        # exercise the parsing and hide the failure that actually matters
+        # (answers landing on the wrong index).
+        out = []
+        for line in re.findall(r"^\[(\d+)\] (.*)$", prompt, re.M):
+            idx, text = int(line[0]), line[1]
+            k = _keywords(text)
+            out.append({"i": idx, "entities": k, "sectors": k[:1], "regions": []})
+        return {"items": out}
     if task == "trend":
         # Single-call shape: split the numbered items into 1-2 pseudo-trends so
         # mock demos exercise the plural path.

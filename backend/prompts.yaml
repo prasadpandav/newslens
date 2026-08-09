@@ -195,6 +195,28 @@ story: |
     "beats": [{{"label": "...", "text": "..."}}],
     "anchors": [{{"claim": 0, "quote": "..."}}]}}
 
+entities_batch: |
+  Extract from EACH of the {n} news items below. They are unrelated to each other
+  — treat every item on its own and do not let one item's subject leak into
+  another's answer.
+
+  Every list holds PLAIN STRINGS and nothing else — no objects, no {{"name": ...}}
+  wrappers, no nesting. These names are compared against each other across
+  stories, so a wrapped name matches nothing.
+    entities — named organisations, companies, people, agencies
+    sectors  — the industries involved
+    regions  — countries, states or cities involved
+
+  Items, one per line, prefixed with an index in [brackets]:
+  {items}
+
+  Return one object per item, carrying the SAME index back in "i". Return an
+  answer for every index you were given, even if a list is empty.
+  Reply ONLY with JSON, in exactly this shape:
+  {{"items": [{{"i": 1, "entities": ["Reserve Bank of India", "HDFC Bank"],
+     "sectors": ["banking"], "regions": ["India"]}},
+    {{"i": 2, "entities": [], "sectors": ["energy"], "regions": ["Germany"]}}]}}
+
 same_story: |
   You are de-duplicating a news feed. Below are numbered PAIRS of headlines.
   For each pair decide whether the two headlines report THE SAME underlying news

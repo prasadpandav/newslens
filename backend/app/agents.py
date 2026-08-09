@@ -9,7 +9,7 @@ import math
 import re
 import time
 import yaml
-from . import config, db, images, llm, textmerge, fulltext
+from . import config, db, gazetteer, images, llm, textmerge, fulltext
 
 PROMPTS = yaml.safe_load(config.PROMPTS_FILE.read_text())
 
@@ -511,7 +511,52 @@ class Deduper:
         return assign_groups(con)
 
 
+def parse_entities_batch(out, keys):
+    """Map one `entities_batch` answer back onto the group keys it was asked about.
+
+    `keys` is the list handed to the prompt, in order; the model echoes a 1-based
+    index in "i". Returns {key: cleaned extraction} for the answers that resolved.
+
+    Tolerant by construction, because a partial answer is worth keeping: an item
+    the model dropped, or answered with a junk index, is simply absent from the
+    result and its group stays untagged for the next run — the same outcome a
+    single-item call had when it failed. Falls back to positional order when the
+    model omits "i" entirely, which is the one shape where position is still
+    unambiguous evidence of which item it meant.
+    """
+    items = (out or {}).get("items")
+    if not isinstance(items, list):
+        return {}
+    resolved = {}
+    for pos, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        raw = item.get("i")
+        if raw is None:
+            idx = pos                      # no index given: trust the ordering
+        else:
+            try:
+                idx = int(raw) - 1
+            except (TypeError, ValueError):
+                continue
+        if 0 <= idx < len(keys):
+            resolved[keys[idx]] = clean_entities(item)
+    return resolved
+
+
 class EntityTagger:
+    """Tag articles with entities/sectors/regions, spending as few calls as possible.
+
+    Three tiers, cheapest first:
+      1. an already-tagged group representative  -> copy, no call;
+      2. the gazetteer, when it can account for the whole article -> no call;
+      3. a batched LLM call over everything left, ENTITIES_BATCH_SIZE at a time.
+
+    Tier 3 used to be the ONLY tier, at one call per group. That is where ~1,200
+    calls came from. Whatever tier 3 returns is fed back into the gazetteer, so
+    tier 2 covers more of the next run than it did of this one.
+    """
+
     MAX_PER_RUN = 80  # cap untagged articles pulled per run (grouping means far
                       # fewer actual LLM calls than this)
 
@@ -524,31 +569,119 @@ class EntityTagger:
         groups = {}
         for r in rows:
             groups.setdefault(r["group_id"] or r["id"], []).append(r)
-        called = copied = 0
+
+        index = gazetteer.load(con)
+        if not len(index):
+            # Self-priming. On an existing install the answers are already in the
+            # articles table — thousands of extractions this pipeline has already
+            # paid an LLM for — so starting from an empty vocabulary would mean
+            # re-buying them over the days it took to refill. Runs once, because
+            # after it the index is no longer empty.
+            seeded = gazetteer.backfill(con)
+            if seeded:
+                db.log_run(con, "entities", "ok",
+                           f"seeded gazetteer from {seeded} stored extractions")
+                index = gazetteer.load(con)
+        pending, called, copied, matched = [], 0, 0, 0
+        shadow_hits, misses = 0, {}
         for gid, members in groups.items():
             rep = con.execute("SELECT entities,title,summary FROM articles WHERE id=?",
                               (gid,)).fetchone()
             if rep and rep["entities"]:
-                ent = rep["entities"]
+                self._store(con, members, rep["entities"])
                 copied += 1
-            else:
-                src = rep if rep else members[0]
-                out = llm.complete_json("entities", prompt(
-                    "entities", title=src["title"], summary=src["summary"]))
-                if out is None:
-                    continue  # LLM unavailable; retried next run
-                ent = db.j(clean_entities(out))
-                called += 1
-            for m in members:
-                con.execute("UPDATE articles SET entities=? WHERE id=?", (ent, m["id"]))
-            con.commit()   # per group — see the note in Storyteller.run: a commit
-                           # only after the loop holds the write lock across every
-                           # later group's LLM call and stalls signed-in readers
+                continue
+            src = rep if rep else members[0]
+            hit, reason = gazetteer.match(index, src["title"], src["summary"])
+            if hit is None:
+                misses[reason.split(":")[0]] = misses.get(reason.split(":")[0], 0) + 1
+            if hit is not None and not config.GAZETTEER_SHADOW:
+                self._store(con, members, db.j(hit))
+                matched += 1
+                continue
+            if hit is not None:
+                # Shadow mode: the gazetteer answered, we spend the call anyway and
+                # keep the LLM's answer. The point is to measure agreement before
+                # trusting it — see _log_shadow below.
+                shadow_hits += 1
+            pending.append((gid, members, src, hit))
+
+        called = self._tag_batched(con, pending, index)
         con.commit()
-        db.log_run(con, "entities", "ok",
-                   f"{called} groups tagged + {copied} copied from reps "
-                   f"over {len(rows)} articles ({len(groups)} groups)")
-        return called + copied
+        note = (f"{called} LLM-tagged + {matched} from gazetteer + {copied} copied "
+                f"over {len(rows)} articles ({len(groups)} groups)")
+        if config.GAZETTEER_SHADOW:
+            note += f"; SHADOW: gazetteer could have answered {shadow_hits}"
+        if misses:
+            note += "; misses " + ", ".join(f"{k}={v}" for k, v in
+                                            sorted(misses.items(), key=lambda x: -x[1]))
+        note += f"; vocab {len(index)} terms"
+        db.log_run(con, "entities", "ok", note)
+        return called + copied + matched
+
+    def _store(self, con, members, blob):
+        for m in members:
+            con.execute("UPDATE articles SET entities=? WHERE id=?", (blob, m["id"]))
+        con.commit()   # per group — see the note in Storyteller.run: a commit
+                       # only after the loop holds the write lock across every
+                       # later group's LLM call and stalls signed-in readers
+
+    def _tag_batched(self, con, pending, index):
+        """Extract for every group left, ENTITIES_BATCH_SIZE per call."""
+        size = max(1, config.ENTITIES_BATCH_SIZE)
+        tagged = 0
+        for start in range(0, len(pending), size):
+            chunk = pending[start:start + size]
+            lines = []
+            for i, (_gid, _members, src, _hit) in enumerate(chunk, 1):
+                title = (src["title"] or "").replace("\n", " ")
+                summary = (src["summary"] or "").replace("\n", " ")[:400]
+                lines.append(f"[{i}] {title} | {summary}")
+            out = llm.complete_json("entities_batch", prompt(
+                "entities_batch", n=len(chunk), items="\n".join(lines)))
+            if out is None:
+                continue  # LLM unavailable; these groups are retried next run
+            keys = list(range(len(chunk)))
+            resolved = parse_entities_batch(out, keys)
+            for pos, (_gid, members, src, hit) in enumerate(chunk):
+                ent = resolved.get(pos)
+                if ent is None:
+                    continue          # model skipped it; untagged, retried next run
+                self._store(con, members, db.j(ent))
+                gazetteer.learn(con, ent, commit=False)
+                tagged += 1
+                if hit is not None:
+                    _log_shadow(con, src, hit, ent)
+            con.commit()
+        return tagged
+
+
+def _shadow_disagreement(guess, truth):
+    """How far a gazetteer answer sits from the LLM's, as (missed, invented).
+
+    Compared on normalised entity names only. Sectors and regions are looser by
+    nature — two reasonable extractions disagree on whether a story is "banking"
+    or "finance" without either being wrong — while a missed or invented
+    ORGANISATION is unambiguously an error, and it is the field the knowledge
+    graph is built from."""
+    g = {gazetteer.normalise(t) for t in (guess or {}).get("entities", [])}
+    t = {gazetteer.normalise(t) for t in (truth or {}).get("entities", [])}
+    return sorted(t - g), sorted(g - t)
+
+
+def _log_shadow(con, src, guess, truth):
+    """Record one shadow-mode comparison, but only when it disagrees.
+
+    Logging agreement too would bury the signal: the whole question is how often
+    the cheap path is WRONG, and a run that appends 60 'identical' lines to the
+    runs table answers it less clearly than one that appends the 3 that differed.
+    """
+    missed, invented = _shadow_disagreement(guess, truth)
+    if not missed and not invented:
+        return
+    db.log_run(con, "entities_shadow", "warn",
+               f"{(src['title'] or '')[:60]!r} missed={missed[:4]} "
+               f"invented={invented[:4]}")
 
 
 # ----------------------------------------------------------- Trend Linker
@@ -603,7 +736,60 @@ def _parse_trends(items, rows, min_size, kind="macro"):
     return fresh
 
 
-def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
+def _live_trends(con, kind):
+    """Live trends of one kind, with the pieces attachment needs: a text vector
+    over name+narrative, the entity terms of their current members, and the
+    member set itself."""
+    out = []
+    for r in con.execute(
+            "SELECT id,name,narrative,article_ids FROM trends "
+            "WHERE kind=? AND retired_at IS NULL", (kind,)).fetchall():
+        ids = db.uj(r["article_ids"], [])
+        if not ids:
+            continue
+        ents, topics = set(), {}
+        # Bounded twice over: only the most recent members characterise a trend,
+        # and the IN list itself is capped because SQLite refuses a statement
+        # with more than ~999 bound variables — a long-running trend can hold
+        # more article ids than that, and the query would fail outright.
+        recent = ids[-200:]
+        for a in con.execute(
+                "SELECT topic, entities FROM articles WHERE id IN (%s) "
+                "ORDER BY fetched_at DESC LIMIT 40"
+                % ",".join("?" * len(recent)), recent).fetchall():
+            ents.update(entity_terms(a["entities"]))
+            topics[a["topic"]] = topics.get(a["topic"], 0) + 1
+        out.append({
+            "id": r["id"], "name": r["name"], "ids": set(ids), "ents": ents,
+            "vec": _tf(f"{r['name']} {r['narrative'] or ''}"),
+            "narrative": r["narrative"] or "",
+            # The beat a trend belongs to is whichever topic most of its
+            # articles came from — trends themselves carry no topic column.
+            "topic": max(topics, key=topics.get) if topics else ""})
+    return out
+
+
+def _attach_article(art, trends):
+    """The live trend this article clearly continues, or None.
+
+    Deliberately strict. A wrong attachment is worse than a missed one: a missed
+    article is simply passed to the LLM in the same run, while a wrong one is
+    filed under a trend it does not belong to and quietly widens that trend's
+    meaning every time it happens."""
+    vec = _tf(f"{art['title'] or ''} {art['summary'] or ''}")
+    ents = set(entity_terms(art["entities"]))
+    best, best_score = None, 0.0
+    for t in trends:
+        if len(ents & t["ents"]) < config.TRENDS_ATTACH_MIN_ENTITIES:
+            continue
+        score = cosine(vec, t["vec"])
+        if score >= config.TRENDS_ATTACH_COS and score > best_score:
+            best, best_score = t, score
+    return best
+
+
+def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True,
+                      merge_ids=False):
     """Reconcile a freshly-computed trend set against what's stored, keeping stable
     IDs. Each fresh trend is matched to an existing one by article overlap or name
     similarity: a match is UPDATED in place (id preserved, so story->trend links
@@ -631,13 +817,21 @@ def _reconcile_trends(con, kind, fresh, name_sim=0.6, overlap=0.5, prune=True):
                      and (cosine(fvec, e["vec"]) >= name_sim
                           or _containment(f["article_ids"], e["ids"]) >= overlap)), None)
         if cand:
+            # An incremental run derives a trend from only the articles that
+            # could not be attached to anything, so its member list is a DELTA.
+            # Writing it straight over the stored list would shrink a running
+            # trend to whatever arrived in the last few hours and throw away the
+            # evidence it was built on — so incremental runs union instead.
+            ids = (sorted(set(f["article_ids"]) | set(cand["ids"])) if merge_ids
+                   else f["article_ids"])
             # retired_at=NULL revives a previously-retired trend rather than
             # creating a duplicate under a new id.
             con.execute(
                 "UPDATE trends SET name=?,narrative=?,sectors=?,regions=?,article_ids=?,"
                 "velocity=?,updated_at=?,retired_at=NULL WHERE id=?",
                 (f["name"], f["narrative"], db.j(f["sectors"]), db.j(f["regions"]),
-                 db.j(f["article_ids"]), f["velocity"], db.now(), cand["id"]))
+                 db.j(ids), float(len(ids)) if merge_ids else f["velocity"],
+                 db.now(), cand["id"]))
             matched.add(cand["id"])
             upd_ct += 1
         else:
@@ -674,13 +868,131 @@ class TrendLinker:
 
     MAX_PER_UNIT = 60  # cap per-topic articles so each prompt stays small/cheap
 
+    def _due_for_full_pass(self, con):
+        """True when the last full-window pass is older than TRENDS_FULL_PASS_HOURS.
+
+        Read from the runs log rather than kept in memory, because this process
+        is restarted often enough (deploys, OOM kills) that an in-memory marker
+        would reset to 'never ran' and make every run a full one — quietly
+        undoing the saving."""
+        hours = config.TRENDS_FULL_PASS_HOURS
+        if hours <= 0:
+            return True
+        r = con.execute(
+            "SELECT created_at FROM runs WHERE stage='trends' AND status='ok' "
+            "AND detail LIKE 'full%' ORDER BY created_at DESC LIMIT 1").fetchone()
+        return not r or (db.now() - (r["created_at"] or 0)) >= hours * 3600
+
     def run(self, con, min_size=2):
+        if self._due_for_full_pass(con):
+            return self._run_full(con, min_size)
+        return self._run_incremental(con, min_size)
+
+    # --------------------------------------------------------- incremental
+    def _run_incremental(self, con, min_size):
+        """Attach what fits, and only ask about what doesn't.
+
+        Cheap by construction: an attachment costs a cosine and a set
+        intersection, and a topic where everything attached costs no call at
+        all. What the model does see is its own prior conclusions plus genuinely
+        new material, which is a better question than the one it was being asked
+        four times a day — re-derive the same 60 articles from nothing."""
+        window = db.now() - config.TRENDS_INCREMENTAL_WINDOW_HOURS * 3600
+        live = _live_trends(con, "macro")
+        claimed = set()
+        for t in live:
+            claimed |= t["ids"]
+        rows = [r for r in con.execute(
+            "SELECT id,title,summary,source,topic,entities,fetched_at FROM articles "
+            "WHERE fetched_at > ? ORDER BY fetched_at DESC", (window,)).fetchall()
+            if r["id"] not in claimed]
+
+        cutoff72 = db.now() - 72 * 3600
+        # Same acceleration baseline the full pass uses — a micro-trend's
+        # velocity is a SHARE of its own beat's previous window, not a count, and
+        # storing a count in that column would reorder the whole emerging radar.
+        prev_counts = {r["topic"]: r["c"] for r in con.execute(
+            "SELECT topic, COUNT(*) c FROM articles WHERE fetched_at BETWEEN ? AND ? "
+            "GROUP BY topic", (db.now() - 144 * 3600, cutoff72)).fetchall()}
+        attached, calls, failed, skipped = 0, 0, 0, 0
+        fresh_macro, fresh_micro = [], []
+        grown = {}
+        by_topic = _by_topic(rows)
+        for topic, arts in by_topic.items():
+            candidates = [t for t in live if t["topic"] == topic] or live
+            leftover = []
+            for a in arts:
+                hit = _attach_article(a, candidates)
+                if hit is None:
+                    leftover.append(a)
+                    continue
+                hit["ids"].add(a["id"])
+                grown[hit["id"]] = hit
+                attached += 1
+            if len(leftover) < max(config.TRENDS_MIN_NEW, min_size):
+                skipped += 1
+                continue
+            leftover = leftover[:self.MAX_PER_UNIT]
+            out = llm.complete_json("trend", prompt(
+                "trend", topic=topic, n=len(leftover),
+                items=_numbered_items(leftover),
+                existing=self._state_text(candidates)))
+            calls += 1
+            if out is None:
+                failed += 1
+                continue
+            fresh_macro += _parse_trends(out.get("trends", []), leftover, min_size,
+                                         "macro")
+            micro = _parse_trends(out.get("micro_trends", []), leftover, 2, "micro")
+            micro = [m for m in micro if 2 <= len(m["article_ids"]) <= 5]
+            recent_ids = {a["id"] for a in leftover if a["fetched_at"] > cutoff72}
+            for m in micro:
+                m["velocity"] = (len(set(m["article_ids"]) & recent_ids)
+                                 / max(prev_counts.get(topic, 0), 1))
+            fresh_micro += micro
+
+        # Deterministic attachments are a membership change, not a retelling:
+        # the narrative the model wrote still describes the force, so it is left
+        # alone and only the evidence behind it grows.
+        for t in grown.values():
+            ids = sorted(t["ids"])
+            con.execute("UPDATE trends SET article_ids=?,velocity=?,updated_at=? "
+                        "WHERE id=?", (db.j(ids), float(len(ids)), db.now(), t["id"]))
+        # prune=False ALWAYS on an incremental run: this pass never looked at the
+        # full window, so "absent from the fresh set" carries no information and
+        # retiring on it would delete live trends the run simply did not revisit.
+        mn, mu, _ = _reconcile_trends(con, "macro", fresh_macro, prune=False,
+                                      merge_ids=True)
+        cn, cu, _ = _reconcile_trends(con, "micro", fresh_micro, prune=False,
+                                      merge_ids=True)
+        con.commit()
+        db.log_run(con, "trends", "ok",
+                   f"incremental: {attached} articles attached to {len(grown)} trends, "
+                   f"macro {mn} new/{mu} upd, micro {cn} new/{cu} upd "
+                   f"from {calls} calls ({skipped} topics skipped, {failed} failed)")
+        return attached + mn + mu + cn + cu
+
+    def _state_text(self, trends):
+        """Compact view of what is already tracked: the claim, and how much
+        evidence stands behind it. Richer than the bare name list the full pass
+        sends, because on an incremental run this IS the context — the articles
+        those trends were built from are no longer in the prompt."""
+        if not trends:
+            return "(none yet)"
+        lines = []
+        for t in sorted(trends, key=lambda t: -len(t["ids"]))[:30]:
+            claim = (t["narrative"].split(". ")[0] or "")[:140]
+            lines.append(f"- {t['name']} — {claim} ({len(t['ids'])} items)")
+        return "\n".join(lines)
+
+    # ---------------------------------------------------------- full pass
+    def _run_full(self, con, min_size=2):
         rows = con.execute(
             "SELECT id,title,summary,source,topic,entities,fetched_at FROM articles "
             "WHERE fetched_at > ? ORDER BY fetched_at DESC",
             (db.now() - 7 * 86400,)).fetchall()
         if len(rows) < min_size:
-            db.log_run(con, "trends", "ok", "too few articles to synthesize")
+            db.log_run(con, "trends", "ok", "full: too few articles to synthesize")
             return 0
         cutoff72 = db.now() - 72 * 3600
         # Previous 72h window counts PER TOPIC — the acceleration baseline for a
@@ -715,8 +1027,13 @@ class TrendLinker:
                                  / max(prev_counts.get(topic, 0), 1))
             fresh_micro += micro
         if not fresh_macro and not fresh_micro:
+            # Still logged as "full": the pass DID run the full window, it just
+            # produced nothing usable. Without the prefix _due_for_full_pass
+            # would see no full pass today and run another one next cycle —
+            # re-paying for the expensive path because it returned no rows.
             db.log_run(con, "trends", "ok",
-                       f"no valid trends this run ({calls} unit calls); kept existing set")
+                       f"full: no valid trends this run ({calls} unit calls); "
+                       f"kept existing set")
             return 0
         # Don't prune (delete) stale trends if any unit call failed — avoids wiping.
         prune = failed == 0
@@ -728,7 +1045,7 @@ class TrendLinker:
         ddup = _dedupe_trends(con, "macro") + _dedupe_trends(con, "micro")
         con.commit()
         db.log_run(con, "trends", "ok",
-                   f"macro {mn} new/{mu} upd/{mr} retired, "
+                   f"full: macro {mn} new/{mu} upd/{mr} retired, "
                    f"micro {cn} new/{cu} upd/{cr} retired, "
                    f"{ddup} dupes collapsed ({calls} unit calls, {failed} failed)")
         return mn + mu + cn + cu

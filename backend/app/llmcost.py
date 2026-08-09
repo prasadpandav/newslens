@@ -26,6 +26,8 @@ provider edits its price page, so it can be recomputed in place from the current
 card (`reprice`) without touching the tokens.
 """
 import sqlite3
+import threading
+import time
 from . import analytics, config, db
 
 #: Model names carry no provider prefix in a response, so both spellings are
@@ -124,6 +126,71 @@ def record(provider, model, task, prompt_tokens=0, completion_tokens=0,
                 pass
 
 
+# ------------------------------------------------- today's spend, for ceilings
+#: Cached because the router consults it before EVERY call, and the answer only
+#: moves as fast as calls are made — re-reading SQLite per call would put a query
+#: in front of every request to save nothing. The window is short enough that a
+#: budget can only be overshot by whatever is spent inside it.
+_TODAY_TTL = 60.0
+_today = {"at": 0.0, "day": None, "spend": 0.0, "calls": {}}
+_today_lock = threading.Lock()
+
+
+def today_usage(max_age=_TODAY_TTL, con=None):
+    """(paid_spend_usd, {provider: calls}) for the current UTC day.
+
+    The spend figure EXCLUDES config.FREE_PROVIDERS. Their rate card entry says
+    what the traffic would have cost on a paid plan — useful, and kept in the
+    report — but it is not money, and counting it against a dollar ceiling would
+    let free traffic exhaust the budget and lock out the providers actually being
+    billed. A free provider is bounded by its quota instead, via
+    PROVIDER_DAILY_CALL_LIMITS.
+
+    Read from llm_usage rather than from llm.usage: the in-process counters reset
+    on every restart, and this box restarts often enough that a daily ceiling
+    built on them would silently reset with it — which is the same failure mode
+    llmcost exists to fix. Best-effort: on any storage error, returns the last
+    good reading (or zeros), because refusing to answer here would either block
+    every call or, worse, wave them all through."""
+    now = time.time()
+    day = analytics.day_key()
+    with _today_lock:
+        if _today["day"] == day and now - _today["at"] < max_age:
+            return _today["spend"], dict(_today["calls"])
+    own = con is None
+    try:
+        if own:
+            con = db.connect()
+        rows = con.execute(
+            "SELECT provider, SUM(calls) calls, SUM(cost_usd) cost_usd "
+            "FROM llm_usage WHERE day = ? GROUP BY provider", (day,)).fetchall()
+        spend = sum(r["cost_usd"] or 0.0 for r in rows
+                    if str(r["provider"] or "").lower() not in config.FREE_PROVIDERS)
+        calls = {r["provider"]: int(r["calls"] or 0) for r in rows}
+    except sqlite3.Error:
+        with _today_lock:
+            return _today["spend"], dict(_today["calls"])
+    finally:
+        if own and con is not None:
+            try:
+                con.close()
+            except sqlite3.Error:
+                pass
+    with _today_lock:
+        # A new UTC day resets both counters — the ceilings are per-day, so
+        # carrying yesterday's spend forward would lock out the whole morning.
+        _today.update({"at": now, "day": day, "spend": spend, "calls": calls})
+    return spend, dict(calls)
+
+
+def invalidate_today():
+    """Force the next today_usage() to re-read. For tests and for the admin
+    endpoints that rewrite cost in place (reprice), after which the cached
+    figure is stale by construction."""
+    with _today_lock:
+        _today["at"] = 0.0
+
+
 def reprice(con, days=0):
     """Recompute stored cost from the CURRENT rate card and return how many rows
     changed. `days` = 0 rewrites the whole table.
@@ -156,6 +223,9 @@ def reprice(con, days=0):
                     (usd, r["day"], r["provider"], r["model"], r["task"], r["peak"]))
         changed += 1
     con.commit()
+    # Today's rows may have just been recosted; the daily-budget gate reads that
+    # figure, so it must not keep serving the pre-reprice number for a minute.
+    invalidate_today()
     return changed
 
 

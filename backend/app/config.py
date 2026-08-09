@@ -5,6 +5,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+def _unquote(v):
+    """Strip one matching pair of surrounding quotes.
+
+    Every other dotenv reader does this, so a value is routinely pasted into
+    .env already quoted — and a JSON value has to be quoted to survive a shell.
+    Without it the quotes became part of the string: LLM_PRICES arrived as
+    `'{"model": [...]}'`, json.loads rejected it, the whole rate card was
+    discarded, and every model silently reported $0.00 spend. Nothing failed
+    loudly, because a missing rate is a legitimate state."""
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        return v[1:-1]
+    return v
+
+
 def _load_dotenv():
     env = ROOT / ".env"
     if env.exists():
@@ -12,7 +26,7 @@ def _load_dotenv():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, _, v = line.partition("=")
-                os.environ.setdefault(k.strip(), v.strip())
+                os.environ.setdefault(k.strip(), _unquote(v.strip()))
 
 _load_dotenv()
 
@@ -75,12 +89,146 @@ REASONING_TASKS = set(t.strip() for t in os.environ.get(
 # Under LLM_PROVIDER=auto, reasoning tasks (trend/forecast) try these providers
 # in order — strongest thinking model first — falling through on missing key or
 # rate-limit. Ordinary tasks keep the cheaper free-first order below.
+# Gemini FIRST for reasoning, and the ordering here is about money, not about
+# the rate card.
+#
+# `trend` and `signals` are the most expensive unit of work in the pipeline
+# (~8,000 tokens a call), so whoever serves them dominates the bill. The previous
+# order put DeepSeek first — a PAID provider — so every one of those calls was
+# billed before a free provider was even offered it.
+#
+# gemini-3.5-flash has the most alarming rate card of any model here
+# ($1.50/$7.50 per 1M, ~7x deepseek-v4-pro for the same call) and is nonetheless
+# the right first choice, because it is inside the Gemini FREE tier: that price
+# is what the traffic WOULD cost on a paid plan, not what it costs. It is also a
+# genuine thinking model, so free and strong are not in tension here. Groq
+# follows (also free, but its reasoning model is the plain llama-3.3-70b).
+# DeepSeek and OpenAI are the paid overflow once the free quotas are spent, in
+# that order — deepseek-v4-pro reasons harder, which is the reason REASONING_TASKS
+# exists at all; swap them if cost matters more than depth at the margin
+# (gpt-5.6-luna is ~2.3x cheaper per trend call).
+#
+# See FREE_PROVIDERS: a provider being free is a fact about the account, not
+# something derivable from the rate card, so it has to be stated.
 REASONING_PROVIDER_ORDER = [p.strip() for p in os.environ.get(
-    "REASONING_PROVIDER_ORDER", "deepseek,groq,gemini,openai").split(",") if p.strip()]
+    "REASONING_PROVIDER_ORDER", "gemini,groq,deepseek,openai").split(",") if p.strip()]
 GROQ_REASONING_MODEL = os.environ.get("GROQ_REASONING_MODEL", "")
 GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL", "gemini-2.5-flash")
 DEEPSEEK_REASONING_MODEL = os.environ.get("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
 OPENAI_REASONING_MODEL = os.environ.get("OPENAI_REASONING_MODEL", "")
+
+# --- Task tiers -------------------------------------------------------------
+# REASONING_TASKS above answers "does this task need the strong model", which is
+# only half the routing question. The other half — "is this task trivial enough
+# that it must NEVER reach an expensive model" — had no answer at all, so every
+# non-reasoning task shared one order and one model per provider. That is how
+# `entities` (a title+summary -> list-of-names extraction) ended up being served
+# by whatever the OPENAI_MODEL of the day was: it is not a reasoning task, so it
+# fell through to the ordinary path, and the ordinary path has no ceiling.
+#
+# Three tiers now, each with its own provider order AND its own model per
+# provider:
+#   cheap     — mechanical extraction/classification. Pinned to small models.
+#   standard  — the previous default behaviour, unchanged.
+#   reasoning — REASONING_TASKS, unchanged.
+# A task not named in CHEAP_TASKS or REASONING_TASKS is "standard", so adding a
+# new task keeps today's behaviour until it is deliberately classified.
+CHEAP_TASKS = set(t.strip() for t in os.environ.get(
+    "CHEAP_TASKS",
+    "entities,entities_batch,same_story,claims,framing,personalize"
+).split(",") if t.strip())
+
+def tier_of(task):
+    """'cheap' | 'standard' | 'reasoning' for one task name."""
+    if task in REASONING_TASKS:
+        return "reasoning"
+    if task in CHEAP_TASKS:
+        return "cheap"
+    return "standard"
+
+# Provider order per tier under LLM_PROVIDER=auto. Standard keeps the historical
+# free-first order verbatim. Cheap uses the same order but reaches each provider's
+# small model (below) — the paid provider staying last is NOT by itself enough of
+# a guard, because "last" is exactly where an exhausted free tier sends everything.
+STANDARD_PROVIDER_ORDER = [p.strip() for p in os.environ.get(
+    "STANDARD_PROVIDER_ORDER", "groq,gemini,deepseek,openai").split(",") if p.strip()]
+CHEAP_PROVIDER_ORDER = [p.strip() for p in os.environ.get(
+    "CHEAP_PROVIDER_ORDER", "groq,gemini,deepseek,openai").split(",") if p.strip()]
+
+# The small model each provider serves cheap-tier tasks with. Defaults to that
+# provider's base model, EXCEPT OpenAI: its base model is whatever frontier model
+# the operator has configured for storytelling, and pointing entity extraction at
+# it is the single largest avoidable line on the bill.
+GROQ_CHEAP_MODEL = os.environ.get("GROQ_CHEAP_MODEL", "") or GROQ_MODEL
+GEMINI_CHEAP_MODEL = os.environ.get("GEMINI_CHEAP_MODEL", "") or GEMINI_MODEL
+DEEPSEEK_CHEAP_MODEL = os.environ.get("DEEPSEEK_CHEAP_MODEL", "") or DEEPSEEK_MODEL
+OPENAI_CHEAP_MODEL = os.environ.get("OPENAI_CHEAP_MODEL", "gpt-4o-mini")
+
+# --- Spend ceilings ---------------------------------------------------------
+# Dollars of LLM spend allowed per UTC day across every provider. Above it, any
+# provider whose rate card is non-zero is dropped from the running order and the
+# call returns None — the failure path every caller already handles by skipping
+# the item and retrying next run. 0 = no ceiling (previous behaviour).
+#
+# A ceiling rather than a throttle on purpose: LLM_MAX_CALLS_PER_MIN bounds the
+# RATE, which bounds nothing about the bill when the per-call price changes
+# underneath it. This bounds the bill directly.
+LLM_DAILY_BUDGET_USD = float(os.environ.get("LLM_DAILY_BUDGET_USD", "0") or 0)
+
+# Providers whose calls are genuinely free up to a daily quota. Their rate card
+# entry is still meaningful — it answers "what would this have cost on the paid
+# tier", which is exactly the number needed to decide whether to upgrade — but it
+# is NOT money, so it must not count against the daily budget and must not get a
+# free provider dropped for being "expensive". Without this the ceiling would
+# count Groq at $0.59/1M it never charged and start refusing the paid providers
+# that were doing the real work.
+#
+# The real constraint on a free provider is its QUOTA, not its price, so these
+# are governed by PROVIDER_DAILY_CALL_LIMITS instead. Set this to empty if you
+# move Groq/Gemini onto paid plans.
+FREE_PROVIDERS = set(p.strip().lower() for p in os.environ.get(
+    "FREE_PROVIDERS", "groq,gemini").split(",") if p.strip())
+
+def _parse_int_map(raw):
+    """Parse '{"groq": 14400, "gemini": 1000}' into {str: int}, skipping junk."""
+    raw = _unquote(raw.strip())   # see _unquote: quoted JSON must not be dropped
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    out = {}
+    for k, v in (data or {}).items():
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            out[str(k).strip().lower()] = n
+    return out
+
+# Per-provider requests-per-DAY ceilings, e.g. {"groq": 14400, "gemini": 1000}.
+# Free tiers are metered per day as well as per minute, and only the per-minute
+# half was modelled — so a provider that had spent its daily allowance was
+# re-probed every 15 minutes forever while the paid provider carried the work.
+# Empty = no daily ceiling is enforced for that provider (the escalating bench in
+# llm.py still limits the damage; this just avoids paying to discover it).
+PROVIDER_DAILY_CALL_LIMITS = _parse_int_map(
+    os.environ.get("PROVIDER_DAILY_CALL_LIMITS", ""))
+
+# Repeated 429s from one provider double its bench each time (15m -> 30m -> 1h
+# ...), capped here, and reset by the next success. Without escalation a provider
+# whose DAILY quota is gone gets re-probed four times an hour until midnight.
+PROVIDER_BENCH_MAX_SECONDS = int(os.environ.get("PROVIDER_BENCH_MAX_SECONDS",
+                                                str(6 * 3600)))
+
+# Identical prompts are answered from SQLite instead of the provider for this
+# many seconds. The pipeline is re-runnable by design and each stage skips work
+# already done, but a stage re-run after a partial failure re-asks the prompts
+# that DID succeed. 0 disables the cache.
+LLM_CACHE_TTL_SECONDS = int(os.environ.get("LLM_CACHE_TTL_SECONDS", str(24 * 3600)))
+
 NEWSDATA_API_KEY = os.environ.get("NEWSDATA_API_KEY", "")
 
 # --- Live dynamic-hero section (scores / breaking / finance / events) ---
@@ -183,6 +331,22 @@ STORYTELLER_HISTORY_DAYS = float(os.environ.get("STORYTELLER_HISTORY_DAYS", "7")
 # Protects free-tier RPM limits (Groq is 30/min) and bounds token burn. 0 = off.
 LLM_MAX_CALLS_PER_MIN = int(os.environ.get("LLM_MAX_CALLS_PER_MIN", "30"))
 
+# Per-provider slice of that budget, {provider: calls-per-rolling-minute}.
+# The global cap alone cannot spread load: the first provider in the running
+# order is offered every call, so with a 30/min global cap and Groq's own 30/min
+# limit, Groq alone absorbed the whole budget and sat permanently at its ceiling
+# — 429, benched, and the rest of the run drained to whoever was last in the
+# order. Giving each provider a slice below its own limit means a provider that
+# is momentarily full is SKIPPED (the next one in the order takes the call)
+# rather than pushed until it refuses. 0 / absent = no per-provider cap.
+#
+# Gemini is listed because _pace BLOCKS (it sleeps out the per-model interval)
+# while this SKIPS to the next provider. With Gemini now first for reasoning and
+# paced at 6.7s for gemini-3.5-flash, a burst of trend calls would otherwise
+# serialise behind those sleeps instead of spilling onto the other free provider.
+PROVIDER_MAX_CALLS_PER_MIN = _parse_int_map(
+    os.environ.get("PROVIDER_MAX_CALLS_PER_MIN", '{"groq": 25, "gemini": 14}'))
+
 # ------------------------------------------------- LLM spend accounting
 # The rate card, in US dollars per 1,000,000 tokens, as
 # [input, output, cached_input], keyed by "provider/model".
@@ -206,17 +370,35 @@ LLM_PRICE_DEFAULTS = {
     "openai/gpt-4o-mini": [0.15, 0.60, 0.075],
 }
 
+#: Problems found while parsing the rate card, reported rather than raised —
+#: a bad price must not stop the API booting, but it must not be invisible either.
+_price_errors = []
+
+
 def _parse_prices(raw):
     """Parse the LLM_PRICES override: a JSON object of
     {"provider/model": [input, output, cached_input]} in $ per 1M tokens.
     cached_input is optional and defaults to the input rate. A malformed entry
     is skipped rather than taken as zero — see the note above about wrong
     numbers being worse than missing ones."""
-    if not raw.strip():
+    # Unquoted here as well as in _load_dotenv, because a hosting dashboard sets
+    # the variable DIRECTLY in the environment — _load_dotenv never runs for it,
+    # so a value pasted with the quotes it needed in a shell would be dropped
+    # exactly the way the .env one was.
+    raw = _unquote(raw.strip())
+    if not raw:
         return {}
     try:
         data = json.loads(raw)
-    except ValueError:
+    except ValueError as e:
+        # Returning {} is still right — a wrong price frozen into a month of
+        # history is worse than a visible gap — but doing it in SILENCE is how an
+        # entire configured rate card went missing while the cost report kept
+        # printing $0.00 as though that were a measurement. So it is also
+        # recorded, and surfaced at startup and on /admin/usage.
+        _price_errors.append(f"LLM_PRICES is not valid JSON ({e}); the whole "
+                             f"rate card was ignored and every model reads as "
+                             f"unpriced")
         return {}
     out = {}
     for key, val in (data or {}).items():
@@ -240,11 +422,68 @@ LLM_PRICES_ENV = _parse_prices(os.environ.get("LLM_PRICES", ""))
 # the default is to keep them forever. Set a day count to prune anyway.
 LLM_USAGE_RETAIN_DAYS = int(os.environ.get("LLM_USAGE_RETAIN_DAYS", "0"))
 
+# --------------------------------------------------- entity extraction
+# How many articles share one `entities_batch` call. The prompt's fixed
+# instruction block is ~200 tokens wrapping ~100 tokens of article, so at one
+# article per call roughly 70% of every entity call was re-sent boilerplate,
+# ~1,200 times. Batching amortises it. Kept well below the point where a model
+# starts dropping items from a long indexed list — a batch that silently returns
+# 14 of 20 answers costs more than it saves, since the missing 6 are retried.
+ENTITIES_BATCH_SIZE = int(os.environ.get("ENTITIES_BATCH_SIZE", "20"))
+# Terms held in memory by the gazetteer index, most-seen first. A hard cap
+# because this table grows with the news and every unbounded read on this box has
+# eventually OOM-killed it. 0 disables gazetteer matching entirely (every article
+# then takes the batched LLM path, which is still ~20x fewer calls than before).
+GAZETTEER_MAX_TERMS = int(os.environ.get("GAZETTEER_MAX_TERMS", "20000"))
+# Capitalised names an article may contain that the gazetteer does NOT recognise
+# and still be answered from memory. 0 = the vocabulary must account for the
+# whole article. Raising this trades entity accuracy for hit rate: 1 unknown name
+# is often a person attached to a known organisation, but it is also exactly how
+# a genuinely new company gets silently dropped from the graph. Change it only
+# with the shadow-mode disagreement log in front of you.
+GAZETTEER_MAX_UNKNOWN = int(os.environ.get("GAZETTEER_MAX_UNKNOWN", "0"))
+# Terms seen exactly once and not since this many days are dropped.
+GAZETTEER_RETAIN_DAYS = float(os.environ.get("GAZETTEER_RETAIN_DAYS", "60"))
+# Log what the gazetteer WOULD have answered without using it, so its hit rate
+# and its disagreements with the LLM can be measured before it is trusted. Set to
+# 0 to let it actually short-circuit calls.
+GAZETTEER_SHADOW = os.environ.get("GAZETTEER_SHADOW", "1").lower() not in ("0", "false", "no")
+
 # Near-duplicate article merging (same story from different sources). Articles
 # whose titles cosine-match at/above this are grouped so the LLM stages process
 # the event ONCE (with all sources annotated) instead of once per source.
 DEDUPE_SIMILARITY = float(os.environ.get("DEDUPE_SIMILARITY", "0.62"))
 DEDUPE_WINDOW_DAYS = float(os.environ.get("DEDUPE_WINDOW_DAYS", "7"))
+
+# --------------------------------------------------------- trend synthesis
+# TrendLinker re-sent a 7-day article window on every run: ~60 items per topic,
+# 11 topics, every PIPELINE_INTERVAL_HOURS. Consecutive runs overlapped ~96%, so
+# the reasoning model re-derived the same trends from nearly the same corpus four
+# times a day at ~8,000 tokens a call, and _reconcile_trends then matched the
+# answers back to the trends they had been derived from the run before.
+#
+# Incremental runs instead show the model what it already concluded plus only the
+# articles that could NOT be attached to an existing trend by similarity. Hours
+# between full "see everything at once" passes — that pass is what lets a force
+# spanning items the model was never shown together be spotted at all, so it is
+# reduced in frequency, never removed. 0 = always full (previous behaviour).
+TRENDS_FULL_PASS_HOURS = float(os.environ.get("TRENDS_FULL_PASS_HOURS", "24"))
+# An article joins an existing trend without an LLM call when it clears BOTH:
+# text similarity to the trend's name+narrative, and at least this many shared
+# entity terms with the trend's current members. Two gates because either alone
+# is wrong — text similarity puts any two stories about the same industry in one
+# trend, and a shared entity is routine for a beat that covers one company.
+TRENDS_ATTACH_COS = float(os.environ.get("TRENDS_ATTACH_COS", "0.30"))
+TRENDS_ATTACH_MIN_ENTITIES = int(os.environ.get("TRENDS_ATTACH_MIN_ENTITIES", "2"))
+# Below this many unattached articles a topic is skipped entirely on an
+# incremental run. Asking a reasoning model to find a trend in two leftover
+# articles produces a trend-shaped answer, not a trend.
+TRENDS_MIN_NEW = int(os.environ.get("TRENDS_MIN_NEW", "3"))
+# How far back an incremental run looks for unattached articles. Narrower than
+# the full pass's 7 days so an article that never joins anything stops being
+# re-sent every run forever.
+TRENDS_INCREMENTAL_WINDOW_HOURS = float(
+    os.environ.get("TRENDS_INCREMENTAL_WINDOW_HOURS", "48"))
 
 # A trend the newest run no longer sees is RETIRED (soft-deleted), not dropped:
 # it leaves the radar but its page and any shared link keep resolving, and it can

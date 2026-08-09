@@ -13,8 +13,8 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
                                Response)
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
-from . import (config, db, diag, images, llm, llmcost, live, analytics, ranking,
-               textmerge)
+from . import (config, db, diag, gazetteer, images, llm, llmcache, llmcost, live,
+               analytics, ranking, textmerge)
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
                      depth_hint, clean_beats, clean_anchors,
@@ -168,6 +168,21 @@ def _start():
             f"ADMIN_TOKEN is only {len(config.ADMIN_TOKEN)} characters — "
             f"use at least {config.ADMIN_TOKEN_MIN_LEN} "
             "(`python -c \"import secrets;print(secrets.token_urlsafe(32))\"`)")
+    # Both of these fail SILENTLY and both were live in production: a model the
+    # pacing table doesn't recognise is sent at the global cap until the provider
+    # 429s it (which then hands the run to whichever provider is last in the
+    # order), and a model with no rate is costed at $0 — so the spend report
+    # reads as if it were free. Neither is visible without being told.
+    for problem in config._price_errors:
+        diag.checkpoint("LLM_PRICES: " + problem)
+    warn = llm.unpaced_models()
+    if warn["unpaced"]:
+        diag.checkpoint("UNPACED models (will be sent at the global rate cap and "
+                        "rate-limited): " + ", ".join(warn["unpaced"]))
+    if warn["unpriced"]:
+        diag.checkpoint("UNPRICED models — their spend is recorded as $0.00 and the "
+                        "cost report understates the real bill. Set LLM_PRICES and "
+                        "POST /admin/llm-reprice: " + ", ".join(warn["unpriced"]))
     # Interval jobs otherwise fire first at startup+interval; with frequent redeploys
     # that clock keeps resetting and a run may never happen. Kick the first run ~2 min
     # after boot, then every interval. coalesce + a wide misfire grace mean a busy or
@@ -2309,11 +2324,16 @@ def admin_usage(token: str = "", authorization: str = Header("")):
     # survives: all-time and today's calls, tokens and cost. Cheap to read —
     # that table holds one row per model/task per day, not one per call.
     llm_totals = llmcost.totals(con)
+    cache_stats = llmcache.stats(con)
+    vocab = gazetteer.stats(con)
     con.close()
     return {"session_llm_usage": llm.usage,
             "llm_totals": llm_totals,
             "users": {"total": total_users, "google_signed_up": google_users},
             "provider_status": llm.provider_status(),
+            "routing": llm.routing_status(),
+            "llm_cache": cache_stats,
+            "gazetteer": vocab,
             "pricing": llm.pricing_status(),
             "provider_events": list(llm.provider_events),
             "recent_errors": list(llm.recent_errors),
