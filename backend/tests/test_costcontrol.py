@@ -388,6 +388,36 @@ class EntitiesBatchParseTest(unittest.TestCase):
                                           [0, 1, 2])
         self.assertEqual(set(got), {0})
 
+    def test_a_bare_array_is_accepted(self):
+        """Production failure: the model answered with a top-level `[...]`
+        instead of the `{"items": [...]}` envelope the prompt specified.
+        _extract_json parses an array as happily as an object, so `out` was a
+        list, `out.get("items")` raised AttributeError, and because the
+        orchestrator catches per STAGE the whole entities stage aborted —
+        `entities: "error: 'list' object has no attribute 'get'"`, zero articles
+        tagged for the entire run."""
+        got = agents.parse_entities_batch(
+            [{"i": 1, "entities": ["A"]}, {"i": 2, "entities": ["B"]}], [0, 1])
+        self.assertEqual(got[0]["entities"], ["A"])
+        self.assertEqual(got[1]["entities"], ["B"])
+
+    def test_bare_array_without_indices_uses_position(self):
+        got = agents.parse_entities_batch(
+            [{"entities": ["X"]}, {"entities": ["Y"]}], [0, 1])
+        self.assertEqual(got[0]["entities"], ["X"])
+        self.assertEqual(got[1]["entities"], ["Y"])
+
+    def test_bare_array_is_not_counted_twice_for_trends(self):
+        """A bare array is ONE list. Handing it to both keys would file every
+        trend as a micro-trend as well."""
+        arr = [{"name": "t", "members": [1, 2]}]
+        self.assertEqual(agents._items_of(arr, "trends"), arr)
+        self.assertEqual(agents._items_of(arr, "micro_trends", bare=False), [])
+
+    def test_items_of_tolerates_every_junk_shape(self):
+        for bad in (None, "text", 5, {"items": "nope"}, {}, {"items": None}):
+            self.assertEqual(agents._items_of(bad, "items"), [])
+
     def test_junk_is_ignored(self):
         for bad in ({}, {"items": "nope"}, {"items": [{"i": 99, "entities": ["Z"]}]},
                     {"items": [{"i": "x"}]}, {"items": ["string"]}):

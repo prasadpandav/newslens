@@ -511,6 +511,29 @@ class Deduper:
         return assign_groups(con)
 
 
+def _items_of(out, key, bare=True):
+    """The list the model was asked for, whether it used the envelope the prompt
+    specified or replied with a bare array.
+
+    `_extract_json` matches `\\{.*\\}|\\[.*\\]`, so a top-level JSON array parses
+    just as happily as an object — and a model asked for {"items": [...]} will
+    sometimes answer [...] instead. Every caller here did `out.get(key)`, which
+    raises AttributeError on a list and, because the orchestrator catches per
+    STAGE, took the entire entities stage down with it: one malformed answer,
+    zero articles tagged for the whole run.
+
+    `bare=False` for a secondary key: when the answer IS a bare list there is
+    only one array, and handing the same one to two different keys would file
+    every trend as a micro-trend as well.
+    """
+    if isinstance(out, list):
+        return out if bare else []
+    if isinstance(out, dict):
+        got = out.get(key)
+        return got if isinstance(got, list) else []
+    return []
+
+
 def parse_entities_batch(out, keys):
     """Map one `entities_batch` answer back onto the group keys it was asked about.
 
@@ -524,9 +547,7 @@ def parse_entities_batch(out, keys):
     model omits "i" entirely, which is the one shape where position is still
     unambiguous evidence of which item it meant.
     """
-    items = (out or {}).get("items")
-    if not isinstance(items, list):
-        return {}
+    items = _items_of(out, "items")
     resolved = {}
     for pos, item in enumerate(items):
         if not isinstance(item, dict):
@@ -632,27 +653,44 @@ class EntityTagger:
         tagged = 0
         for start in range(0, len(pending), size):
             chunk = pending[start:start + size]
-            lines = []
-            for i, (_gid, _members, src, _hit) in enumerate(chunk, 1):
-                title = (src["title"] or "").replace("\n", " ")
-                summary = (src["summary"] or "").replace("\n", " ")[:400]
-                lines.append(f"[{i}] {title} | {summary}")
-            out = llm.complete_json("entities_batch", prompt(
-                "entities_batch", n=len(chunk), items="\n".join(lines)))
-            if out is None:
-                continue  # LLM unavailable; these groups are retried next run
-            keys = list(range(len(chunk)))
-            resolved = parse_entities_batch(out, keys)
-            for pos, (_gid, members, src, hit) in enumerate(chunk):
-                ent = resolved.get(pos)
-                if ent is None:
-                    continue          # model skipped it; untagged, retried next run
-                self._store(con, members, db.j(ent))
-                gazetteer.learn(con, ent, commit=False)
-                tagged += 1
-                if hit is not None:
-                    _log_shadow(con, src, hit, ent)
-            con.commit()
+            # One bad batch must cost one BATCH, not the stage. The orchestrator
+            # only catches per STAGE, so anything raising in here abandoned every
+            # remaining chunk and tagged nothing for the whole run — which is
+            # exactly what a model answering with a bare `[...]` array did.
+            # Groups in a failed chunk keep entities='' and are retried next run,
+            # the same outcome as an unavailable provider.
+            try:
+                tagged += self._tag_chunk(con, chunk)
+            except Exception as e:  # noqa: BLE001
+                db.log_run(con, "entities", "warn",
+                           f"batch of {len(chunk)} skipped: "
+                           f"{type(e).__name__}: {str(e)[:140]}")
+        return tagged
+
+    def _tag_chunk(self, con, chunk):
+        """One batched call: ask about `chunk`, store what came back, learn from
+        it. Returns how many groups were tagged."""
+        lines = []
+        for i, (_gid, _members, src, _hit) in enumerate(chunk, 1):
+            title = (src["title"] or "").replace("\n", " ")
+            summary = (src["summary"] or "").replace("\n", " ")[:400]
+            lines.append(f"[{i}] {title} | {summary}")
+        out = llm.complete_json("entities_batch", prompt(
+            "entities_batch", n=len(chunk), items="\n".join(lines)))
+        if out is None:
+            return 0  # LLM unavailable; these groups are retried next run
+        resolved = parse_entities_batch(out, list(range(len(chunk))))
+        tagged = 0
+        for pos, (_gid, members, src, hit) in enumerate(chunk):
+            ent = resolved.get(pos)
+            if ent is None:
+                continue          # model skipped it; untagged, retried next run
+            self._store(con, members, db.j(ent))
+            gazetteer.learn(con, ent, commit=False)
+            tagged += 1
+            if hit is not None:
+                _log_shadow(con, src, hit, ent)
+        con.commit()
         return tagged
 
 
@@ -941,9 +979,10 @@ class TrendLinker:
             if out is None:
                 failed += 1
                 continue
-            fresh_macro += _parse_trends(out.get("trends", []), leftover, min_size,
-                                         "macro")
-            micro = _parse_trends(out.get("micro_trends", []), leftover, 2, "micro")
+            fresh_macro += _parse_trends(_items_of(out, "trends"), leftover,
+                                         min_size, "macro")
+            micro = _parse_trends(_items_of(out, "micro_trends", bare=False),
+                                  leftover, 2, "micro")
             micro = [m for m in micro if 2 <= len(m["article_ids"]) <= 5]
             recent_ids = {a["id"] for a in leftover if a["fetched_at"] > cutoff72}
             for m in micro:
@@ -1018,8 +1057,10 @@ class TrendLinker:
             if out is None:
                 failed += 1
                 continue
-            fresh_macro += _parse_trends(out.get("trends", []), arts, min_size, "macro")
-            micro = _parse_trends(out.get("micro_trends", []), arts, 2, "micro")
+            fresh_macro += _parse_trends(_items_of(out, "trends"), arts, min_size,
+                                         "macro")
+            micro = _parse_trends(_items_of(out, "micro_trends", bare=False),
+                                  arts, 2, "micro")
             micro = [m for m in micro if 2 <= len(m["article_ids"]) <= 5]
             recent_ids = {a["id"] for a in arts if a["fetched_at"] > cutoff72}
             for m in micro:  # velocity = recent share vs this topic's previous window
