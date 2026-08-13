@@ -56,6 +56,11 @@ th{text-align:left;color:var(--text2);font-weight:600;font-size:11px;text-transf
   letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--border)}
 td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
 .st-ok{color:var(--trust)}.st-err{color:var(--bad)}.st-done{color:var(--accent)}
+/* Diagnosis text: a wrong pipeline says WHY here, so it must read as prose, not
+   as another stat tile. */
+.note{margin:8px 0 12px;padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.55;
+  color:#FDE9BE;background:rgba(255,194,77,.10);border:1px solid rgba(255,194,77,.28)}
+.note div+div{margin-top:6px}
 .actions button{margin:0 8px 8px 0}
 select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);
   color:var(--text);font:inherit}
@@ -155,11 +160,35 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
     <div id="result"></div>
   </div>
 
+  <!-- The finance pipeline is a SEPARATE process (FINANCE_IN_PROCESS=0) writing
+       only to fin_* tables, so it is invisible in the panel above: its rows
+       compete with the news pipeline's ~10-per-run inside one LIMIT 30 list, and
+       "never ran" looks identical to "ran and found nothing". Its own card. -->
+  <div class="card">
+    <div class="rhead">
+      <h2>Finance pipeline</h2>
+      <span class="sp"></span>
+      <select id="finstage">
+        <option value="">All finance stages</option>
+        <option value="fin_stories">fin_stories</option>
+        <option value="fin_trends">fin_trends</option>
+        <option value="fin_forecasts">fin_forecasts</option>
+      </select>
+      <button onclick="act('/admin/run-finance', 'finstage')">▶ Run finance</button>
+      <button class="ghost" onclick="loadFinance()">↻ Check health</button>
+    </div>
+    <div id="finance"><span class="muted">Loading…</span></div>
+  </div>
+
   <div class="card">
     <div class="rhead">
       <h2>Reports</h2>
       <span class="sp"></span>
       <select id="rdays" onchange="loadReport()">
+        <!-- llm_usage buckets by UTC DAY, so this is today so far, not a rolling
+             24h. Labelled for what it is rather than promising a precision the
+             storage cannot deliver. -->
+        <option value="1">Today (last 24h)</option>
         <option value="7">Last 7 days</option>
         <option value="30" selected>Last 30 days</option>
         <option value="90">Last 90 days</option>
@@ -239,7 +268,7 @@ async function refresh(){
 // Everything, reports included. Reports aggregate weeks of visit rows and move
 // on a scale of days, so they are pulled only on an actual user action —
 // sign-in, the ↻ button, a report tab, a date-range change — never on the timer.
-async function refreshAll(){ await refresh(); loadReport(); }
+async function refreshAll(){ await refresh(); loadFinance(); loadReport(); }
 
 /* ===================== Reports ===================== */
 let REPORT = 'visitors';
@@ -252,6 +281,69 @@ function pickReport(which){
   document.querySelectorAll('#rtabs button').forEach(b =>
     b.classList.toggle('on', b.dataset.r === which));
   loadReport();
+}
+
+/* ================= Finance pipeline health =================
+   The verdict does the work. "No finance stories changed" has four causes that
+   are indistinguishable from an empty endpoint — never scheduled, no input,
+   stage erroring, or genuinely quiet news — so the server names which one it is
+   and this only has to render it. */
+const FIN_VERDICT = {
+  healthy:            ['ok',   'Running normally'],
+  never_run:          ['bad',  'Never run'],
+  stale:              ['bad',  'Stopped running'],
+  failing:            ['bad',  'Failing'],
+  no_input:           ['warn', 'No input articles'],
+  running_but_empty:  ['warn', 'Ran, produced nothing'],
+  disabled:           ['warn', 'Disabled'],
+  gated:              ['warn', 'Skipped — news run failed'],
+};
+const agoTxt = h => h == null ? 'never'
+  : h < 1 ? Math.round(h*60)+'m ago' : h < 48 ? h.toFixed(1)+'h ago'
+  : Math.round(h/24)+'d ago';
+
+async function loadFinance(){
+  const box = $('#finance');
+  if(!box) return;
+  const r = await adminGet('/admin/finance/health');
+  if(r.status===401||r.status===403){ signout(); return; }
+  if(!r.ok){ box.innerHTML = `<div class="muted">Couldn't load finance health (error ${r.status}).</div>`; return; }
+  box.innerHTML = financeHTML(await r.json());
+}
+
+function financeHTML(d){
+  const [cls, label] = FIN_VERDICT[d.verdict] || ['warn', d.verdict];
+  const c = d.content || {}, g = d.graph || {}, s = d.scheduling || {};
+  const problems = (d.problems||[]).length
+    ? `<div class="note">` + d.problems.map(p => `<div>⚠ ${esc(p)}</div>`).join('') + `</div>`
+    : '';
+  const stages = Object.entries(d.last_runs||{}).map(([stage, r]) => `<tr>
+      <td><code>${esc(stage)}</code></td>
+      <td>${r ? `<span class="st-${r.status==='error'?'err':r.status==='done'?'done':'ok'}">${esc(r.status)}</span>` : '<span class="muted">never ran</span>'}</td>
+      <td>${esc(agoTxt(r && r.ago_hours))}</td>
+      <td>${r ? nfm(r.llm_calls) : '—'}</td>
+      <td class="muted">${esc(r ? (r.detail||'').slice(0,120) : '')}</td></tr>`).join('');
+  return `
+    <div class="row" style="margin-bottom:10px">
+      <span class="pill ${cls}">${esc(label)}</span>
+      <span class="muted">runner: ${esc(s.runner||'?')} · every ${esc(String(s.interval_hours))}h</span>
+    </div>
+    ${problems}
+    ${statGrid([
+      ['Stories', nfm((c.fin_stories||{}).rows)],
+      ['Trends', nfm((c.fin_trends||{}).rows)],
+      ['Forecasts', nfm((c.fin_forecasts||{}).rows)],
+      ['Graph nodes', nfm(g.nodes)],
+      ['Graph edges', nfm(g.edges)],
+      ['Articles in window', nfm((d.input||{}).eligible_articles)],
+    ])}
+    <div class="muted" style="margin:10px 0 4px">
+      Newest story ${esc(agoTxt((c.fin_stories||{}).newest_age_hours))} ·
+      newest trend ${esc(agoTxt((c.fin_trends||{}).newest_age_hours))} ·
+      newest forecast ${esc(agoTxt((c.fin_forecasts||{}).newest_age_hours))}
+    </div>
+    <table><thead><tr><th>Stage</th><th>Status</th><th>Last run</th><th>LLM calls</th><th>Detail</th></tr></thead>
+      <tbody>${stages}</tbody></table>`;
 }
 
 function statGrid(pairs){
@@ -458,7 +550,8 @@ function llmHTML(d){
     || `<tr><td colspan="6" class="muted">No models used in this window.</td></tr>`;
 
   return warn + statGrid([
-    [`Cost · last ${d.window_days}d`, usd(d.cost_usd)],
+    [d.window_days === 1 ? 'Cost · today (UTC)' : `Cost · last ${d.window_days}d`,
+     usd(d.cost_usd)],
     ['LLM calls', nfm(d.calls)],
     ['Tokens', nfm(d.total_tokens)],
     ['Avg cost / call', usd(d.avg_cost_per_call)],
@@ -580,9 +673,17 @@ function render(d){
   ).join('') : '<div class="muted">No recent errors — nice.</div>';
 }
 
+// `stageFrom` is the ID of the <select> holding the stage — it used to be
+// ignored, with '#stage' read unconditionally, which was invisible while the
+// news pipeline was the only caller and would have sent a news stage name to
+// the finance runner (a 400) the moment a second select existed.
 async function act(path, stageFrom){
   let url = path;
-  if(stageFrom){ const s=$('#stage').value; if(s) url += '?stage='+encodeURIComponent(s); }
+  if(stageFrom){
+    const el = $('#'+stageFrom);
+    if(el && el.value) url += '?stage='+encodeURIComponent(el.value);
+  }
+  const finance = path.includes('finance');
   $('#result').textContent = 'Working…';
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);
   try{
@@ -594,6 +695,9 @@ async function act(path, stageFrom){
   }catch(e){ $('#result').textContent = 'Request failed — is the server awake?'; }
   document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);
   setTimeout(refresh, 1500);
+  // A finance run changes nothing the live panel shows, so its own card has to
+  // be re-read or the run looks like it did nothing.
+  if(finance) setTimeout(loadFinance, 2000);
 }
 function confirmRebuild(){
   if(confirm('Rebuild ALL trends and forecasts from scratch? This deletes the current ones and recomputes them (uses LLM budget). Existing stories are re-linked.'))

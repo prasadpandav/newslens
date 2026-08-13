@@ -24,6 +24,7 @@ from .orchestrator import run_pipeline, STAGES
 from .finance import kg as fin_kg
 from .finance import causal as fin_causal
 from .finance.orchestrator import (run_finance_pipeline, unresolved_report,
+                                   health as finance_health,
                                    STAGES as FIN_STAGES)
 
 app = FastAPI(title="Descry API", version="0.1")
@@ -125,11 +126,55 @@ def _require_admin(authorization: str = "", token: str = ""):
 _pipeline_lock = threading.Lock()
 
 
+def _failed_stages(results):
+    """Stages of a news run that ended in error.
+
+    run_pipeline catches per stage and stores the failure as the string
+    "error: ..." in its results dict, so a failed run still returns normally —
+    which is why this reads the values rather than relying on an exception."""
+    required = config.FINANCE_REQUIRED_STAGES
+    return [s for s, v in (results or {}).items()
+            if (not required or s in required)
+            and isinstance(v, str) and v.startswith("error:")]
+
+
+def _chain_finance(results):
+    """Run the finance pipeline straight after a clean news run, on this thread.
+
+    Called with _pipeline_lock ALREADY HELD, so it calls run_finance_pipeline
+    directly rather than guarded_finance_run: the lock is a plain Lock, not an
+    RLock, so the guarded wrapper would fail to re-acquire it and silently
+    return None — a chained run that never ran and never said so.
+
+    A skip is written to `runs` on purpose. "Finance did not run" was invisible
+    before, and a gate that blocks silently is the same bug in a new place."""
+    blocked = _failed_stages(results)
+    if not blocked:
+        return run_finance_pipeline()
+    con = db.connect()
+    try:
+        gate = (",".join(config.FINANCE_REQUIRED_STAGES)
+                if config.FINANCE_REQUIRED_STAGES else "all stages")
+        db.log_run(con, "finance_pipeline", "skipped",
+                   f"news run failed at {blocked} (gate: {gate}) — "
+                   f"finance skipped, will run after the next clean news run")
+    finally:
+        con.close()
+    return f"skipped: {blocked} failed"
+
+
 def guarded_run(stage: str | None = None):
     if not _pipeline_lock.acquire(blocking=False):
         return None  # a run is already in progress; skip
     try:
-        return run_pipeline(stage)
+        results = run_pipeline(stage)
+        # Only a FULL run chains. A single-stage admin trigger
+        # (/admin/run?stage=entities) is a targeted repair, not a cycle, and
+        # must not drag a whole finance run along behind it.
+        if (stage is None and config.FINANCE_AFTER_PIPELINE
+                and config.FINANCE_TOPICS):
+            results["finance"] = _chain_finance(results)
+        return results
     finally:
         _pipeline_lock.release()
 
@@ -209,7 +254,17 @@ def _start():
     # local-development convenience: on the 512MB instance it would put a second
     # LLM pipeline in the process that serves requests, which is precisely the
     # coupling that let a pipeline OOM take the API down with it.
-    if config.FINANCE_IN_PROCESS:
+    if config.FINANCE_AFTER_PIPELINE and config.FINANCE_TOPICS:
+        # Chained to the news run (see guarded_run), so it gets NO clock of its
+        # own — a second trigger would either double-run it or be swallowed by
+        # the pipeline lock, and both look like "finance is flaky".
+        diag.checkpoint(
+            "finance pipeline CHAINED after each full news run "
+            f"(every {config.PIPELINE_INTERVAL_HOURS}h, gated on "
+            + (",".join(config.FINANCE_REQUIRED_STAGES)
+               if config.FINANCE_REQUIRED_STAGES else "all stages")
+            + " succeeding)")
+    elif config.FINANCE_IN_PROCESS:
         scheduler.add_job(guarded_finance_run, "interval",
                           hours=config.FINANCE_INTERVAL_HOURS,
                           id="finance_pipeline", replace_existing=True,
@@ -2650,6 +2705,22 @@ def admin_run_finance(stage: str = "", token: str = "",
     return {"started": True, "stage": stage or "all", "status": "running in background",
             "check": "GET /admin/usage — a recent_runs row with "
                      "stage='finance_pipeline', status='done' marks completion"}
+
+
+@app.get("/admin/finance/health")
+def admin_finance_health(token: str = "", authorization: str = Header("")):
+    """Is the finance pipeline actually running, and if not, why not.
+
+    Separate from /admin/usage on purpose: recent_runs is one LIMIT 30 list
+    shared with the news pipeline, which logs ~10 rows per run four times a day
+    — so a finance run that happened this morning is already off the bottom by
+    lunchtime, and one that never happened looks exactly the same."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    try:
+        return finance_health(con)
+    finally:
+        con.close()
 
 
 @app.get("/admin/finance/unresolved")

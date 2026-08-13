@@ -127,6 +127,23 @@ def _rows(con, sql, args=()):
     return [dict(r) for r in con.execute(sql, args).fetchall()]
 
 
+def window_start(days):
+    """(start_timestamp, start_day_key) for a window of `days` days ENDING TODAY.
+
+    `days` days including today means reaching back days-1, not days. Every
+    report used `now - days*86400`, which selected one extra calendar day: "last
+    7 days" summed 8 and "last 30" summed 31. It went unnoticed because the
+    error is proportionally small at 30 — but the daily chart beside those
+    totals is built by _dense_days, which uses (days - 1) and is correct, so the
+    oldest day was counted in the total and never plotted. At days=1, the window
+    a 24-hour view needs, the same bug doubles the number.
+
+    Retention/purge callers deliberately do NOT use this: "delete rows older
+    than N days" really is `now - days*86400`."""
+    start = db.now() - (max(1, days) - 1) * 86400
+    return start, day_key(start)
+
+
 def _dense_days(rows, days, fields):
     """Fill in the days that had no activity with zeroes.
 
@@ -146,8 +163,7 @@ def _dense_days(rows, days, fields):
 
 def visitor_report(con, days=30):
     """Audience: unique devices, new vs returning, and where they came from."""
-    since_ts = db.now() - days * 86400
-    since_day = day_key(since_ts)
+    since_ts, since_day = window_start(days)
 
     totals = con.execute(
         "SELECT COUNT(DISTINCT device) devices, COUNT(*) views "
@@ -196,7 +212,7 @@ def visitor_report(con, days=30):
 
 def traffic_report(con, days=30):
     """Overall request volume: every API hit, not just page views."""
-    since_day = day_key(db.now() - days * 86400)
+    _, since_day = window_start(days)
     daily = _dense_days(
         _rows(con, "SELECT day, SUM(hits) hits FROM traffic WHERE day >= ? "
                    "GROUP BY day ORDER BY day", (since_day,)), days, ("hits",))
@@ -211,7 +227,7 @@ def traffic_report(con, days=30):
 
 def user_report(con, days=30, limit=200):
     """Signed-in users: who they are, when they joined, and how active they are."""
-    since_ts = db.now() - days * 86400
+    since_ts, _ = window_start(days)
     total = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
     google = con.execute(
         "SELECT COUNT(*) c FROM users WHERE email IS NOT NULL AND email != ''"

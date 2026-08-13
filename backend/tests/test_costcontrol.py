@@ -24,7 +24,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import config, db, gazetteer, llm, llmcache, llmcost      # noqa: E402
+from app import analytics, config, db, gazetteer, llm, llmcache, llmcost  # noqa: E402
 from app import agents                                             # noqa: E402
 
 
@@ -574,3 +574,119 @@ class _patched:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReportWindowTest(_DBCase):
+    """Every "last N days" report summed N+1 calendar days: the SQL window used
+    `now - days*86400` while the daily chart beside it used `(days - 1)`. The
+    oldest day was counted in the total and never plotted. Harmless-looking at
+    30, but it DOUBLES a 24-hour view — which is what made it worth fixing
+    before adding one."""
+
+    def _spend_on(self, day_key, usd_tokens=1_000_000):
+        config.LLM_PRICE_DEFAULTS = {"p/m": [1.0, 0.0, 0.0]}
+        llmcost.record("p", "m", "t", prompt_tokens=usd_tokens,
+                       total_tokens=usd_tokens, con=self.con)
+        self.con.execute("UPDATE llm_usage SET day = ? WHERE day = ?",
+                         (day_key, analytics.day_key()))
+        self.con.commit()
+
+    def test_window_of_one_day_is_today_only(self):
+        _, start = analytics.window_start(1)
+        self.assertEqual(start, analytics.day_key())
+
+    def test_window_reaches_back_days_minus_one(self):
+        for days in (7, 30, 90):
+            _, start = analytics.window_start(days)
+            self.assertEqual(start,
+                             analytics.day_key(db.now() - (days - 1) * 86400),
+                             "a %d-day window must span exactly %d days" % (days, days))
+
+    def test_yesterdays_spend_is_excluded_from_a_one_day_report(self):
+        self._spend_on(analytics.day_key(db.now() - 86400))     # yesterday
+        rep = llmcost.report(self.con, days=1)
+        self.assertEqual(rep["cost_usd"], 0.0,
+                         "a 24-hour report must not include yesterday")
+
+    def test_todays_spend_is_included_in_a_one_day_report(self):
+        self._spend_on(analytics.day_key())                      # today
+        rep = llmcost.report(self.con, days=1)
+        self.assertEqual(rep["cost_usd"], 1.0)
+        self.assertEqual(len(rep["daily"]), 1, "one bucket for a one-day window")
+
+    def test_totals_and_chart_cover_the_same_span(self):
+        """The actual defect: chart and total disagreed by one day."""
+        for back in range(9):
+            self._spend_on(analytics.day_key(db.now() - back * 86400))
+        rep = llmcost.report(self.con, days=7)
+        self.assertEqual(len(rep["daily"]), 7)
+        self.assertEqual(rep["cost_usd"], 7.0,
+                         "7 days of $1/day must total $7, not $8")
+
+
+class FinanceChainingTest(_DBCase):
+    """The finance pipeline now runs at the end of a clean news run instead of
+    on a clock of its own. Three things must hold, and each has a way of failing
+    silently:
+
+      * a FAILED news run must not be followed by a finance run;
+      * a single-stage admin trigger must not drag a full finance run with it;
+      * a skip must be RECORDED — a gate that blocks quietly is exactly the
+        invisibility this whole endpoint was added to fix.
+    """
+
+    KNOBS = _DBCase.KNOBS + ("FINANCE_AFTER_PIPELINE", "FINANCE_REQUIRED_STAGES",
+                             "FINANCE_TOPICS", "FINANCE_IN_PROCESS",
+                             "PIPELINE_INTERVAL_HOURS")
+
+    def setUp(self):
+        super().setUp()
+        config.FINANCE_AFTER_PIPELINE = True
+        config.FINANCE_REQUIRED_STAGES = []
+        config.FINANCE_TOPICS = ["finance", "business"]
+
+    def test_clean_run_is_not_blocked(self):
+        from app import main
+        self.assertEqual(main._failed_stages({"scout": 10, "stories": 4}), [])
+
+    def test_failed_stage_blocks(self):
+        from app import main
+        blocked = main._failed_stages({"scout": 10, "entities": "error: boom"})
+        self.assertEqual(blocked, ["entities"])
+
+    def test_required_stages_narrows_the_gate(self):
+        """A failure in `signals` cannot affect what finance reads, so gating on
+        the real dependency has to be possible."""
+        from app import main
+        config.FINANCE_REQUIRED_STAGES = ["scout", "dedupe"]
+        results = {"scout": 10, "dedupe": 3, "signals": "error: boom"}
+        self.assertEqual(main._failed_stages(results), [])
+        results["dedupe"] = "error: nope"
+        self.assertEqual(main._failed_stages(results), ["dedupe"])
+
+    def test_a_skip_is_written_to_runs(self):
+        from app import main
+        out = main._chain_finance({"entities": "error: boom"})
+        self.assertIn("skipped", out)
+        row = self.con.execute(
+            "SELECT status, detail FROM runs WHERE stage='finance_pipeline' "
+            "ORDER BY created_at DESC LIMIT 1").fetchone()
+        self.assertEqual(row["status"], "skipped")
+        self.assertIn("entities", row["detail"])
+
+    def test_health_reports_the_chained_runner_and_news_cadence(self):
+        """FINANCE_INTERVAL_HOURS is dead while chaining is on; staleness judged
+        against it would call a healthy pipeline late every cycle."""
+        from app.finance.orchestrator import health
+        config.PIPELINE_INTERVAL_HOURS = 6.0
+        config.FINANCE_INTERVAL_HOURS = 3.0
+        h = health(self.con)
+        self.assertTrue(h["scheduling"]["chained_after_news"])
+        self.assertEqual(h["scheduling"]["interval_hours"], 6.0)
+        self.assertIn("chained", h["scheduling"]["runner"])
+
+    def test_health_flags_a_gated_run(self):
+        from app import main
+        from app.finance.orchestrator import health
+        main._chain_finance({"stories": "error: boom"})
+        self.assertEqual(health(self.con)["verdict"], "gated")

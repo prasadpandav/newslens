@@ -590,6 +590,41 @@ FINANCE_TOPICS = [t.strip().lower() for t in os.environ.get(
 # down with it. See render-512mb-oom-limit.
 FINANCE_IN_PROCESS = os.environ.get("FINANCE_IN_PROCESS", "0") == "1"
 FINANCE_INTERVAL_HOURS = float(os.environ.get("FINANCE_INTERVAL_HOURS", "3"))
+
+# Run the finance pipeline immediately after a successful FULL news run, in the
+# same background thread, instead of on a clock of its own.
+#
+# This is the default because the alternative — a second worker/cron — buys less
+# isolation than it appears to. The two pipelines already share _pipeline_lock,
+# so they could never overlap; the news pipeline already runs inside the API
+# process; and run_pipeline releases its working set (stage objects go out of
+# scope, then gc.collect()) before returning. Serialised in one thread, peak
+# memory is therefore max(news, finance), not their sum — the same ceiling the
+# box already lives with.
+#
+# What chaining adds is ORDER. Finance does not ingest: it reads the articles
+# Scout fetched and Deduper grouped. On its own 3h clock it re-read the same
+# corpus twice between 6h news runs, and could fire while a news run was mid-
+# flight and simply be skipped by the lock. Chained, it runs exactly once per
+# news run, on the freshest possible input, and its cadence follows
+# PIPELINE_INTERVAL_HOURS automatically.
+#
+# Set to 0 to go back to a clock (with FINANCE_IN_PROCESS=1) or to an external
+# worker (FINANCE_IN_PROCESS=0), e.g. if you later want an OOM in finance to be
+# unable to take the API down with it.
+FINANCE_AFTER_PIPELINE = os.environ.get(
+    "FINANCE_AFTER_PIPELINE", "1").lower() not in ("0", "false", "no")
+
+# Which news stages must have succeeded before the chained finance run starts.
+# Empty (the default) means ALL of them.
+#
+# Worth narrowing: finance consumes only what `scout` fetched and `dedupe`
+# grouped, so a failure in `signals` — the last stage, and the one furthest from
+# anything finance reads — blocks a run it could not have affected. Setting
+# FINANCE_REQUIRED_STAGES=scout,dedupe gates on the real dependency instead of
+# on the whole DAG.
+FINANCE_REQUIRED_STAGES = [s.strip() for s in os.environ.get(
+    "FINANCE_REQUIRED_STAGES", "").split(",") if s.strip()]
 # Per-run ceilings. Every finance stage is bounded the same way the general
 # pipeline's stages are — the ConnectionFinder OOM came from an unbounded pair
 # scan, and none of these may be allowed to grow with the table.

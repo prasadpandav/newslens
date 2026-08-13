@@ -276,7 +276,7 @@ def report(con, days=30):
     """Everything the cost owner needs for one window: totals, then the same
     spend cut by model, by provider and by pipeline task, plus a daily series
     and the rate card the money numbers were computed from."""
-    since_day = analytics.day_key(db.now() - days * 86400)
+    _, since_day = analytics.window_start(days)
     rows = analytics._rows
 
     by_model = _avg(rows(con, f"SELECT provider, model, {_SUMS} FROM llm_usage "
