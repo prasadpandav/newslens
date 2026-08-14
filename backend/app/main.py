@@ -26,8 +26,55 @@ from .finance import causal as fin_causal
 from .finance.orchestrator import (run_finance_pipeline, unresolved_report,
                                    health as finance_health,
                                    STAGES as FIN_STAGES)
+from .schemas import api as wire
 
-app = FastAPI(title="Descry API", version="0.1")
+API_DESCRIPTION = """
+Descry reads the same news from many outlets and reports how well each story is
+corroborated, rather than asserting it. A second pipeline re-tells the
+financially significant subset with extracted figures, actors and relationships.
+
+**Base URL:** `https://newslens-rmv6.onrender.com` — the API is served from this
+host only. `descry.in` is the web portal; it answers every unknown path with the
+single-page app, so requesting `/openapi.json` there returns HTML.
+
+### Finance stories reach clients two ways
+
+* `GET /feed` merges them into the ordinary feed, carrying `kind: "finance"`
+  and their own `topic`, so they land under the existing topic chips alongside
+  regular coverage. When both pipelines told the same event, only the finance
+  telling is sent.
+* `GET /finance/*` exposes them directly, plus the trends, forecasts and
+  knowledge graph built on top.
+
+`GET /story/{id}` resolves ids from **both** pipelines, so a feed item opens the
+same way whatever produced it.
+
+### Auth
+
+Reader endpoints take `Authorization: Bearer <token>` from `POST /auth/google`,
+plus `user_id` as a query parameter. The finance endpoints are unauthenticated.
+Signed-out callers get most content; connection chains stay locked.
+
+### Reading the numbers
+
+`credibility` (0-100) is how much corroboration a story has, not how true it is.
+The median story sits near 25, so scale any colour band accordingly. Forecast
+`disclaimer` text must be displayed wherever the forecast is.
+"""
+
+TAGS = [
+    {"name": "feed", "description": "The reader's feed and story detail. "
+                                    "Finance stories appear here too."},
+    {"name": "finance", "description": "Finance-pipeline stories, trends, "
+                                       "forecasts, knowledge graph and causal "
+                                       "chain simulation."},
+    {"name": "admin", "description": "Operational endpoints. Require ADMIN_TOKEN."},
+]
+
+app = FastAPI(title="Descry API", version="0.1",
+              description=API_DESCRIPTION, openapi_tags=TAGS,
+              servers=[{"url": "https://newslens-rmv6.onrender.com",
+                        "description": "Production"}])
 # Browser origin allowlist — ALLOWED_ORIGINS env, default * for the beta portal.
 app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS,
                    allow_methods=["*"], allow_headers=["*"])
@@ -839,9 +886,21 @@ def put_context(user_id: str, ctx: ContextIn, authorization: str = Header("")):
     return {"ok": True}
 
 
-@app.get("/feed")
+@app.get("/feed", tags=["feed"], summary="The reader's feed",
+         responses={200: {"model": wire.FeedResponse}})
 def feed(user_id: str, sort: str = "recent", since: float = 0.0,
          authorization: str = Header("")):
+    """Up to 100 ranked stories from the last 7 days, read stories excluded.
+
+    `sort=recent` (default) ranks by corroboration and the reader's topics;
+    `sort=foryou` ranks by personalised impact. `since` (epoch seconds) returns
+    only stories newer than that — the incremental fetch behind "N new stories".
+
+    Finance-pipeline stories are merged in, tagged `kind: "finance"`, and carry
+    `sectors`, `tickers`, `sentiment_net` and `metric_count`. They keep their
+    own `topic`, so client-side topic chips pick them up with no change; badge
+    them by testing for `kind == "finance"`.
+    """
     con = db.connect()
     _auth(con, user_id, authorization)
     # LEFT JOIN: every recent story appears in the feed; personalization
@@ -939,8 +998,17 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     return {"items": items}
 
 
-@app.get("/story/{story_id}")
+@app.get("/story/{story_id}", tags=["feed"], summary="One story, either pipeline",
+         responses={200: {"model": wire.StoryDetail},
+                    404: {"description": "No story with that id."}})
 def story(story_id: str, user_id: str = "", authorization: str = Header("")):
+    """Resolves ids from BOTH pipelines. A finance story answers here as a
+    superset of the news shape — every field a news story sends, with the same
+    meaning, plus `kind: "finance"`, `metrics`, `entities` and `sentiment`.
+
+    Pass `user_id` + `Authorization` to unlock connection chains and to have the
+    open counted as a read. Signed-out callers get everything else.
+    """
     con = db.connect()
     if user_id:
         _auth(con, user_id, authorization)
@@ -2661,8 +2729,15 @@ def _fin_story_row(r, full=False):
     return out
 
 
-@app.get("/finance/stories")
+@app.get("/finance/stories", tags=["finance"], summary="Finance stories",
+         responses={200: {"model": wire.FinanceStoryList}})
 def finance_stories(limit: int = 30, event_type: str = ""):
+    """Most recently updated first. `limit` is clamped to 100.
+
+    `narrative` is truncated to 280 chars and the metric/entity/sentiment tables
+    are omitted — fetch `/finance/story/{id}` for those. Filter with
+    `event_type` (earnings, m_and_a, regulation, ...).
+    """
     con = db.connect()
     limit = max(1, min(int(limit or 30), 100))
     if event_type:
@@ -2677,8 +2752,18 @@ def finance_stories(limit: int = 30, event_type: str = ""):
     return {"stories": out, "count": len(out)}
 
 
-@app.get("/finance/story/{story_id}")
+@app.get("/finance/story/{story_id}", tags=["finance"],
+         summary="One finance story, in full",
+         responses={200: {"model": wire.FinanceStoryDetail},
+                    404: {"description": "No finance story with that id."}})
 def finance_story(story_id: str):
+    """The full record: extracted `metrics`, the `entities` table with resolved
+    tickers, per-actor `sentiment`, and the graph `relationships` this story
+    established.
+
+    `entities.unresolved` names things the reporting mentioned that we could not
+    resolve — surface them as unlinked text rather than dropping them.
+    """
     con = db.connect()
     r = con.execute("SELECT * FROM fin_stories WHERE id=?", (story_id,)).fetchone()
     if not r:
@@ -2710,8 +2795,17 @@ def finance_story(story_id: str):
     return out
 
 
-@app.get("/finance/trends")
+@app.get("/finance/trends", tags=["finance"], summary="Cross-story financial forces",
+         responses={200: {"model": wire.FinanceTrendList}})
 def finance_trends(limit: int = 20):
+    """Forces spanning several stories, highest confidence first. Retired trends
+    are excluded. `limit` is clamped to 60.
+
+    `cascade` is the second-order impact map — who else this reaches and by what
+    mechanism — computed over stored relationships, not asked of a model.
+    `arc` is the stages the force has moved through; `velocity` is how fast
+    evidence is accruing.
+    """
     con = db.connect()
     rows = con.execute(
         "SELECT * FROM fin_trends WHERE retired_at IS NULL "
@@ -2729,8 +2823,19 @@ def finance_trends(limit: int = 20):
     return {"trends": out, "count": len(out)}
 
 
-@app.get("/finance/forecasts")
+@app.get("/finance/forecasts", tags=["finance"], summary="Scenario forecasts",
+         responses={200: {"model": wire.FinanceForecastList}})
 def finance_forecasts(limit: int = 20):
+    """Directional scenario analysis built on the trends. `limit` clamped to 60.
+
+    Always exactly three `scenarios` — base, bull, bear — with probabilities
+    summing to 1. `invalidation` lists the observables that would falsify the
+    thesis, and is the most useful part to render.
+
+    **`disclaimer` must be displayed wherever the forecast is.** It travels on
+    every forecast rather than being assembled client-side precisely so it
+    cannot be separated from the content. These are not investment advice.
+    """
     con = db.connect()
     rows = con.execute(
         "SELECT * FROM fin_forecasts WHERE retired_at IS NULL "
@@ -2755,9 +2860,20 @@ def finance_forecasts(limit: int = 20):
     return {"forecasts": out, "count": len(out)}
 
 
-@app.get("/finance/graph")
+@app.get("/finance/graph", tags=["finance"], summary="Knowledge graph",
+         responses={200: {"model": wire.FinanceGraphResponse}})
 def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
-    """The knowledge graph: overall shape, or the cascade around one entity."""
+    """The knowledge graph: overall shape, or the cascade around one entity.
+
+    **Two response shapes behind one path.** Without `entity`, the overview:
+    `stats`, `top` entities by mention count, and the highest-confidence
+    `links`. With `entity`, a breadth-first walk out from it: `resolved_to`
+    reports what the name resolved to, and each link's `order` is hop depth.
+
+    Confidence decays with distance — a three-hop chain asserted as firmly as a
+    direct one would be dishonest, since every hop is another relationship that
+    has to hold. `hops` is clamped to 4, `limit` to 100.
+    """
     con = db.connect()
     try:
         if not entity:
@@ -2780,9 +2896,20 @@ def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
         con.close()
 
 
-@app.get("/finance/causal/chains")
+@app.get("/finance/causal/chains", tags=["finance"],
+         summary="Cause-and-effect transmission chains",
+         responses={200: {"model": wire.CausalChainList}})
 def finance_causal_chains(domain: str = ""):
-    """Intelligent semantic cause-and-effect transmission chains."""
+    """How a catalyst propagates to a terminal outcome, step by step.
+
+    Each chain carries its `steps` (with an `elasticity_score` per step),
+    the `dampeners` that absorb the shock, a `historical_precedent`, and
+    `corroborating_story_ids` pointing at live reporting — resolve those via
+    `GET /story/{id}`.
+
+    Filter with `domain`, matched against catalyst domain or transmission
+    channel. Feed a chain's `id` to `/finance/causal/simulate` as `shock_id`.
+    """
     con = db.connect()
     try:
         return {"chains": fin_causal.list_causal_chains(con, domain=domain)}
@@ -2790,15 +2917,34 @@ def finance_causal_chains(domain: str = ""):
         con.close()
 
 
-@app.get("/finance/causal/simulate")
+@app.get("/finance/causal/simulate", tags=["finance"],
+         summary="Simulate a shock through a chain",
+         responses={200: {"model": wire.CausalSimulation}})
 def finance_causal_simulate(shock_id: str = "chain-monetary-policy-lending", intensity: float = 0.0, horizon: str = ""):
-    """Run counterfactual scenario simulation with custom shocks and magnitudes."""
+    """Counterfactual: what a shock of `intensity` percent does to one chain.
+
+    `shock_id` is a chain id from `/finance/causal/chains`. Returns the
+    probability shift against `base_probability`, per-step `computed_impact_pct`
+    and `direction`, and `ticker_impacts` keyed by symbol.
+
+    Directional only — an exposure tier and a transmission story, never a price
+    or a target. An unknown `shock_id` answers 200 with an `error` key.
+    """
     return fin_causal.simulate_counterfactual_shock(shock_id=shock_id, intensity_pct=intensity, horizon_override=horizon)
 
 
-@app.get("/finance/graph/{entity_name}/stories")
+@app.get("/finance/graph/{entity_name}/stories", tags=["finance"],
+         summary="Stories mentioning an entity",
+         responses={200: {"model": wire.FinanceEntityStories}})
 def finance_entity_stories(entity_name: str, limit: int = 10):
-    """Stories mentioning a specific entity in the knowledge graph."""
+    """Stories mentioning a specific entity in the knowledge graph.
+
+    Matches finance stories by entity name or resolved ticker, falling back to
+    the general news catalogue when the finance pipeline has nothing. `limit` is
+    clamped to 50.
+
+    Failures answer **200 with an `error` key**, not a 4xx — check for it.
+    """
     con = db.connect()
     try:
         canonical_id = fin_kg.tk.canonical(entity_name)
