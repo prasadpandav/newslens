@@ -12385,11 +12385,11 @@
                 <p>Every major event creates a chain reaction. When RBI changes interest rates, banks adjust, companies feel the pinch, and eventually consumers notice. Trace these domino effects step by step, and run "what if" scenarios to see how different shocks play out.</p>
               </div>
 
+              <!-- Built from whatever domains the API actually returns. These
+                   were three hard-coded pills naming the three seed chains, so
+                   they kept pointing at content the pipeline had replaced. -->
               <div class="causal-pills" id="causal-domain-pills">
                 <button class="causal-pill on" onclick="CausalPage.filterDomain('', this)">All</button>
-                <button class="causal-pill" onclick="CausalPage.filterDomain('Monetary', this)">Interest Rates & Banking</button>
-                <button class="causal-pill" onclick="CausalPage.filterDomain('Semiconductor', this)">Chips & AI</button>
-                <button class="causal-pill" onclick="CausalPage.filterDomain('Clean Energy', this)">EVs & Clean Energy</button>
               </div>
 
               <div class="causal-grid">
@@ -12404,10 +12404,11 @@
                     <div style="font:400 12.5px/1.5 var(--sans);color:var(--ink-2);margin-bottom:16px;">What if interest rates spike higher? What if chip shortages worsen? Pick a real-world event below, adjust the severity, and see how the consequences ripple through businesses and markets.</div>
 
                     <label style="font:500 11px var(--mono);color:var(--mute);text-transform:uppercase;display:block;margin-bottom:6px;">1. Select an Economic Event</label>
+                    <!-- Populated by loadChains() from the chains actually on
+                         file. Hard-coded options sent stale ids to the
+                         simulator, which used to answer them with a confident
+                         simulation of a different chain. -->
                     <select id="causal-sim-chain" style="width:100%;padding:8px 10px;border:1px solid var(--rule-2);border-radius:6px;background:var(--card);color:var(--ink);font:400 12.5px var(--sans);margin-bottom:14px;">
-                      <option value="chain-monetary-policy-lending">RBI Rate Change → Business Loans → Economic Growth</option>
-                      <option value="chain-semiconductor-fab-cascade">TSMC Chip Shortage → AI Delays → India Builds Local Fabs</option>
-                      <option value="chain-auto-ev-raw-materials">Rising Lithium Prices → Battery Inflation → EV Car Prices</option>
                     </select>
 
                     <label style="font:500 11px var(--mono);color:var(--mute);text-transform:uppercase;display:block;margin-bottom:6px;">2. Adjust Event Severity</label>
@@ -12524,34 +12525,72 @@
         const wrap = document.getElementById('causal-chains-list');
         if (!wrap) return;
 
-        // Render instantly from local data (0ms!)
-        if (!this.chains || this.chains.length === 0) {
-          this.chains = this.DEMO_CHAINS;
-        }
+        // Paint whatever we already hold so switching a filter feels instant,
+        // then replace it with the server's answer. DEMO_CHAINS is the very
+        // last resort — a first visit that cannot reach the API at all — and it
+        // is rendered as placeholder, never as reporting.
+        const painted = (this.chains && this.chains.length) ? this.chains : null;
+        if (painted) wrap.innerHTML = this.filterLocal(painted, domain).map(ch => this.renderChainCard(ch)).join('');
+        else wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--mute);font:400 13px var(--sans);">Loading causal chains…</div>';
 
-        let filtered = this.chains;
-        if (domain) {
-          const domLower = domain.toLowerCase();
-          filtered = this.chains.filter(c =>
-            (c.title || '').toLowerCase().includes(domLower) ||
-            (c.affected_sectors || []).some(s => s.toLowerCase().includes(domLower))
-          );
-          if (filtered.length === 0) filtered = this.chains;
-        }
-
-        wrap.innerHTML = filtered.map(ch => this.renderChainCard(ch)).join('');
-
-        // Asynchronously fetch backend updates with tight 1200ms timeout
         if (S.online) {
           try {
-            const resp = await api('/finance/causal/chains' + (domain ? '?domain=' + encodeURIComponent(domain) : ''), { timeout: 1200 });
-            if (resp && resp.chains && resp.chains.length > 0) {
+            // No short timeout here. This used to be 1200ms, which a cold
+            // server never beats, so the page silently kept serving its own
+            // built-in copy and looked frozen no matter what the pipeline did.
+            const resp = await api('/finance/causal/chains' + (domain ? '?domain=' + encodeURIComponent(domain) : ''));
+            if (resp && resp.chains) {
               this.chains = resp.chains;
-              wrap.innerHTML = this.chains.map(ch => this.renderChainCard(ch)).join('');
+              this.syncControls();
+              wrap.innerHTML = this.chains.length
+                ? this.chains.map(ch => this.renderChainCard(ch)).join('')
+                : `<div style="text-align:center;padding:40px;color:var(--mute);font:400 13px var(--sans);">No chains under this filter yet.</div>`;
+              return;
             }
           } catch (e) {
-            console.warn('Causal API timeout, using instant local chains');
+            console.warn('Causal chains unreachable', e);
           }
+        }
+        if (!painted) {
+          this.chains = this.DEMO_CHAINS.map(c => ({ ...c, curated: true }));
+          this.syncControls();
+          wrap.innerHTML = this.chains.map(ch => this.renderChainCard(ch)).join('');
+        }
+      },
+
+      filterLocal(chains, domain) {
+        if (!domain) return chains;
+        const d = domain.toLowerCase();
+        const hit = chains.filter(c =>
+          (c.catalyst_domain || '').toLowerCase().includes(d) ||
+          (c.title || '').toLowerCase().includes(d) ||
+          (c.affected_sectors || []).some(s => (s || '').toLowerCase().includes(d))
+        );
+        return hit.length ? hit : chains;
+      },
+
+      /* Rebuild the domain pills and the simulator dropdown from the chains we
+         actually have. Both were hard-coded to the three seed chains, so the
+         controls stayed frozen even once the API started returning new ones. */
+      syncControls() {
+        const sel = document.getElementById('causal-sim-chain');
+        if (sel) {
+          const prev = sel.value;
+          sel.innerHTML = this.chains.map(c =>
+            `<option value="${esc(c.id)}">${esc(c.title || c.catalyst_entity || c.id)}</option>`
+          ).join('');
+          if (this.chains.some(c => c.id === prev)) sel.value = prev;
+        }
+        const pills = document.getElementById('causal-domain-pills');
+        if (pills) {
+          const domains = [...new Set(this.chains
+            .map(c => (c.catalyst_domain || '').trim())
+            .filter(Boolean))].slice(0, 5);
+          const active = pills.querySelector('.causal-pill.on')?.textContent.trim();
+          pills.innerHTML = `<button class="causal-pill${active && active !== 'All' ? '' : ' on'}" onclick="CausalPage.filterDomain('', this)">All</button>`
+            + domains.map(d =>
+              `<button class="causal-pill${active === d ? ' on' : ''}" onclick="CausalPage.filterDomain('${esc(d).replace(/'/g, "\\'")}', this)">${esc(d)}</button>`
+            ).join('');
         }
       },
 
@@ -12583,7 +12622,10 @@
 
         const dampHtml = (ch.dampeners || []).map(d => `
           <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule-2);">
-            <div style="width:36px;height:36px;border-radius:50%;background:rgba(63,107,74,0.1);display:flex;align-items:center;justify-content:center;font:600 11px var(--mono);color:var(--good,#3F6B4A);flex-shrink:0;">${d.absorption_capacity_pct}%</div>
+            <!-- Null on generated chains: absorption capacity is not something
+                 this data can measure, so the circle shows a dash rather than
+                 a number nobody computed. -->
+            <div style="width:36px;height:36px;border-radius:50%;background:rgba(63,107,74,0.1);display:flex;align-items:center;justify-content:center;font:600 11px var(--mono);color:var(--good,#3F6B4A);flex-shrink:0;">${Number.isFinite(d.absorption_capacity_pct) ? d.absorption_capacity_pct + '%' : '—'}</div>
             <div style="flex:1;">
               <div style="font:500 12px var(--sans);color:var(--ink);">${d.name}</div>
               <div style="font:400 11px/1.4 var(--sans);color:var(--mute);">${d.mechanism}</div>
@@ -12594,10 +12636,11 @@
 
         return `
           <div class="causal-card">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
               <span class="kg-badge ${confCls}">${confPct}% confidence</span>
               <span class="kg-badge conf-mid">${probPct}% likely</span>
-              <span style="font:400 10.5px var(--mono);color:var(--mute);margin-left:auto;">⏱ Plays out over ${ch.time_horizon}</span>
+              ${ch.curated ? `<span class="kg-badge conf-low" title="An illustrative example, not drawn from current reporting.">Example</span>` : ''}
+              <span style="font:400 10.5px var(--mono);color:var(--mute);margin-left:auto;">⏱ Plays out over ${esc(ch.time_horizon)}</span>
             </div>
             <h3 style="font:600 17px/1.3 var(--sans);color:var(--ink);margin:0 0 6px;">${ch.title}</h3>
             <div style="font:400 13px/1.6 var(--sans);color:var(--ink-2);margin-bottom:4px;">
@@ -12620,14 +12663,21 @@
               </div>
             ` : ''}
 
-            <div style="margin-top:14px;padding:10px 12px;background:var(--bg-2,var(--paper));border-radius:6px;border:1px solid var(--rule-2);">
-              <div style="font:500 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:4px;">This Has Happened Before</div>
-              <div style="font:400 12px/1.5 var(--sans);color:var(--ink-2);">${ch.historical_precedent}</div>
-            </div>
+            ${ch.historical_precedent ? `
+              <div style="margin-top:14px;padding:10px 12px;background:var(--bg-2,var(--paper));border-radius:6px;border:1px solid var(--rule-2);">
+                <div style="font:500 10px var(--mono);color:var(--mute);text-transform:uppercase;margin-bottom:4px;">This Has Happened Before</div>
+                <div style="font:400 12px/1.5 var(--sans);color:var(--ink-2);">${esc(ch.historical_precedent)}</div>
+              </div>` : ''}
+
+            ${(ch.corroborating_story_ids && ch.corroborating_story_ids.length) ? `
+              <div style="margin-top:12px;font:400 11px var(--mono);color:var(--mute);">
+                Built from ${ch.corroborating_story_ids.length} ${ch.corroborating_story_ids.length === 1 ? 'story' : 'stories'} we read:
+                ${ch.corroborating_story_ids.slice(0, 4).map(id => `<a href="/s/${esc(id)}" data-r="story" style="color:var(--indigo,#2E4A7D);">evidence</a>`).join(' · ')}
+              </div>` : ''}
 
             <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px;">
-              ${(ch.affected_sectors || []).map(s => `<span style="padding:2px 8px;background:rgba(63,107,74,0.08);color:var(--good,#3F6B4A);border-radius:4px;font:500 10px var(--mono);">${s}</span>`).join('')}
-              ${(ch.sensitive_tickers || []).map(t => `<span style="padding:2px 8px;background:rgba(46,74,125,0.08);color:var(--indigo,#2E4A7D);border-radius:4px;font:500 10px var(--mono);">${t}</span>`).join('')}
+              ${(ch.affected_sectors || []).map(s => `<span style="padding:2px 8px;background:rgba(63,107,74,0.08);color:var(--good,#3F6B4A);border-radius:4px;font:500 10px var(--mono);">${esc(s)}</span>`).join('')}
+              ${(ch.sensitive_tickers || []).map(t => `<span style="padding:2px 8px;background:rgba(46,74,125,0.08);color:var(--indigo,#2E4A7D);border-radius:4px;font:500 10px var(--mono);">${esc(t)}</span>`).join('')}
             </div>
           </div>
         `;
@@ -12640,7 +12690,7 @@
       },
 
       async runSimulation() {
-        const chainId = document.getElementById('causal-sim-chain')?.value || 'chain-monetary-policy-lending';
+        const chainId = document.getElementById('causal-sim-chain')?.value || (this.chains[0] && this.chains[0].id);
         const intensity = parseFloat(document.getElementById('causal-sim-intensity')?.value || '25');
         const resultsWrap = document.getElementById('causal-sim-results');
         if (!resultsWrap) return;
@@ -12657,6 +12707,15 @@
 
         if (!data) {
           resultsWrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--mute);font:400 12px var(--sans);">No simulation data returned.</div>';
+          return;
+        }
+
+        // A 200 carrying `error` means the chain id is no longer on file — the
+        // pipeline rebuilt the set since this page loaded. Reload rather than
+        // render a blank simulation.
+        if (data.error) {
+          resultsWrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--mute);font:400 12px var(--sans);">That chain is no longer on file — refreshing the list.</div>';
+          await this.loadChains('');
           return;
         }
 

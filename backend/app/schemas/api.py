@@ -437,12 +437,18 @@ class FinanceEntityStories(_Out):
 class CausalStep(_Out):
     step_order: int = 0
     stage_name: str = ""
-    entity: str = ""
+    entity: str = Field(default="", description="A real graph node, never invented.")
     action_or_friction: str = ""
-    channel: str = ""
+    channel: str = Field(
+        default="", description="The relationship that reached this step, e.g. "
+                                "'regulates', 'supplies'. 'catalyst' on step 1.")
     elasticity_score: float = Field(
-        default=0.0, description="How strongly this step transmits the shock.")
-    propagation_horizon: str = ""
+        default=0.0, description="How strongly this step transmits — the "
+                                 "confidence of the link that reached it. 1.0 on "
+                                 "the catalyst, which acts under its own steam.")
+    propagation_horizon: str = Field(
+        default="", description="Derived from POSITION in the chain, not measured. "
+                                "Deliberately vague ('Weeks', '1-3 months').")
     affected_tickers: list[str] = Field(default_factory=list)
     evidence_quote: str = ""
 
@@ -451,22 +457,41 @@ class Dampener(_Out):
     """A force that absorbs the shock before it reaches the terminal outcome."""
     name: str = ""
     mechanism: str = ""
-    absorption_capacity_pct: int = 0
+    absorption_capacity_pct: Optional[int] = Field(
+        default=None, description="Null on generated chains: absorption capacity "
+                                  "is not measurable from this data, and a "
+                                  "plausible number under a real organisation's "
+                                  "name would be invented. Render '—' for null.")
     sponsor_entity: str = ""
 
 
 class CausalChain(_Out):
+    """A path through the knowledge graph: each step a real entity, each
+    `channel` a relationship the reporting established."""
     id: str
+    signature: Optional[str] = Field(
+        default=None, description="The canonical node path ('RBI>HDFCBANK>...'). "
+                                  "Stable identity across rebuilds.")
+    curated: bool = Field(
+        default=False, description="True on the hand-written seed chains served "
+                                   "only while the graph has produced none. "
+                                   "Those carry no corroborating stories.")
+    created_at: Optional[float] = None
+    updated_at: Optional[float] = None
     title: str = ""
     catalyst_event: str = ""
     catalyst_entity: str = ""
     catalyst_domain: str = ""
     terminal_outcome: str = ""
     transmission_channel: str = ""
-    overall_confidence: float = 0.0
+    overall_confidence: float = Field(
+        default=0.0, description="Geometric mean of the confidence of each link "
+                                 "— how well evidenced a typical hop is.")
     base_probability: float = Field(
         default=0.0, ge=0.0, le=1.0,
-        description="Unshocked likelihood the chain reaches its terminal outcome.")
+        description="Joint confidence that EVERY link holds (the product), so it "
+                    "falls as chains lengthen. A long chain scoring low is "
+                    "honest, not broken.")
     time_horizon: str = ""
     affected_sectors: list[str] = Field(default_factory=list)
     sensitive_tickers: list[str] = Field(default_factory=list)
@@ -489,16 +514,25 @@ class SimulatedStep(CausalStep):
 
 
 class TickerImpact(_Out):
-    exposure_tier: str = ""
+    exposure_tier: str = Field(
+        default="", description="HIGH | MODERATE | LOW, from where this ticker "
+                                "sits in the chain: near the catalyst on a "
+                                "well-evidenced link is HIGH.")
     sensitivity_beta: float = 0.0
-    expected_transmission: str = ""
+    expected_transmission: str = Field(
+        default="", description="Directional pressure only — never a price or a "
+                                "target.")
     status: str = ""
+    reached_at_step: Optional[int] = None
 
 
 class CausalSimulation(_Out):
     """A counterfactual: what a shock of `applied_intensity_pct` does to one
     chain. Directional analysis over stored relationships — never a price."""
-    shock_id: str = ""
+    shock_id: str = Field(
+        default="", description="The chain actually simulated. An unrecognised "
+                                "shock_id silently falls back to the first "
+                                "chain, so compare this against what you sent.")
     shock_title: str = ""
     catalyst_entity: str = ""
     applied_intensity_pct: float = 0.0
@@ -512,8 +546,12 @@ class CausalSimulation(_Out):
     ticker_impacts: dict[str, TickerImpact] = Field(default_factory=dict)
     dampeners: list[Dampener] = Field(default_factory=list)
     historical_precedent: str = ""
+    curated: bool = False
     error: Optional[str] = Field(
-        default=None, description="Present with a 200 if `shock_id` is unknown.")
+        default=None, description="Present with a 200 when `shock_id` is unknown; "
+                                  "`available` then lists valid ids and no "
+                                  "simulation fields are sent.")
+    available: Optional[list[str]] = None
 
 
 __all__ = [n for n in dir() if n[0].isupper()]

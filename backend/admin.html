@@ -174,6 +174,7 @@ select{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1p
         <option value="fin_stories">fin_stories</option>
         <option value="fin_trends">fin_trends</option>
         <option value="fin_forecasts">fin_forecasts</option>
+        <option value="fin_causal">fin_causal</option>
       </select>
       <button onclick="act('/admin/run-finance', 'finstage')">▶ Run finance</button>
       <button class="ghost" onclick="loadFinance()">↻ Check health</button>
@@ -334,6 +335,7 @@ function financeHTML(d){
       ['Stories', nfm((c.fin_stories||{}).rows)],
       ['Trends', nfm((c.fin_trends||{}).rows)],
       ['Forecasts', nfm((c.fin_forecasts||{}).rows)],
+      ['Causal chains', nfm((c.fin_causal_chains||{}).rows)],
       ['Graph nodes', nfm(g.nodes)],
       ['Graph edges', nfm(g.edges)],
       ['Articles in window', nfm((d.input||{}).eligible_articles)],
@@ -341,7 +343,8 @@ function financeHTML(d){
     <div class="muted" style="margin:10px 0 4px">
       Newest story ${esc(agoTxt((c.fin_stories||{}).newest_age_hours))} ·
       newest trend ${esc(agoTxt((c.fin_trends||{}).newest_age_hours))} ·
-      newest forecast ${esc(agoTxt((c.fin_forecasts||{}).newest_age_hours))}
+      newest forecast ${esc(agoTxt((c.fin_forecasts||{}).newest_age_hours))} ·
+      newest chain ${esc(agoTxt((c.fin_causal_chains||{}).newest_age_hours))}
     </div>
     <table><thead><tr><th>Stage</th><th>Status</th><th>Last run</th><th>LLM calls</th><th>Detail</th></tr></thead>
       <tbody>${stages}</tbody></table>`;

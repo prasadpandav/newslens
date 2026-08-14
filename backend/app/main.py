@@ -2907,8 +2907,19 @@ def finance_causal_chains(domain: str = ""):
     `corroborating_story_ids` pointing at live reporting — resolve those via
     `GET /story/{id}`.
 
-    Filter with `domain`, matched against catalyst domain or transmission
-    channel. Feed a chain's `id` to `/finance/causal/simulate` as `shock_id`.
+    Chains are PATHS through the knowledge graph, rebuilt by the `fin_causal`
+    pipeline stage: each step is a real entity, each `channel` a relationship
+    the reporting established, and `corroborating_story_ids` the stories that
+    reported those very relationships.
+
+    Filter with `domain`, matched against catalyst domain, transmission channel,
+    title or sectors. Feed a chain's `id` to `/finance/causal/simulate` as
+    `shock_id`.
+
+    **Check `curated`.** When the graph has not yet produced a chain (a fresh
+    deploy, or pruned edges) this falls back to a small hand-written seed set
+    with `curated: true` and no corroborating stories. Generated chains are
+    `curated: false`.
     """
     con = db.connect()
     try:
@@ -2928,9 +2939,19 @@ def finance_causal_simulate(shock_id: str = "chain-monetary-policy-lending", int
     and `direction`, and `ticker_impacts` keyed by symbol.
 
     Directional only — an exposure tier and a transmission story, never a price
-    or a target. An unknown `shock_id` answers 200 with an `error` key.
+    or a target. `exposure_tier` is derived from where the ticker sits in THIS
+    chain: near the catalyst on a well-evidenced link is HIGH.
+
+    An unknown `shock_id` returns `{"error": ..., "available": [...]}`, still
+    with a 200.
     """
-    return fin_causal.simulate_counterfactual_shock(shock_id=shock_id, intensity_pct=intensity, horizon_override=horizon)
+    con = db.connect()
+    try:
+        return fin_causal.simulate_counterfactual_shock(
+            shock_id=shock_id, intensity_pct=intensity,
+            horizon_override=horizon, con=con)
+    finally:
+        con.close()
 
 
 @app.get("/finance/graph/{entity_name}/stories", tags=["finance"],

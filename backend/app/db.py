@@ -214,6 +214,29 @@ CREATE TABLE IF NOT EXISTS fin_forecasts (
   dependencies TEXT, invalidation TEXT, confidence REAL, disclaimer TEXT,
   schema_version INTEGER, created_at REAL, updated_at REAL, retired_at REAL);
 CREATE INDEX IF NOT EXISTS fin_forecasts_live ON fin_forecasts(retired_at, updated_at);
+
+-- Cause-and-effect transmission chains behind the Predictions page.
+--
+-- `signature` is the identity: the canonical node path the chain walks
+-- ("RBI>HDFCBANK>TATAMOTORS"). Reconciliation keys on it, so the same path
+-- found again UPDATES in place instead of adding a parallel card — the same
+-- job `name` does for fin_trends, but exact rather than fuzzy, because a path
+-- through canonical node ids is already unambiguous.
+--
+-- `prose_hash` covers only the STRUCTURAL facts the prose describes. It is what
+-- makes narration incremental: a chain whose hash is unchanged keeps the prose
+-- it already has and costs no LLM call, however many times it is rediscovered.
+CREATE TABLE IF NOT EXISTS fin_causal_chains (
+  id TEXT PRIMARY KEY, signature TEXT, title TEXT,
+  catalyst_event TEXT, catalyst_entity TEXT, catalyst_domain TEXT,
+  terminal_outcome TEXT, transmission_channel TEXT,
+  overall_confidence REAL, base_probability REAL, time_horizon TEXT,
+  affected_sectors TEXT, sensitive_tickers TEXT, historical_precedent TEXT,
+  steps TEXT, dampeners TEXT, corroborating_story_ids TEXT,
+  prose_hash TEXT, schema_version INTEGER,
+  created_at REAL, updated_at REAL, retired_at REAL);
+CREATE UNIQUE INDEX IF NOT EXISTS fin_causal_sig ON fin_causal_chains(signature);
+CREATE INDEX IF NOT EXISTS fin_causal_live ON fin_causal_chains(retired_at, overall_confidence);
 """
 
 _schema_ready = False

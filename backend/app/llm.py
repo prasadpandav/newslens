@@ -914,6 +914,23 @@ def _mock(task, prompt):
                     "spending slows"],
             "sectors": kws[:2], "tickers": [], "macro_factors": kws[:1],
             "second_order": [], "confidence": 0.4, "story_ids": ids}]}
+    if task == "fin_causal":
+        # The chain's STRUCTURE is built from the graph before this call, so the
+        # mock only has to supply words. One rewritten step per step it was
+        # given, in order, because the caller matches them positionally.
+        given = re.findall(r"^\s*(\d+)\.\s+(.+?)(?:\s{2}\(|$)", prompt, re.M)
+        return {"title": f"How {label} pressure travels",
+                "catalyst_event": f"Something changes at {label}. (Placeholder — mock mode.)",
+                "transmission_channel": "The effect passes along recorded relationships.",
+                "terminal_outcome": "A reader eventually notices it in prices. (Placeholder.)",
+                "catalyst_domain": "Placeholder Domain",
+                "time_horizon": "3-6 months",
+                "steps": [{"stage_name": "Trigger" if i == 0 else "Ripple",
+                           "action_or_friction": f"{name.strip()} passes the effect on. "
+                                                 f"(Placeholder — mock mode.)"}
+                          for i, (_, name) in enumerate(given)],
+                "historical_precedent": "",
+                "dampeners": []}
     if task == "fin_forecast":
         return {"title": f"{label} pressure may spread to adjacent sectors",
                 "scenarios": [

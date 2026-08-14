@@ -645,3 +645,31 @@ FIN_MAX_CASCADE_HOPS = int(os.environ.get("FIN_MAX_CASCADE_HOPS", "3"))
 # append-only table on a 512MB box needs a ceiling written down at birth.
 FIN_KG_RETAIN_DAYS = float(os.environ.get("FIN_KG_RETAIN_DAYS", "120"))
 FIN_FORECAST_RETIRE_DAYS = float(os.environ.get("FIN_FORECAST_RETIRE_DAYS", "30"))
+
+# ---------------------------------------------------------------- causal chains
+# The Predictions page. A chain is a PATH through the knowledge graph — catalyst
+# entity, then the strongest relationship out of it, then the strongest out of
+# that — so the structure is computed from stored relationships and only the
+# plain-English prose is asked of a model.
+#
+# How many chains one run may keep. The page shows them as cards; past about six
+# a reader is scrolling rather than reading, and each new chain is a weaker path
+# than the one before it (seeds are walked most-mentioned first).
+FIN_MAX_CAUSAL_CHAINS = int(os.environ.get("FIN_MAX_CAUSAL_CHAINS", "6"))
+# A chain shorter than this is a single relationship, not a transmission chain:
+# "RBI regulates HDFC Bank" is a fact, not a cascade, and presenting it as one
+# on a page about knock-on effects would be the dishonest kind of padding.
+FIN_CAUSAL_MIN_STEPS = int(os.environ.get("FIN_CAUSAL_MIN_STEPS", "3"))
+# Ceiling on prose calls per run. Prose is regenerated ONLY when a chain's
+# structure actually moved (see _prose_hash), so in the steady state this is
+# near zero; the cap bounds the first run on a fresh graph, where every chain is
+# new at once.
+FIN_MAX_CAUSAL_PROSE_CALLS = int(os.environ.get("FIN_MAX_CAUSAL_PROSE_CALLS", "4"))
+# A chain nobody has re-reported in this many days is retired. Shorter than the
+# KG retention window on purpose: an edge is worth keeping as history long after
+# the chain built on it has stopped being a live prediction.
+FIN_CAUSAL_RETIRE_DAYS = float(os.environ.get("FIN_CAUSAL_RETIRE_DAYS", "21"))
+# Minimum edge confidence a step may rest on. Below this the walk is chaining
+# relationships the reporting barely supports, and the compounded probability
+# stops meaning anything.
+FIN_CAUSAL_MIN_EDGE_CONF = float(os.environ.get("FIN_CAUSAL_MIN_EDGE_CONF", "0.4"))

@@ -629,3 +629,63 @@ fin_forecast: |
     "invalidation": [{{"observable": "...", "threshold": "...",
       "source": "...", "invalidates": ["bear"]}}],
     "confidence": 0.55}}
+
+# The Predictions page. The CHAIN IS ALREADY BUILT before this call: the path,
+# the steps, the elasticities and the probability all come from walking stored
+# relationships. The model is asked ONLY to put the structure into plain English
+# — never to invent a hop, a number, or a company. That division is the same one
+# fin_trend uses (graph supplies structure, model supplies words) and it is what
+# keeps this page grounded in reporting rather than in a model's priors.
+fin_causal: |
+  You are explaining a cause-and-effect chain to a reader with no finance
+  background. The chain was derived by walking relationships that our reporting
+  established between these entities — it is not yours to change.
+
+  Catalyst entity: {catalyst}
+  The chain, in order:
+  {steps}
+
+  Relationships each step rests on, as recorded:
+  {edges}
+
+  Recent headlines involving these entities:
+  {headlines}
+
+  Write the plain-English framing of this chain. Rules:
+
+  - "title" names the chain as a reader would search for it, using arrows:
+    "How RBI Rate Changes Reach Car Loans". 4-10 words. No jargon, no ticker
+    symbols, no percentages.
+  - "catalyst_event" is ONE sentence: what happens at the start of the chain,
+    described as an event a person could read in a headline.
+  - "transmission_channel" is ONE short phrase naming the route the effect
+    travels: "Rates flow from the central bank to banks to borrowers".
+  - "terminal_outcome" is ONE sentence: what a reader actually notices at the
+    end of the chain. End at something human — prices, jobs, delays, choices —
+    not at a balance-sheet line.
+  - "catalyst_domain" is a 2-4 word plain category: "Monetary Policy",
+    "Supply Chains", "Commodity Prices", "Regulation".
+  - "time_horizon" is how long the whole chain takes to play out, in plain
+    words: "3-6 months". Base it on the number of steps, not on optimism.
+  - "steps" gives ONE rewritten line per step you were given, IN THE SAME ORDER
+    and the SAME COUNT. For each: "stage_name" (2-3 words: "Trigger", "First
+    Ripple", "What You Notice") and "action_or_friction" (one plain sentence
+    saying what this entity does and why it passes the effect on). Keep the
+    entity you were given — do not substitute another company.
+  - "historical_precedent" cites a real, well-known past episode ONLY if you are
+    confident it happened and it genuinely matches this mechanism. If nothing
+    fits, return "" — an invented precedent is worse than none.
+  - "dampeners" names up to 2 forces that would ABSORB this chain, each
+    {{"name", "mechanism", "sponsor_entity"}}. Only name a dampener that plainly
+    follows from the entities above (a regulator that can intervene, a subsidy
+    that already exists). Return [] rather than guessing. Do NOT give numbers.
+
+  Do not state or imply what anyone should buy, sell or hold. Describe what
+  happens, not what to do about it.
+
+  Reply ONLY with JSON:
+  {{"title": "...", "catalyst_event": "...", "transmission_channel": "...",
+    "terminal_outcome": "...", "catalyst_domain": "...", "time_horizon": "...",
+    "steps": [{{"stage_name": "...", "action_or_friction": "..."}}],
+    "historical_precedent": "",
+    "dampeners": [{{"name": "...", "mechanism": "...", "sponsor_entity": "..."}}]}}

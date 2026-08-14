@@ -50,6 +50,9 @@ class ContractTest(unittest.TestCase):
         # config read DB_PATH at import, so set both — prod points it at
         # /var/data, which does not exist here.
         os.environ["DB_PATH"] = config.DB_PATH = os.path.join(cls.tmp, "contract.db")
+        # Schema creation is once-per-process. Another test module connecting
+        # first would otherwise leave this database empty.
+        db._schema_ready = False
         from app import main
         cls.main = main
         cls.client = TestClient(main.app)

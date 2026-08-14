@@ -17,11 +17,14 @@ import uuid
 
 from .. import config, db, diag, fulltext, llm
 from ..agents import Verifier
-from . import kg
+from . import causal, kg
 from .agents import (FinancialForecastingAgent, FinancialStoryAgent,
                      FinancialTrendAgent)
 
-STAGES = ["fin_stories", "fin_trends", "fin_forecasts"]
+# fin_causal runs LAST because it walks the graph fin_stories has just finished
+# writing — running it first would build this cycle's chains out of last
+# cycle's relationships.
+STAGES = ["fin_stories", "fin_trends", "fin_forecasts", "fin_causal"]
 
 
 def run_finance_pipeline(stage=None):
@@ -46,6 +49,8 @@ def run_finance_pipeline(stage=None):
                 results[s] = FinancialTrendAgent().run(con)
             elif s == "fin_forecasts":
                 results[s] = FinancialForecastingAgent().run(con)
+            elif s == "fin_causal":
+                results[s] = causal.build(con)
         except Exception as e:  # noqa: BLE001
             db.log_run(con, s, "error", str(e)[:300])
             results[s] = f"error: {e}"
@@ -114,7 +119,8 @@ def health(con):
     runs = {s: last_run(s) for s in _RUN_STAGES}
     content = {"fin_stories": table("fin_stories"),
                "fin_trends": table("fin_trends"),
-               "fin_forecasts": table("fin_forecasts")}
+               "fin_forecasts": table("fin_forecasts"),
+               "fin_causal_chains": table("fin_causal_chains")}
     graph = kg.stats(con)
 
     topics = config.FINANCE_TOPICS
@@ -197,6 +203,18 @@ def health(con):
         problems.append(
             "The pipeline ran but fin_stories is empty. Check the fin_stories "
             "stage detail below and /admin/finance/unresolved.")
+
+    # Called out by name because it has exactly one visible symptom — the
+    # Predictions page showing the same three chains forever — and that looked
+    # for months like a stale cache rather than an empty table.
+    if pipe and not content["fin_causal_chains"]["rows"]:
+        problems.append(
+            "fin_causal_chains is empty, so /finance/causal/chains is serving "
+            "the CURATED seed chains (flagged `curated: true`). The graph has "
+            f"{graph['nodes']} nodes / {graph['edges']} edges; a chain needs a "
+            f"path of {config.FIN_CAUSAL_MIN_STEPS}+ nodes joined by edges "
+            f"above confidence {config.FIN_CAUSAL_MIN_EDGE_CONF}. Check the "
+            "fin_causal stage detail below.")
 
     return {"verdict": verdict, "problems": problems,
             "enabled": bool(topics), "topics": topics,
