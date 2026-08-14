@@ -1557,6 +1557,19 @@
       border-color: rgb(from var(--trust) r g b / .3)
     }
 
+    /* Finance-pipeline stories, sitting in the same feed as ordinary coverage.
+       Built from the same tokens as the other variants so it reskins with every
+       theme rather than pinning a colour the skins don't know about. Deliberately
+       the accent hue, not trust/warn/breaking: those three already mean something
+       about corroboration, and this says nothing about how true the story is —
+       only that a deeper reading of it exists. */
+    .chip.fin {
+      color: var(--chip-blue);
+      background: rgb(from var(--accent) r g b / .16);
+      border-color: rgb(from var(--accent) r g b / .38);
+      font-weight: 650
+    }
+
     .chip.warn {
       color: var(--chip-amber);
       background: rgb(from var(--warn) r g b / .12);
@@ -9937,6 +9950,17 @@
        loading="lazy" decoding="async" referrerpolicy="no-referrer"></div>` : ''}
   </a>`;
       },
+      /* Stories from the finance pipeline sit in the same feed, under the same
+         Finance/Business chips, as ordinary coverage — the reader gets both.
+         This is what tells them apart: the enriched telling carries a verbatim-
+         anchored metrics table and per-actor sentiment behind it, and the badge
+         names how many figures were extracted, because "Finance special" alone
+         is a label while "· 6 figures" is a reason to open it. */
+      finChip(s) {
+        if (s.kind !== 'finance') return '';
+        const n = s.metric_count || 0;
+        return `<span class="chip fin" title="Deep financial analysis: figures, actors and knock-on effects extracted from the reporting">✦ Finance special${n ? ` · ${n} figure${n > 1 ? 's' : ''}` : ''}</span>`;
+      },
       card(s, i, opts) {
         opts = opts || {};
         const cred = Math.round(s.credibility || 0);
@@ -9960,7 +9984,7 @@
          ${lead ? '' : 'loading="lazy" '}decoding="async" referrerpolicy="no-referrer"></div>` : '';
         return `<a class="scard glass rise${s.image_url ? ' has-img' : ''}${lead ? ' lead' : ''}" style="animation-delay:${.1 + Math.min(i, 8) * .05}s" href="/story/${s.id}">
     <div class="scard-body">
-    <div class="top"><span class="chip">${esc(storyLabel(s))}</span>${cred >= 85 ? '<span class="chip trust">Nearly all sources agree</span>' : ''}${told ? `<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>` : ''}</div>
+    <div class="top"><span class="chip">${esc(storyLabel(s))}</span>${Brief.finChip(s)}${cred >= 85 ? '<span class="chip trust">Nearly all sources agree</span>' : ''}${told ? `<span style="margin-left:auto;font-size:11.5px;color:var(--text-3)" title="${esc(told.full)}">Last told ${told.rel}</span>` : ''}</div>
     <h3>${esc(s.headline)}</h3><p>${esc(s.narrative)}</p>
     <div class="foot"><div class="meter"><i style="width:${cred}%;background:${cred >= 75 ? 'var(--trust)' : cred >= 50 ? 'var(--warn)' : 'var(--breaking)'}"></i></div>
       <span class="tv">${cred}%</span>${impact}${readBtn}</div>

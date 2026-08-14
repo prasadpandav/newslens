@@ -136,9 +136,19 @@ struct FeedItem: Codable, Identifiable, Hashable, EvidenceCarrying {
     /// a checked fact became argued over. Absent means "nothing to report",
     /// never "stable" — so nothing is drawn either way.
     var correction: Correction?
+    /// `"finance"` on stories written by the finance pipeline, absent on
+    /// ordinary ones. They share the feed and the topic chips with regular
+    /// coverage — the reader gets both tellings of a beat — so this is the only
+    /// thing that distinguishes them, and it decides both the badge and which
+    /// reader the card opens.
+    var kind: String?
+    /// How many figures the finance extractor pulled out of the reporting, each
+    /// anchored to a verbatim span. Only sent with `kind == "finance"`.
+    var metricCount: Int?
+    var isFinance: Bool { kind == "finance" }
 
     enum CodingKeys: String, CodingKey {
-        case id, headline, narrative, credibility, topic, place, conflicts, correction
+        case id, headline, narrative, credibility, topic, place, conflicts, correction, kind
         case credibilityNote = "credibility_note"
         case impactText = "impact_text"
         case impactScore = "impact_score"
@@ -152,6 +162,7 @@ struct FeedItem: Codable, Identifiable, Hashable, EvidenceCarrying {
         case sourceCount = "source_count"
         case sourceKinds = "source_kinds"
         case sourcePrimary = "source_primary"
+        case metricCount = "metric_count"
     }
 }
 

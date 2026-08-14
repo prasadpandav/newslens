@@ -136,8 +136,20 @@ struct BriefView: View {
                 ProfileView().environmentObject(api).environmentObject(ThemeStore.shared).skinned()
             }
             .navigationDestination(for: FeedItem.self) { item in
-                StoryDetailView(storyID: item.id)
-                    .blZoomDestination(id: item.id, ns: zoomNS)
+                // Finance-pipeline stories share this feed with ordinary
+                // coverage, so the tap has to pick the reader that can actually
+                // render what the card promised: FinanceStoryView draws the
+                // metrics table and per-actor sentiment that StoryDetailView has
+                // no fields for. This is the navigation entry the finance reader
+                // was written for and never had.
+                Group {
+                    if item.isFinance {
+                        FinanceStoryView(storyID: item.id)
+                    } else {
+                        StoryDetailView(storyID: item.id)
+                    }
+                }
+                .blZoomDestination(id: item.id, ns: zoomNS)
             }
             .navigationDestination(for: Trend.self) { trend in
                 TrendDetailView(trend: trend)
@@ -758,6 +770,7 @@ struct StoryCard: View {
             HStack(spacing: 8) {
                 StoryKicker(item: item)
                 Spacer(minLength: 0)
+                FinanceBadge(item: item)
                 ImpactBadge(score: item.impactScore ?? 0)
             }
             Text(item.headline)
@@ -780,6 +793,45 @@ struct StoryCard: View {
         .clipShape(RoundedRectangle(cornerRadius: pal.r(10), style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: pal.r(10), style: .continuous)
             .stroke(pal.hairline2, lineWidth: 1))
+    }
+}
+
+/// "✦ FINANCE SPECIAL · 6 FIGURES" — marks a story written by the finance
+/// pipeline rather than the news one.
+///
+/// Both pipelines read the same articles, so a finance beat carries both kinds
+/// of telling and they sit side by side under the same topic chip. Nothing else
+/// on the card distinguishes them, and the difference is the whole point: this
+/// one has a verbatim-anchored metrics table and per-actor sentiment behind it.
+/// The figure count is included because "Finance special" is a label, while
+/// "6 figures" is a reason to open it.
+///
+/// Draws nothing at all for an ordinary story, so every existing card is
+/// unchanged — and nothing is drawn on a finance story from a server too old to
+/// send `kind`, which is the safe direction.
+struct FinanceBadge: View {
+    let item: FeedItem
+    @Environment(\.palette) private var pal
+
+    var body: some View {
+        if item.isFinance {
+            HStack(spacing: 3) {
+                Image(systemName: "sparkle").font(.system(size: 8.5))
+                Text(figures.isEmpty ? "FINANCE" : "FINANCE · \(figures)")
+                    .font(pal.mono(10, .semibold))
+                    .kerning(1.1)
+            }
+            .foregroundStyle(pal.accent)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Capsule().fill(pal.accent.opacity(0.13)))
+            .overlay(Capsule().stroke(pal.accent.opacity(0.32), lineWidth: 1))
+            .lineLimit(1)
+        }
+    }
+
+    private var figures: String {
+        guard let n = item.metricCount, n > 0 else { return "" }
+        return "\(n) FIG"
     }
 }
 

@@ -443,6 +443,104 @@ def _corrections(con, story_ids):
     return out
 
 
+def _finance_feed_items(con, user_id, floor):
+    """fin_stories shaped as feed items, tagged `kind: "finance"`.
+
+    The finance pipeline reads the SAME articles as the news one, so both tell
+    the same events. Left alone they would appear twice under the Finance chip —
+    once plainly, once enriched — which is why the caller drops the plain twin
+    (see _merge_finance). What survives is the richer telling of an event plus
+    ordinary coverage of everything finance never got to.
+
+    The shape deliberately matches a normal feed item, because the chip filters
+    on `topic` client-side and the cards are rendered by the same code. Only
+    `kind` and the four finance-only summary fields are new, and every client
+    that does not know about them ignores them."""
+    rows = con.execute(
+        """SELECT s.id, s.event_id, s.headline, s.narrative, s.credibility,
+                  s.credibility_note, s.topic, s.image_url, s.created_at,
+                  s.updated_at, s.article_ids, s.claims, s.merge_stats,
+                  s.event_type, s.sectors, s.tickers, s.sentiment_net, s.metrics
+           FROM fin_stories s
+           LEFT JOIN read_stories r ON r.story_id = s.id AND r.user_id = ?
+           WHERE s.updated_at > ? AND r.story_id IS NULL
+           ORDER BY s.updated_at DESC LIMIT 200""",
+        (user_id, floor)).fetchall()
+    items = []
+    for r in rows:
+        it = dict(r)
+        it["kind"] = "finance"
+        # Columns fin_stories does not have. Supplied rather than omitted so a
+        # finance item is never the one row that makes a client's optional
+        # handling matter.
+        it["place"] = None
+        it["trend_ids"] = "[]"        # decoded by the shared loop below
+        it["impact_text"] = ""
+        it["impact_score"] = 0
+        # The finance-only summary: what makes the card worth badging.
+        it["metric_count"] = len(db.uj(it.pop("metrics"), []))
+        it["sectors"] = db.uj(it["sectors"], [])
+        it["tickers"] = db.uj(it["tickers"], [])
+        items.append(it)
+    return items
+
+
+def _merge_finance(regular, finance):
+    """One item per event, preferring the finance telling.
+
+    Identity is `event_id` — the same key Storyteller uses to decide whether it
+    is continuing a story or starting one — so this suppresses the plain twin of
+    an enriched story without touching stories that only one pipeline told."""
+    covered = {it.get("event_id") for it in finance if it.get("event_id")}
+    kept = [it for it in regular
+            if not (it.get("event_id") and it["event_id"] in covered)]
+    return kept + finance
+
+
+def _finance_story_as_news(con, story_id):
+    """A fin_story in the /story/{id} shape, or None if there is no such row.
+
+    A SUPERSET: every key a news story sends, with the same meaning, plus the
+    finance-only ones and `kind: "finance"`. Superset rather than a second shape
+    so an existing client decodes it without changes and simply ignores what it
+    does not know — while a client that DOES know can branch on `kind` and show
+    the metrics table and actor sentiment the finance pipeline exists to produce.
+    """
+    s = con.execute("SELECT * FROM fin_stories WHERE id=?", (story_id,)).fetchone()
+    if not s:
+        return None
+    articles = [dict(con.execute(
+        "SELECT title,url,source FROM articles WHERE id=?", (i,)).fetchone() or {})
+        for i in db.uj(s["article_ids"], [])]
+    out = {"id": s["id"], "kind": "finance",
+           "headline": s["headline"], "narrative": s["narrative"],
+           "why_matters": s["why_matters"] or "",
+           "credibility": s["credibility"],
+           "credibility_note": s["credibility_note"],
+           "claims": db.uj(s["claims"]), "topic": s["topic"],
+           "beats": db.uj(s["beats"]) if s["beats"] else None,
+           "anchors": db.uj(s["anchors"]) if s["anchors"] else None,
+           # The finance pipeline has no framing/connections/personalization
+           # stage. Sent as the same "never computed" values a news story uses
+           # so the client's existing empty-state handling applies unchanged.
+           "framing": None, "connections": [], "trends": [],
+           "impact_text": "", "impact_score": 0,
+           "image_url": s["image_url"] or "", "sources": articles,
+           "created_at": s["created_at"],
+           # ---- finance-only, ignored by clients that predate them
+           "event_type": s["event_type"],
+           "sectors": db.uj(s["sectors"], []),
+           "tickers": db.uj(s["tickers"], []),
+           "metrics": db.uj(s["metrics"], []),
+           "entities": db.uj(s["entities"], {}),
+           "sentiment": db.uj(s["sentiment"], {}),
+           "sentiment_net": s["sentiment_net"],
+           "economic_drivers": db.uj(s["economic_drivers"], []),
+           "history": []}
+    out.update(_evidence(s, articles))
+    return out
+
+
 def _attach_corrections(con, items):
     """Add `correction` to the items that have one, in place. Omitted entirely
     from the rest — the key's presence IS the signal."""
@@ -767,7 +865,7 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     # as stale even when the ranking underneath is fresh. They stay reachable
     # via GET /read, and un-marking (DELETE /read) brings a story back.
     rows = con.execute(
-        """SELECT s.id, s.headline, s.narrative, s.credibility, s.credibility_note,
+        """SELECT s.id, s.event_id, s.headline, s.narrative, s.credibility, s.credibility_note,
                   s.topic, s.place, s.image_url, s.created_at, s.updated_at, s.article_ids, s.trend_ids,
                   s.claims, s.merge_stats,
                   COALESCE(f.impact_text, '')  AS impact_text,
@@ -792,7 +890,14 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
     u = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
     ctx = db.uj(u["context"] if u else "{}")
     interests = {str(i).lower() for i in (ctx.get("interests") or []) if str(i).strip()}
+    # Finance-pipeline stories join the same pool, so they rank and filter with
+    # everything else: the topic chips are built from the items themselves, so a
+    # fin_story carrying topic=finance lands under the Finance chip with no
+    # client change. Guarded because a deployment with the finance pipeline
+    # switched off must behave exactly as it did before.
     items = [dict(r) for r in rows]
+    if config.FINANCE_TOPICS:
+        items = _merge_finance(items, _finance_feed_items(con, user_id, floor))
     if sort == "foryou":
         impact_of = lambda it: it["impact_score"] or (
             1 if personalization_relevant(ctx, it) else 0)
@@ -825,6 +930,9 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
         it.update(_evidence(it))
         del it["article_ids"]   # internal-only, not part of the API shape
         del it["claims"]; del it["merge_stats"]
+        # event_id is how the two pipelines' tellings were matched above; it is
+        # a join key, not something a reader or client needs.
+        it.pop("event_id", None)
         # trend_ids IS part of the shape: the portal's story network draws the
         # story -> force edges from it, and without them it can only guess.
         it["trend_ids"] = db.uj(it["trend_ids"], [])
@@ -838,7 +946,15 @@ def story(story_id: str, user_id: str = "", authorization: str = Header("")):
         _auth(con, user_id, authorization)
     s = con.execute("SELECT * FROM stories WHERE id=?", (story_id,)).fetchone()
     if not s:
+        # A finance-pipeline story. Answered HERE rather than only at
+        # /finance/story/{id} because this id now travels everywhere a news id
+        # does — it is in the feed, so it reaches share links, the /s/ OG route
+        # and any bookmark made from them. Serving it from one place means none
+        # of those paths had to learn a second id space.
+        fin = _finance_story_as_news(con, story_id)
         con.close()
+        if fin:
+            return fin
         raise HTTPException(404, "story not found")
     art_ids = db.uj(s["article_ids"], [])
     articles = [dict(con.execute(

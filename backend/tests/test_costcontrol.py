@@ -690,3 +690,88 @@ class FinanceChainingTest(_DBCase):
         from app.finance.orchestrator import health
         main._chain_finance({"stories": "error: boom"})
         self.assertEqual(health(self.con)["verdict"], "gated")
+
+
+class FinanceFeedMergeTest(_DBCase):
+    """Finance-pipeline stories share the feed and the topic chips with ordinary
+    coverage. Both pipelines read the SAME articles, so the risk this guards is
+    the reader seeing one event told twice — once plainly, once enriched."""
+
+    KNOBS = _DBCase.KNOBS + ("FINANCE_TOPICS",)
+
+    def setUp(self):
+        super().setUp()
+        config.FINANCE_TOPICS = ["finance", "business"]
+        self.con.execute("INSERT INTO users (id, token, created_at) VALUES (?,?,?)",
+                         ("u1", "t", db.now()))
+        self.con.commit()
+
+    def _news(self, sid, event_id, headline="Plain telling"):
+        self.con.execute(
+            "INSERT INTO stories (id,event_id,headline,narrative,credibility,topic,"
+            "article_ids,trend_ids,claims,merge_stats,created_at,updated_at) "
+            "VALUES (?,?,?,'n',50,'finance','[\"a1\"]','[]','{}','{}',?,?)",
+            (sid, event_id, headline, db.now(), db.now()))
+        self.con.commit()
+
+    def _fin(self, sid, event_id, headline="Enriched telling", metrics="[]"):
+        self.con.execute(
+            "INSERT INTO fin_stories (id,event_id,headline,narrative,credibility,topic,"
+            "article_ids,claims,merge_stats,metrics,sectors,tickers,event_type,"
+            "created_at,updated_at) VALUES (?,?,?,'n',70,'finance','[\"a1\"]','{}','{}',"
+            "?,'[]','[]','earnings',?,?)",
+            (sid, event_id, headline, metrics, db.now(), db.now()))
+        self.con.commit()
+
+    def _feed(self):
+        from app import main
+        return main.feed(user_id="u1", authorization="Bearer t")["items"]
+
+    def test_the_enriched_telling_replaces_its_plain_twin(self):
+        self._news("s1", "E1")
+        self._fin("f1", "E1")
+        self.assertEqual({i["id"] for i in self._feed()}, {"f1"})
+
+    def test_a_story_only_the_news_pipeline_told_survives(self):
+        self._news("s2", "E2")
+        self._fin("f1", "E1")
+        self.assertEqual({i["id"] for i in self._feed()}, {"s2", "f1"})
+
+    def test_finance_items_are_marked_and_carry_their_figure_count(self):
+        self._fin("f1", "E1", metrics='[{"name":"revenue"},{"name":"pat"}]')
+        item = self._feed()[0]
+        self.assertEqual(item["kind"], "finance")
+        self.assertEqual(item["metric_count"], 2)
+        self.assertEqual(item["topic"], "finance")   # lands under the chip
+
+    def test_event_id_never_reaches_the_wire(self):
+        """A join key, not part of the API shape."""
+        self._news("s1", "E1")
+        self._fin("f1", "E2")
+        for item in self._feed():
+            self.assertNotIn("event_id", item)
+
+    def test_finance_disabled_leaves_the_feed_untouched(self):
+        config.FINANCE_TOPICS = []
+        self._news("s1", "E1")
+        self._fin("f1", "E1")
+        self.assertEqual({i["id"] for i in self._feed()}, {"s1"})
+
+    def test_story_detail_serves_a_finance_id_as_a_news_superset(self):
+        """The card links to /story/{id}, so that route has to answer for both
+        id spaces or every finance tap 404s."""
+        from app import main
+        self._fin("f1", "E1", metrics='[{"name":"revenue"}]')
+        d = main.story(story_id="f1", user_id="u1", authorization="Bearer t")
+        self.assertEqual(d["kind"], "finance")
+        for key in ("headline", "narrative", "why_matters", "credibility", "claims",
+                    "topic", "framing", "sources", "trends", "connections",
+                    "impact_text", "impact_score", "created_at"):
+            self.assertIn(key, d, "missing news-shape key %r" % key)
+        self.assertEqual([m["name"] for m in d["metrics"]], ["revenue"])
+
+    def test_unknown_id_still_404s(self):
+        from app import main
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException):
+            main.story(story_id="nope", user_id="u1", authorization="Bearer t")
