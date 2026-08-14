@@ -25,7 +25,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import analytics, config, db, gazetteer, llm, llmcache, llmcost  # noqa: E402
-from app import agents                                             # noqa: E402
+from app import agents, main                                       # noqa: E402
 
 
 class _DBCase(unittest.TestCase):
@@ -775,3 +775,59 @@ class FinanceFeedMergeTest(_DBCase):
         from fastapi import HTTPException
         with self.assertRaises(HTTPException):
             main.story(story_id="nope", user_id="u1", authorization="Bearer t")
+
+
+class StoryTopicTest(_DBCase):
+    """A story's topic decides which feed chip it filters under. It used to be
+    `arts[0]["topic"]` — the topic of whichever article sorted first, and the
+    list is sorted by `uuid4().hex[:12]`, so "first" was a coin toss.
+
+    Single-feed stories were right by luck. A cross-beat merge — the thing the
+    Deduper exists to create — got an arbitrary label, so filtering by Finance
+    returned stories about anything. Reported as "only the top story is relevant
+    to the topic"."""
+
+    def _arts(self, topics):
+        """Article rows carrying the given topics, in the order given."""
+        rows = []
+        for i, t in enumerate(topics):
+            aid = "a%d" % i
+            self.add_article(aid, "t%d" % i, "s", topic=t)
+            rows.append(self.con.execute(
+                "SELECT * FROM articles WHERE id=?", (aid,)).fetchone())
+        return rows
+
+    def test_majority_beat_wins(self):
+        arts = self._arts(["world", "finance", "finance"])
+        self.assertEqual(agents._topic_of(arts), "finance")
+
+    def test_order_does_not_decide(self):
+        """The actual defect: the same set of articles, shuffled, must give the
+        same answer. Under the old rule each ordering gave a different topic."""
+        base = self._arts(["world", "finance", "finance"])
+        for order in ([0, 1, 2], [2, 1, 0], [1, 2, 0], [1, 0, 2]):
+            self.assertEqual(agents._topic_of([base[i] for i in order]), "finance")
+
+    def test_single_topic_is_unchanged(self):
+        """The case that always worked keeps working."""
+        self.assertEqual(agents._topic_of(self._arts(["finance"] * 3)), "finance")
+
+    def test_no_topic_anywhere_returns_empty(self):
+        self.assertEqual(agents._topic_of(self._arts(["", ""])), "")
+
+    def test_backfill_repairs_stored_rows(self):
+        from app import main
+        for i, t in enumerate(["world", "finance", "finance"]):
+            self.add_article("a%d" % i, "t", "s", topic=t)
+        self.con.execute(
+            "INSERT INTO stories (id,headline,narrative,credibility,topic,article_ids,"
+            "trend_ids,claims,merge_stats,created_at,updated_at) VALUES "
+            "('s1','H','n',50,'world','[\"a0\",\"a1\",\"a2\"]','[]','{}','{}',?,?)",
+            (db.now(), db.now()))
+        self.con.commit()
+        out = main.admin_fix_topics(token=config.ADMIN_TOKEN or "x",
+                                    authorization="")
+        self.assertEqual(out["changed"], 1)
+        self.assertEqual(out["examples"][0]["to"], "finance")
+        self.assertEqual(self.con.execute(
+            "SELECT topic FROM stories WHERE id='s1'").fetchone()["topic"], "finance")

@@ -18,7 +18,7 @@ from . import (config, db, diag, gazetteer, images, llm, llmcache, llmcost, live
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
                      depth_hint, clean_beats, clean_anchors,
-                     detect_correction, Framer)
+                     detect_correction, Framer, _topic_of)
 from . import fulltext
 from .orchestrator import run_pipeline, STAGES
 from .finance import kg as fin_kg
@@ -2017,6 +2017,43 @@ def admin_backfill_images(dry_run: bool = True, token: str = "",
     return {"started": True,
             "status": "backfilling in background — check /admin/usage for "
                       "stage='backfill_images'"}
+
+
+@app.post("/admin/fix-topics")
+def admin_fix_topics(token: str = "", authorization: str = Header("")):
+    """Recompute every story's `topic` from the articles it is actually built
+    from, by majority (see agents._topic_of).
+
+    A one-off repair for rows written while the topic was taken from
+    `arts[0]["topic"]` — whichever article had the lowest random uuid. Stories
+    carried by a single feed were right by luck; cross-beat merges got an
+    arbitrary label and filtered under a chip their content had nothing to do
+    with. New and retold stories fix themselves now, but a story nobody retells
+    would keep its wrong beat forever, so it is done here in one pass.
+
+    Reports the changes rather than just a count: a topic move is visible to
+    every reader using the chips, and it should be reviewable."""
+    _require_admin(authorization, token)
+    con = db.connect()
+    changed, examples = 0, []
+    for s in con.execute("SELECT id, topic, headline, article_ids FROM stories").fetchall():
+        ids = db.uj(s["article_ids"], [])
+        if not ids:
+            continue
+        arts = [con.execute("SELECT topic FROM articles WHERE id=?", (i,)).fetchone()
+                for i in ids]
+        arts = [a for a in arts if a]
+        want = _topic_of(arts)
+        if want and want != (s["topic"] or ""):
+            con.execute("UPDATE stories SET topic=? WHERE id=?", (want, s["id"]))
+            changed += 1
+            if len(examples) < 15:
+                examples.append({"headline": (s["headline"] or "")[:70],
+                                 "from": s["topic"], "to": want})
+    con.commit()
+    db.log_run(con, "fix_topics", "ok", f"recomputed topic on {changed} stories")
+    con.close()
+    return {"changed": changed, "examples": examples}
 
 
 @app.post("/admin/dedupe-trends")

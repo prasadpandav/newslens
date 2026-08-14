@@ -391,6 +391,33 @@ def _place_of(arts):
     return max(counts.items(), key=lambda kv: kv[1])[0]
 
 
+def _topic_of(arts):
+    """The beat a story belongs to: the commonest topic among its articles.
+
+    Was `arts[0]["topic"]` — the topic of whichever article happened to be
+    FIRST. The list is `sorted(set(ids))` over `uuid4().hex[:12]`, so "first"
+    means lowest random id: a coin toss. It only looked right because a story
+    carried by one feed has one topic to choose from. Grouping the same event
+    across outlets is the entire job of the Deduper, and a cross-beat merge —
+    an RBI decision carried by both a business and a general-news feed — took
+    whichever label won that toss. The story then filtered under a chip its
+    content had nothing to do with, which is exactly what a reader sees as
+    "everything below the top story is irrelevant".
+
+    Same rule and same tiebreak as _place_of, deliberately: commonest wins, ties
+    break toward the earliest article, so the answer is stable across runs and a
+    story does not change beat on a retell.
+    """
+    counts = {}
+    for a in arts:
+        t = (a["topic"] if "topic" in a.keys() else "") or ""
+        if t:
+            counts[t] = counts.get(t, 0) + 1
+    if not counts:
+        return ""
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
 def entity_terms(blob, *keys):
     """Clean terms for the given keys of a stored `articles.entities` blob.
 
@@ -1752,7 +1779,7 @@ class Storyteller:
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
                     "connection_ids=?,updated_at=?,event_id=?,image_url=?,"
-                    "merge_stats=?,beats=?,anchors=?,place=?"
+                    "merge_stats=?,beats=?,anchors=?,place=?,topic=?"
                     + (",framing=NULL" if drop_framing else "") + " WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
@@ -1761,6 +1788,11 @@ class Storyteller:
                      db.j(beats) if beats else None,
                      db.j(anchors) if anchors else None,
                      _place_of(arts),
+                     # Recomputed on every retell, like place and the headline.
+                     # It was the one field the update left alone, so a story
+                     # that picked the wrong beat on its first telling kept it
+                     # for life, however many later articles disagreed.
+                     _topic_of(arts),
                      mine["id"]))
                 self._record_history(con, mine["id"], event_id, score, len(ids),
                                      verdicts, bstats)
@@ -1776,7 +1808,7 @@ class Storyteller:
                     "place) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, headline, narrative, why_matters, score, note,
-                     db.j({"claims": claims, "verdicts": verdicts}), arts[0]["topic"],
+                     db.j({"claims": claims, "verdicts": verdicts}), _topic_of(arts),
                      db.j(ids), db.j(sorted(evt_tids)), db.j(conn_ids),
                      db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats),
                      db.j(beats) if beats else None,
