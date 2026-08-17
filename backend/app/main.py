@@ -2087,6 +2087,38 @@ def admin_backfill_images(dry_run: bool = True, token: str = "",
                       "stage='backfill_images'"}
 
 
+@app.post("/admin/llm-cache/purge", tags=["admin"],
+          summary="Drop cached LLM answers")
+def admin_purge_llm_cache(task: str = "", token: str = "",
+                          authorization: str = Header("")):
+    """Delete cached answers — all of them, or just one `task`'s.
+
+    The recovery lever for a poisoned cache. A wrong-shaped answer used to be
+    stored and then replayed to the caller on every later run, so a single bad
+    reply from a provider became a permanently failing stage with no provider
+    call left in the loop to fix it. `llm._shaped` now drops such a row when it
+    is read, so this is no longer required — it just makes the repair immediate
+    instead of one-prompt-at-a-time.
+
+    Costs money: every purged prompt is paid for again the next time it is
+    asked. Scope it with `?task=fin_extract` rather than clearing everything.
+    """
+    _require_admin(authorization, token)
+    con = db.connect()
+    try:
+        if task:
+            n = con.execute("DELETE FROM llm_cache WHERE task=?", (task,)).rowcount
+        else:
+            n = con.execute("DELETE FROM llm_cache").rowcount
+        con.commit()
+        db.log_run(con, "llm_cache_purge", "ok",
+                   f"dropped {n} cached answers" + (f" for task={task}" if task else ""))
+        return {"dropped": n, "task": task or "all",
+                "note": "these prompts will be paid for again on the next run"}
+    finally:
+        con.close()
+
+
 @app.post("/admin/fix-topics")
 def admin_fix_topics(token: str = "", authorization: str = Header("")):
     """Recompute every story's `topic` from the articles it is actually built

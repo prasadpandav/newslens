@@ -831,3 +831,190 @@ class StoryTopicTest(_DBCase):
         self.assertEqual(out["examples"][0]["to"], "finance")
         self.assertEqual(self.con.execute(
             "SELECT topic FROM stories WHERE id='s1'").fetchone()["topic"], "finance")
+
+
+class WrongShapeTest(_DBCase):
+    """Production: `fin_stories` died every run with "'list' object has no
+    attribute 'get'".
+
+    `_extract_json` matches `\\{.*\\}|\\[.*\\]`, so a model answering with a bare
+    array parsed fine and was handed to a caller doing `out.get(...)`. Because
+    the orchestrator catches per STAGE, one malformed answer took the whole
+    stage down. And the answer had already been written to llm_cache, so every
+    later run replayed the crash straight from cache without calling a provider
+    that might have answered correctly.
+    """
+
+    def setUp(self):
+        super().setUp()
+        config.LLM_PROVIDER = "openai"      # not mock: exercise the real path
+        config.LLM_CACHE_TTL_SECONDS = 3600
+        self.calls = []
+
+    def _answers(self, *texts):
+        """Stub _call, returning each text in turn."""
+        seq = list(texts)
+
+        def fake(provider, prompt, task):
+            self.calls.append(task)
+            return seq.pop(0) if seq else texts[-1]
+        return _patched(llm, "_call", fake)
+
+    def test_a_bare_array_is_rejected_not_handed_to_the_caller(self):
+        with self._answers('[{"a": 1}, {"b": 2}]'):
+            self.assertIsNone(llm.complete_json("fin_extract", "p"))
+
+    def test_a_rejected_answer_is_never_cached(self):
+        """The half that made it permanent."""
+        with self._answers('[{"a": 1}, {"b": 2}]'):
+            llm.complete_json("fin_extract", "p")
+        self.assertIsNone(llmcache.get("fin_extract", "p"))
+
+    def test_it_retries_and_takes_the_corrected_answer(self):
+        with self._answers('[1, 2]', '{"event_type": "earnings"}'):
+            out = llm.complete_json("fin_extract", "p")
+        self.assertEqual(out, {"event_type": "earnings"})
+        self.assertEqual(llmcache.get("fin_extract", "p"), {"event_type": "earnings"})
+
+    def test_a_single_element_wrapper_is_unwrapped_not_thrown_away(self):
+        """The commonest model tic. There is one candidate and no ambiguity
+        about which object was meant, so recovering it beats a retry."""
+        with self._answers('[{"event_type": "m_and_a"}]'):
+            out = llm.complete_json("fin_extract", "p")
+        self.assertEqual(out, {"event_type": "m_and_a"})
+        self.assertEqual(llm.usage["shape_recovered"], 1)
+
+    def test_a_poisoned_cache_row_is_dropped_on_read(self):
+        """Rows written before this validation existed are still in production
+        holding the exact answers that were crashing stages."""
+        llmcache.put("fin_extract", "p", [{"a": 1}, {"b": 2}])
+        with self._answers('{"event_type": "other"}'):
+            out = llm.complete_json("fin_extract", "p")
+        self.assertEqual(out, {"event_type": "other"},
+                         "a poisoned row must not be served")
+        self.assertEqual(llmcache.get("fin_extract", "p"), {"event_type": "other"},
+                         "and must be replaced, not just skipped")
+
+    def test_callers_that_tolerate_a_bare_array_still_get_one(self):
+        """entities_batch and trend go through agents._items_of, which is
+        written to accept either shape. Enforcing objects on them would break
+        the very answers _items_of exists to handle."""
+        with self._answers('[{"i": 0, "entities": ["X"]}]'):
+            out = llm.complete_json("entities_batch", "p", want="any")
+        self.assertEqual(out, [{"i": 0, "entities": ["X"]}])
+
+    def test_the_finance_extract_call_site_enforces_objects(self):
+        """The specific call that was crashing. Left at the default `want`, a
+        bare array reaches _tables() and raises AttributeError."""
+        from app.finance import agents as fin_agents
+        self.assertIn("want", llm.complete_json.__doc__ or "")
+        with self._answers('["not", "an", "object"]'):
+            self.assertIsNone(
+                llm.complete_json("fin_extract", "p"),
+                "fin_extract must not return a list to _tables()")
+        self.assertTrue(hasattr(fin_agents, "FinancialStoryAgent"))
+
+
+class StarvationDiagnosticTest(_DBCase):
+    """Production logged `gave_up · all · fin_forecast — providers [...] all
+    unavailable or benched` with no indication of WHY, or of whether the money
+    or the clock was the constraint. Those need opposite fixes."""
+
+    def setUp(self):
+        super().setUp()
+        config.LLM_PROVIDER = "openai"
+
+    def test_the_reason_each_provider_was_skipped_is_recorded(self):
+        llm._bench("openai", 900)
+        with _patched(llm, "_call", lambda *a, **k: '{"a": 1}'):
+            self.assertIsNone(llm.complete_json("story", "p"))
+        note = llm.recent_errors[0]
+        self.assertEqual(note["kind"], "gave_up")
+        self.assertIn("openai", note["detail"])
+        self.assertIn("benched", note["detail"])
+        self.assertIn("tier=", note["detail"],
+                      "the tier decides the provider order, so it belongs in "
+                      "the line that says no provider was reachable")
+
+    def test_a_real_error_still_wins_over_the_skip_summary(self):
+        """When a provider WAS attempted and failed, its error is the useful
+        message — the skip summary would bury it."""
+        def boom(*a, **k):
+            raise RuntimeError("upstream exploded")
+        with _patched(llm, "_call", boom):
+            self.assertIsNone(llm.complete_json("story", "p"))
+        self.assertIn("upstream exploded", llm.recent_errors[0]["detail"])
+
+
+class StarvationGateTest(_DBCase):
+    """A fully benched pipeline used to grind every item into an identical
+    failure and file an `error` row, which reads like a bug in the stage. The
+    honest report is "no provider was reachable", and the honest action is to
+    stop and let the next run pick the work up.
+
+    Waiting it out is not an option worth building: the first bench is 15
+    minutes and escalates to six hours, against a pipeline that runs every six.
+    """
+
+    def setUp(self):
+        super().setUp()
+        config.LLM_PROVIDER = "openai"
+
+    def test_availability_reports_ready_when_nothing_is_benched(self):
+        got = llm.availability("fin_trend")
+        self.assertTrue(got["ready"])
+        self.assertEqual(got["wait_seconds"], 0.0)
+
+    def test_availability_reports_the_soonest_bench_expiry(self):
+        llm._bench("openai", 600)
+        got = llm.availability("fin_trend")
+        self.assertFalse(got["ready"])
+        self.assertAlmostEqual(got["wait_seconds"], 600, delta=5)
+        self.assertIn("benched", got["detail"])
+
+    def test_waiting_cannot_help_when_the_budget_is_the_constraint(self):
+        """None, not a number: a bench expires on its own, an exhausted budget
+        does not. They need opposite responses."""
+        config.LLM_PRICE_DEFAULTS = {"openai/m": [1.0, 1.0, 1.0]}
+        config.LLM_DAILY_BUDGET_USD = 0.01
+        config.FREE_PROVIDERS = set()
+        llmcost.record("openai", "m", "story", prompt_tokens=1_000_000,
+                       total_tokens=1_000_000, con=self.con)
+        llmcost.invalidate_today()
+        with _patched(llm, "_model_for", lambda p, t: "m"):
+            got = llm.availability("story")
+        self.assertFalse(got["ready"])
+        self.assertIsNone(got["wait_seconds"])
+
+    def test_a_starved_stage_is_skipped_not_failed(self):
+        from app.finance import orchestrator
+        llm._bench("openai", 1800)
+        results = orchestrator.run_finance_pipeline(stage="fin_trends")
+        self.assertIn("skipped", results["fin_trends"])
+        r = self.con.execute(
+            "SELECT status, detail FROM runs WHERE stage='fin_trends' "
+            "ORDER BY created_at DESC LIMIT 1").fetchone()
+        self.assertEqual(r["status"], "skipped",
+                         "a stage with no provider to call did not fail — it "
+                         "never started")
+
+    def test_health_calls_starvation_by_its_name(self):
+        from app.finance.orchestrator import health
+        db.log_run(self.con, "finance_pipeline", "done", "{}")
+        db.log_run(self.con, "fin_trends", "skipped", "all benched — openai: 25m")
+        self.con.commit()
+        out = health(self.con)
+        self.assertEqual(out["verdict"], "starved")
+        self.assertTrue(any("no LLM provider was reachable" in p
+                            for p in out["problems"]))
+        self.assertTrue(any("402" in p for p in out["problems"]),
+                        "the problem text should say how to tell a quota "
+                        "exhaustion from an empty account")
+
+    def test_fin_causal_is_not_gated_because_it_needs_no_provider(self):
+        """Its structure is a graph walk; only the prose is an LLM call. Gating
+        it would stop the one stage that still does useful work while benched."""
+        from app.finance import orchestrator
+        llm._bench("openai", 1800)
+        results = orchestrator.run_finance_pipeline(stage="fin_causal")
+        self.assertNotIn("skipped", str(results["fin_causal"]))

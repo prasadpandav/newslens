@@ -38,10 +38,32 @@ def run_finance_pipeline(stage=None):
     run_id = uuid.uuid4().hex[:8]
     diag.checkpoint(f"run={run_id} finance pipeline start stages={stages}")
     verifier = Verifier()
+    #: The task each stage's work actually runs on, for the pre-flight check.
+    stage_task = {"fin_stories": "fin_extract", "fin_trends": "fin_trend",
+                  "fin_forecasts": "fin_forecast", "fin_causal": "fin_causal"}
     for s in stages:
         t0 = time.time()
         diag.checkpoint(f"run={run_id} stage={s} start")
         llm.set_context(f"run={run_id} stage={s}")
+        # Don't start a stage that cannot reach a provider. Benches are 15
+        # minutes at minimum and escalate to six hours, so a starved stage will
+        # not recover partway through its own run — it just makes one identical
+        # failure per item and files an `error` row that reads like a bug in the
+        # stage. Skipping says the true thing and costs nothing: the work is
+        # picked up by the next run, which is how every other transient failure
+        # here is already handled.
+        #
+        # fin_causal is exempt: its structure comes from walking the graph, so
+        # it does useful work with no provider at all and simply skips narration.
+        gate = llm.availability(stage_task.get(s, s)) if s != "fin_causal" else None
+        if gate and not gate["ready"]:
+            waited = ("no provider will free up on its own"
+                      if gate["wait_seconds"] is None
+                      else f"soonest provider free in {gate['wait_seconds'] / 60:.0f}m")
+            results[s] = f"skipped: {waited}"
+            db.log_run(con, s, "skipped", f"{gate['detail']} ({waited})")
+            diag.checkpoint(f"run={run_id} stage={s} skipped — {gate['detail']}")
+            continue
         try:
             if s == "fin_stories":
                 results[s] = FinancialStoryAgent().run(con, verifier)
@@ -189,6 +211,15 @@ def health(con):
         if r and r["status"] == "error":
             verdict = "failing" if verdict in ("healthy", "stale") else verdict
             problems.append(f"Stage {s} last ended in error: {r['detail'][:160]}")
+        elif r and r["status"] == "skipped":
+            # Distinct from an error on purpose. The stage is fine; it had no
+            # provider to call. The fix is upstream (quota, credit, pacing) and
+            # reporting it as a stage failure sends you to the wrong code.
+            verdict = "starved" if verdict == "healthy" else verdict
+            problems.append(
+                f"Stage {s} was SKIPPED — no LLM provider was reachable: "
+                f"{r['detail'][:200]} Check provider_events in /admin/usage for "
+                f"what benched them (429 = quota, 402 = out of credit).")
 
     if topics and not eligible:
         problems.append(

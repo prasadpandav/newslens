@@ -24,7 +24,7 @@ from . import config, llmcache, llmcost
 usage = {"calls": 0, "tokens": 0, "provider_calls": {}, "provider_attempts": {},
          "model_calls": {}, "model_tokens": {}, "cost_usd": 0.0,
          "rate_limited": 0, "failed": 0, "throttle_waits": 0,
-         "cache_hits": 0, "budget_blocked": 0}
+         "cache_hits": 0, "budget_blocked": 0, "shape_recovered": 0}
 
 #: How many times one complete_json call may wait on a full per-minute window
 #: before giving up. Each pass sleeps at most 60s, so this bounds a throttled
@@ -362,35 +362,121 @@ def _affordable(order, task):
     return kept, notes
 
 
-def complete_json(task: str, prompt: str, retries: int = 1):
+def _order_for(task):
+    """Providers to try for `task`, in order.
+
+    Each tier has its own running order: reasoning prefers the strongest
+    thinking model first, cheap and standard keep the free-first order. The
+    tier also decides the MODEL each provider serves — see _model_for — which
+    is what stops a mechanical task reaching a frontier model simply by falling
+    through to the last provider in the list.
+    """
+    if config.LLM_PROVIDER != "auto":
+        return [config.LLM_PROVIDER]
+    tier = config.tier_of(task)
+    base = (config.REASONING_PROVIDER_ORDER if tier == "reasoning"
+            else config.CHEAP_PROVIDER_ORDER if tier == "cheap"
+            else config.STANDARD_PROVIDER_ORDER)
+    # During DeepSeek peak hours, demote it behind the free providers to dodge
+    # the 2x charge (unless DEEPSEEK_AVOID_PEAK is off).
+    return _apply_peak_order([p for p in base if _has_key(p)])
+
+
+def availability(task):
+    """Can `task` reach a provider right now, and if not, when?
+
+    Returns {"ready": bool, "wait_seconds": float|None, "detail": str}.
+    `wait_seconds` is how long until the SOONEST provider comes off its bench;
+    None means no provider will free up on its own (no keys, or every one
+    priced out of the daily budget), so waiting cannot help.
+
+    Exists so a stage can decline to start rather than grinding through every
+    item to produce a run of identical failures and an `error` row. That is
+    what a fully benched pipeline used to do: `fin_trends` reported "trend call
+    failed" when the truthful answer was "no provider was reachable, and none
+    will be for 40 minutes".
+    """
+    if config.LLM_PROVIDER == "mock":
+        return {"ready": True, "wait_seconds": 0.0, "detail": "mock"}
+    order = _order_for(task)
+    if not order:
+        return {"ready": False, "wait_seconds": None,
+                "detail": f"no API key for any provider in tier "
+                          f"'{config.tier_of(task)}'"}
+    order, priced_out = _affordable(order, task)
+    if not order:
+        return {"ready": False, "wait_seconds": None,
+                "detail": "; ".join(priced_out) or "every provider priced out"}
+    now = time.time()
+    waits = {p: max(0.0, _benched_until.get(p, 0) - now) for p in order}
+    soonest = min(waits.values())
+    if soonest <= 0:
+        return {"ready": True, "wait_seconds": 0.0,
+                "detail": ", ".join(p for p in order if waits[p] <= 0) + " available"}
+    return {"ready": False, "wait_seconds": soonest,
+            "detail": "all benched — "
+                      + "; ".join(f"{p}: {w / 60:.0f}m" for p, w in waits.items())}
+
+
+class WrongShape(Exception):
+    """Valid JSON, wrong container — an array where the prompt asked for an
+    object. Handled exactly like invalid JSON: retried with a nudge, and never
+    cached."""
+
+
+def _shaped(task, out, want):
+    """The answer in the shape the caller asked for, or raise WrongShape.
+
+    `_extract_json` matches `\\{.*\\}|\\[.*\\]`, so a top-level array parses
+    just as happily as an object, and every caller doing `out.get(...)` raises
+    AttributeError on one. Because the orchestrator catches per STAGE, a single
+    malformed answer took down the whole fin_stories stage in production
+    ('list' object has no attribute 'get') — and, worse, the answer had already
+    been written to llm_cache, so every later run replayed the same crash from
+    cache without even calling a provider.
+
+    Wrapping the object in a single-element array is a common model tic and is
+    recovered rather than rejected: there is exactly one candidate and no
+    ambiguity about which object was meant.
+    """
+    if want == "any" or isinstance(out, dict):
+        return out
+    if isinstance(out, list) and len(out) == 1 and isinstance(out[0], dict):
+        usage["shape_recovered"] += 1
+        return out[0]
+    raise WrongShape(f"expected a JSON object, got {type(out).__name__}"
+                     + (f" of {len(out)}" if isinstance(out, list) else ""))
+
+
+def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"):
     """Return parsed JSON from the LLM, or None if every provider failed.
 
     IMPORTANT: with a real provider configured, failure returns None and the
     caller skips that item (it is retried on the next pipeline run). Mock
     content is only ever produced when LLM_PROVIDER=mock.
+
+    `want="object"` (the default) rejects a bare array, because almost every
+    prompt here specifies an object envelope and every caller then does
+    `out.get(...)`. Pass `want="any"` for the handful of callers that go
+    through `agents._items_of` and genuinely tolerate either.
     """
     provider = config.LLM_PROVIDER
     if provider == "mock":
         return _mock(task, prompt)
     cached = llmcache.get(task, prompt)
     if cached is not None:
-        usage["cache_hits"] += 1
-        return cached
-    if provider == "auto":
-        # Each tier has its own running order: reasoning prefers the strongest
-        # thinking model first (DeepSeek), cheap and standard keep the free-first
-        # order. The tier also decides the MODEL each provider serves — see
-        # _model_for — which is what stops a mechanical task reaching a frontier
-        # model simply by falling through to the last provider in the list.
-        tier = config.tier_of(task)
-        base = (config.REASONING_PROVIDER_ORDER if tier == "reasoning"
-                else config.CHEAP_PROVIDER_ORDER if tier == "cheap"
-                else config.STANDARD_PROVIDER_ORDER)
-        # During DeepSeek peak hours, demote it behind the free providers to dodge
-        # the 2x charge (unless DEEPSEEK_AVOID_PEAK is off).
-        order = _apply_peak_order([p for p in base if _has_key(p)])
-    else:
-        order = [provider]
+        # Shape-check the cache too. Rows written before this validation existed
+        # are still out there holding the very answers that were crashing
+        # stages, and a poisoned row would otherwise keep replaying that crash
+        # for the whole TTL without a provider call to fix it.
+        try:
+            shaped = _shaped(task, cached, want)
+            usage["cache_hits"] += 1
+            return shaped
+        except WrongShape as e:
+            llmcache.drop(task, prompt)
+            _note("cache_wrong_shape", "cache", task, str(e))
+    order = _order_for(task)
     # Applied in BOTH modes. A daily ceiling that a pinned LLM_PROVIDER can walk
     # straight through is not a ceiling — and pinning one provider is exactly the
     # configuration with no fallback to absorb an overrun.
@@ -405,10 +491,17 @@ def complete_json(task: str, prompt: str, retries: int = 1):
     # a throttle is not a failed answer. Bounded separately so a misconfigured
     # cap can never spin here forever.
     throttle_passes = 0
+    # Why each provider was passed over, for the gave_up line. "all unavailable
+    # or benched" named the order but not one reason, so a total starvation —
+    # which is what a quota exhaustion looks like — gave nothing to act on.
+    skipped = {}
     while attempt <= retries:
         deferred = []      # providers whose per-minute window is momentarily full
         for p in order:
-            if time.time() < _benched_until.get(p, 0):
+            cooldown = _benched_until.get(p, 0) - time.time()
+            if cooldown > 0:
+                skipped[p] = (f"benched {cooldown / 60:.0f}m more"
+                              f" (strike {_bench_strikes.get(p, 1)})")
                 continue  # provider is cooling down after a rate limit
             # Non-blocking: a provider at its per-minute slice is skipped so the
             # next one in the order can take the call. Only if EVERY provider is
@@ -416,18 +509,25 @@ def complete_json(task: str, prompt: str, retries: int = 1):
             wait = _try_reserve(p)
             if wait:
                 deferred.append(wait)
+                skipped[p] = f"per-minute window full, {wait:.0f}s to a slot"
                 continue
+            skipped.pop(p, None)
             try:
                 usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
                 _attempt.recorded = False
                 model = _model_for(p, task)
                 _pace(p, model)
                 text = _call(p, prompt if attempt == 0 else
-                             f"{prompt}\n\nYour previous answer was invalid JSON ({last_err}). "
-                             f"Reply with ONLY valid JSON.", task)
+                             f"{prompt}\n\nYour previous answer was rejected "
+                             f"({last_err}). Reply with ONLY the JSON object the "
+                             f"instructions above specify — no array wrapper, no "
+                             f"prose, no code fence.", task)
                 _benched_until.pop(p, None)
                 _bench_strikes.pop(p, None)   # it answered — forgive past 429s
-                out = _extract_json(text)
+                # Shape is checked BEFORE the cache write, so a wrong-shaped
+                # answer is never stored. It raises WrongShape, which is caught
+                # below alongside invalid JSON and retried with the nudge.
+                out = _shaped(task, _extract_json(text), want)
                 llmcache.put(task, prompt, out)
                 return out
             except RateLimited:
@@ -457,7 +557,7 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                     "provider": p, "event": f"down_{e.status}_benched",
                     "task": task})
                 continue
-            except json.JSONDecodeError as e:
+            except (json.JSONDecodeError, WrongShape) as e:
                 last_err = str(e)[:200]
                 # Usually a no-op: the provider answered (and billed us), so
                 # _record has already logged this attempt as a call with its
@@ -465,7 +565,8 @@ def complete_json(task: str, prompt: str, retries: int = 1):
                 # still called because _extract_json can raise this before any
                 # response was recorded when a provider returns an empty body.
                 _record_failure(p, task)
-                _note("invalid_json", p, task, last_err)
+                _note("invalid_shape" if isinstance(e, WrongShape) else "invalid_json",
+                      p, task, last_err)
                 continue
             except Exception as e:  # noqa: BLE001
                 last_err = str(e)[:200]
@@ -483,9 +584,19 @@ def complete_json(task: str, prompt: str, retries: int = 1):
             continue
         attempt += 1
     usage["failed"] += 1
-    _note("gave_up", "all", task,
-          last_err or f"providers {order} all unavailable or benched "
-                      f"(LLM_PROVIDER={config.LLM_PROVIDER})")
+    if last_err:
+        _note("gave_up", "all", task, last_err)
+    else:
+        # Nothing was ever attempted. Name the reason per provider, and whether
+        # the money or the clock is the constraint — those need opposite fixes
+        # (raise the ceiling vs. wait/slow down) and used to be indistinguishable.
+        why = "; ".join(f"{p}: {skipped.get(p, 'unavailable')}" for p in order)
+        extra = ""
+        if priced_out:
+            extra = f" | priced out: {'; '.join(priced_out)}"
+        _note("gave_up", "all", task,
+              f"no provider attempted — {why}{extra} "
+              f"(tier={config.tier_of(task)}, LLM_PROVIDER={config.LLM_PROVIDER})")
     return None
 
 

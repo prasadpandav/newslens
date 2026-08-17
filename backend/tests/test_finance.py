@@ -393,7 +393,7 @@ class _StubLLM:
         self.calls = []
         self.overrides = overrides or {}
 
-    def __call__(self, task, prompt_text, retries=1):
+    def __call__(self, task, prompt_text, retries=1, want="object"):
         self.calls.append((task, prompt_text))
         if task in self.overrides:
             value = self.overrides[task]
@@ -681,3 +681,59 @@ class Isolation(PipelineCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class StageIsolation(PipelineCase):
+    """Production ran for days with `fin_stories error: 'list' object has no
+    attribute 'get'` and produced nothing at all.
+
+    Two separate defects stacked. The router handed a bare JSON array to a
+    caller doing `out.get(...)` (fixed in llm._shaped), and the stage had no
+    per-event try/except — so that one AttributeError aborted `run()` entirely
+    and every remaining event in the batch was lost. The second is the one that
+    turns any future bad answer into a total outage, so it is pinned here.
+    """
+
+    def _seed_articles(self, groups=3):
+        super()._seed_articles(groups=groups)
+
+    def test_one_bad_event_does_not_take_down_the_stage(self):
+        seen = {"n": 0}
+
+        def explode_once(prompt_text):
+            """Fail the first extraction the way production did — a list where
+            an object was expected — and answer normally after that."""
+            seen["n"] += 1
+            if seen["n"] == 1:
+                return ["this", "is", "not", "an", "object"]
+            return STUB.get("fin_extract")
+
+        n, _ = self._run_stories({"fin_extract": explode_once})
+        self.assertEqual(n, 2, "the two healthy events must still be written")
+        rows = self.con.execute("SELECT COUNT(*) c FROM fin_stories").fetchone()["c"]
+        self.assertEqual(rows, 2)
+
+    def test_the_failure_is_reported_rather_than_swallowed(self):
+        n, _ = self._run_stories(
+            {"fin_extract": lambda _p: ["not", "an", "object"]})
+        self.assertEqual(n, 0)
+        r = self.con.execute(
+            "SELECT status, detail FROM runs WHERE stage='fin_stories' "
+            "ORDER BY created_at DESC LIMIT 1").fetchone()
+        self.assertEqual(r["status"], "error",
+                         "a stage that errored on every event must not report ok")
+        self.assertIn("errored", r["detail"])
+
+    def test_the_graph_still_grows_from_the_events_that_worked(self):
+        """The downstream cost of the outage: no edges, so fin_causal had
+        nothing to walk and the Predictions page stayed on curated chains."""
+        seen = {"n": 0}
+
+        def explode_once(prompt_text):
+            seen["n"] += 1
+            return (["bad"] if seen["n"] == 1 else STUB.get("fin_extract"))
+
+        self._run_stories({"fin_extract": explode_once})
+        edges = self.con.execute(
+            "SELECT COUNT(*) c FROM fin_kg_edges").fetchone()["c"]
+        self.assertGreater(edges, 0)

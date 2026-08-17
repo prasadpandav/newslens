@@ -703,7 +703,7 @@ class EntityTagger:
             summary = (src["summary"] or "").replace("\n", " ")[:400]
             lines.append(f"[{i}] {title} | {summary}")
         out = llm.complete_json("entities_batch", prompt(
-            "entities_batch", n=len(chunk), items="\n".join(lines)))
+            "entities_batch", n=len(chunk), items="\n".join(lines)), want="any")
         if out is None:
             return 0  # LLM unavailable; these groups are retried next run
         resolved = parse_entities_batch(out, list(range(len(chunk))))
@@ -1001,7 +1001,7 @@ class TrendLinker:
             out = llm.complete_json("trend", prompt(
                 "trend", topic=topic, n=len(leftover),
                 items=_numbered_items(leftover),
-                existing=self._state_text(candidates)))
+                existing=self._state_text(candidates)), want="any")
             calls += 1
             if out is None:
                 failed += 1
@@ -1079,7 +1079,7 @@ class TrendLinker:
                 continue
             out = llm.complete_json("trend", prompt(
                 "trend", topic=topic, n=len(arts), items=_numbered_items(arts),
-                existing=existing_txt))
+                existing=existing_txt), want="any")
             calls += 1
             if out is None:
                 failed += 1

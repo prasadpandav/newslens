@@ -98,50 +98,88 @@ class FinancialStoryAgent:
                      "WHERE updated_at > ?",
                      (db.now() - config.STORYTELLER_HISTORY_DAYS * 86400,)).fetchall()]
 
-        new_ct = upd_ct = skipped = failed = 0
+        new_ct = upd_ct = skipped = failed = errors = 0
+        last_error = ""
         for event_id, ids in by_event.items():
             if new_ct + upd_ct >= self.MAX_PER_RUN:
                 break
-            ids = sorted(ids)
-            mine = next((p for p in prior if p["eid"] == event_id), None)
-            if mine is None:
-                mine = next((p for p in prior if not p["eid"]
-                             and _containment(ids, p["aids"]) >= 0.5), None)
-            if mine:
-                merged = sorted(set(ids) | mine["aids"])
-                if not (set(merged) - mine["aids"]):
-                    skipped += 1
-                    continue          # nothing new since this was last told
-                ids = merged
-            arts = [con.execute("SELECT * FROM articles WHERE id=?", (i,)).fetchone()
-                    for i in ids]
-            arts = [a for a in arts if a]
-            if not arts:
+            try:
+                r = self._one(con, event_id, sorted(ids), prior, verifier)
+            except Exception as e:                              # noqa: BLE001
+                # Per-EVENT isolation. Without it one malformed model answer
+                # takes the whole stage down and every remaining event in the
+                # run is lost — which is exactly what
+                # "'list' object has no attribute 'get'" did in production, for
+                # days, because the bad answer was also cached. The same shape
+                # of bug had already cost us the entities stage once.
+                errors += 1
+                last_error = f"{type(e).__name__}: {e}"[:200]
+                llm._note("event_failed", "finance", "fin_stories", last_error)
+                try:
+                    con.rollback()      # never leave a half-written story behind
+                except Exception:       # noqa: BLE001
+                    pass
                 continue
-            built = self._build(con, arts, ids, verifier)
-            if built is None:
+            if r == "skipped":
+                skipped += 1
+            elif r == "failed":
                 failed += 1
-                continue              # LLM unavailable — retried next run
-            story, extras = built
-            if mine:
-                self._update(con, mine["id"], story, extras, event_id)
-                mine["aids"] = set(ids)
-                mine["eid"] = event_id
-                upd_ct += 1
-            else:
-                sid = self._insert(con, event_id, story, extras)
-                prior.append({"id": sid, "eid": event_id, "aids": set(ids)})
+            elif r == "new":
                 new_ct += 1
-            # Per-event commit, for the same reason the general Storyteller
-            # commits per group: SQLite has ONE write lock, and holding it
-            # across the next event's five LLM calls stalls every signed-in
-            # reader (GET /story writes read_stories). It also means an OOM
-            # kill mid-run keeps the stories already built.
-            con.commit()
-        db.log_run(con, "fin_stories", "ok",
-                   f"{new_ct} new + {upd_ct} updated finance stories over "
-                   f"{len(by_event)} events ({skipped} unchanged, {failed} failed)")
+            elif r == "updated":
+                upd_ct += 1
+        detail = (f"{new_ct} new + {upd_ct} updated finance stories over "
+                  f"{len(by_event)} events ({skipped} unchanged, {failed} failed"
+                  + (f", {errors} errored — last: {last_error}" if errors else "")
+                  + ")")
+        # An error rate this high is a broken stage wearing a green badge, so it
+        # is reported as one rather than hidden inside an "ok" detail string.
+        db.log_run(con, "fin_stories", "error" if errors > max(1, new_ct + upd_ct)
+                   else "ok", detail)
         return new_ct + upd_ct
+
+    def _one(self, con, event_id, ids, prior, verifier):
+        """One event, start to finish.
+
+        Returns "skipped" | "failed" | "new" | "updated" so `run` can count
+        outcomes without also owning failure handling — which is what lets the
+        caller wrap exactly this in one try/except and lose a single event
+        instead of the stage.
+        """
+        mine = next((p for p in prior if p["eid"] == event_id), None)
+        if mine is None:
+            mine = next((p for p in prior if not p["eid"]
+                         and _containment(ids, p["aids"]) >= 0.5), None)
+        if mine:
+            merged = sorted(set(ids) | mine["aids"])
+            if not (set(merged) - mine["aids"]):
+                return "skipped"      # nothing new since this was last told
+            ids = merged
+        arts = [con.execute("SELECT * FROM articles WHERE id=?", (i,)).fetchone()
+                for i in ids]
+        arts = [a for a in arts if a]
+        if not arts:
+            return "skipped"
+        built = self._build(con, arts, ids, verifier)
+        if built is None:
+            return "failed"           # LLM unavailable — retried next run
+        story, extras = built
+        if mine:
+            self._update(con, mine["id"], story, extras, event_id)
+            mine["aids"] = set(ids)
+            mine["eid"] = event_id
+            outcome = "updated"
+        else:
+            sid = self._insert(con, event_id, story, extras)
+            prior.append({"id": sid, "eid": event_id, "aids": set(ids)})
+            outcome = "new"
+        # Per-event commit, for the same reason the general Storyteller
+        # commits per group: SQLite has ONE write lock, and holding it
+        # across the next event's five LLM calls stalls every signed-in
+        # reader (GET /story writes read_stories). It also means an OOM
+        # kill mid-run keeps the stories already built.
+        con.commit()
+        return outcome
 
     # ---------------------------------------------------------- extraction
     def _build(self, con, arts, ids, verifier):

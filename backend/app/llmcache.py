@@ -96,6 +96,31 @@ def put(task, prompt, value, con=None):
                 pass
 
 
+def drop(task, prompt, con=None):
+    """Delete one cached answer. Returns True when a row went.
+
+    For the case where the STORED answer is the problem: a wrong-shaped row
+    written before shape validation existed will otherwise keep being served
+    for the whole TTL, replaying the same caller crash without ever calling a
+    provider that could return something better."""
+    own = con is None
+    try:
+        if own:
+            con = db.connect()
+        n = con.execute("DELETE FROM llm_cache WHERE hash = ?",
+                        (_key(task, prompt),)).rowcount
+        con.commit()
+        return bool(n)
+    except (sqlite3.Error, ValueError, TypeError):
+        return False
+    finally:
+        if own and con is not None:
+            try:
+                con.close()
+            except sqlite3.Error:
+                pass
+
+
 def purge(con, ttl=None):
     """Delete expired rows. Called once per pipeline run — the read path only
     IGNORES an expired row, so without this the table would keep every prompt

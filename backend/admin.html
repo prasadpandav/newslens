@@ -299,6 +299,7 @@ const FIN_VERDICT = {
   running_but_empty:  ['warn', 'Ran, produced nothing'],
   disabled:           ['warn', 'Disabled'],
   gated:              ['warn', 'Skipped — news run failed'],
+  starved:            ['warn', 'Skipped — no LLM provider free'],
 };
 const agoTxt = h => h == null ? 'never'
   : h < 1 ? Math.round(h*60)+'m ago' : h < 48 ? h.toFixed(1)+'h ago'
