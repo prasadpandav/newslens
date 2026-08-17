@@ -94,6 +94,10 @@ def routing_status():
     budget = config.LLM_DAILY_BUDGET_USD
     return {"tier_models": tiers,
             "warnings": unpaced_models(),
+            # A model the provider has retired. Every task routed to it fails
+            # until the env var is corrected, so it belongs next to the tier
+            # map that shows which tasks those are.
+            "dead_models": dead_models(),
             "free_providers": sorted(config.FREE_PROVIDERS),
             # Paid only — free-tier traffic is priced in the report for
             # comparison but is not money. See llmcost.today_usage.
@@ -362,6 +366,67 @@ def _affordable(order, task):
     return kept, notes
 
 
+#: Why the most recent complete_json on THIS thread returned None. Thread-local
+#: because the pipeline runs in a background thread while requests are served on
+#: others, and a stage reading a global would report someone else's failure.
+_failure = threading.local()
+
+
+def last_failure():
+    """Why the last complete_json call on this thread gave up, or None.
+
+    `complete_json` returns a bare None, so a caller could log "the call
+    failed" and nothing more — which is exactly what `fin_trends` did, filing
+    "trend call failed; kept existing set" against a dozen different causes
+    (context-length 400, quota, empty account, malformed JSON) that need
+    completely different fixes.
+    """
+    return getattr(_failure, "last", None)
+
+
+def why_failed(prompt=""):
+    """One line explaining the last failure on this thread, for a `runs` row.
+
+    Written for whoever reads the admin panel days later with no log access, so
+    it carries the cause, who was tried and on which model, and how big the ask
+    was — a context-length rejection is indistinguishable from any other
+    provider error until you know the prompt was 60k characters.
+    """
+    f = last_failure()
+    if not f:
+        # The router records a reason on every path that returns None, so this
+        # means the None came from somewhere else — in practice mock mode with
+        # no branch for this task.
+        return (f"no reason recorded — the router did not reject this call "
+                f"(LLM_PROVIDER={config.LLM_PROVIDER}; a mock build with no "
+                f"branch for this task returns None here)")
+    approx = (f.get("prompt_chars") or len(prompt)) // 4
+    who = ", ".join(f"{p}:{f['models'].get(p, '?')}" for p in f.get("providers", []))
+    line = (f"{f['kind']}: {f['detail']} "
+            f"[tier={f['tier']}, tried {who or 'nobody'}, "
+            f"prompt ~{approx:,} tokens]")
+    # Named explicitly because it is the one cause whose fix is ours (send less)
+    # rather than the provider's, and it is invisible in a generic 400.
+    if approx > 25_000:
+        line += (" — NOTE: this prompt is very large; a context-length "
+                 "rejection looks like a generic provider error here")
+    return line
+
+
+def _gave_up(task, kind, detail, order, prompt=""):
+    """Record why a call failed, then return None for the caller to pass on."""
+    _failure.last = {
+        "kind": kind, "task": task, "tier": config.tier_of(task),
+        "detail": str(detail)[:300], "providers": list(order),
+        "models": {p: _model_for(p, task) for p in order},
+        # Length is the first thing to check on a task that sends a whole
+        # window of stories: a context-length rejection reads like any other
+        # provider error in the log.
+        "prompt_chars": len(prompt),
+        "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    return None
+
+
 def _order_for(task):
     """Providers to try for `task`, in order.
 
@@ -476,15 +541,16 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
         except WrongShape as e:
             llmcache.drop(task, prompt)
             _note("cache_wrong_shape", "cache", task, str(e))
-    order = _order_for(task)
+    order = before_budget = _order_for(task)
     # Applied in BOTH modes. A daily ceiling that a pinned LLM_PROVIDER can walk
     # straight through is not a ceiling — and pinning one provider is exactly the
     # configuration with no fallback to absorb an overrun.
     order, priced_out = _affordable(order, task)
     if not order:
         usage["budget_blocked"] += 1
-        _note("budget_blocked", "all", task, "; ".join(priced_out) or "no provider left")
-        return None
+        detail = "; ".join(priced_out) or "no provider left"
+        _note("budget_blocked", "all", task, detail)
+        return _gave_up(task, "budget_blocked", detail, before_budget, prompt)
     last_err = None
     attempt = 0
     # Passes spent waiting on a full per-minute window don't consume a retry —
@@ -498,6 +564,12 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
     while attempt <= retries:
         deferred = []      # providers whose per-minute window is momentarily full
         for p in order:
+            dead = _dead_models.get((p, _model_for(p, task)))
+            if dead:
+                # Skipped for the life of the process. Retrying a model the
+                # provider has retired costs a round trip and can never succeed.
+                skipped[p] = f"model '{_model_for(p, task)}' retired by provider"
+                continue
             cooldown = _benched_until.get(p, 0) - time.time()
             if cooldown > 0:
                 skipped[p] = (f"benched {cooldown / 60:.0f}m more"
@@ -529,16 +601,35 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
                 # below alongside invalid JSON and retried with the nudge.
                 out = _shaped(task, _extract_json(text), want)
                 llmcache.put(task, prompt, out)
+                _failure.last = None      # this thread is healthy again
                 return out
             except RateLimited:
                 usage["rate_limited"] += 1
                 _record_failure(p, task)
                 secs = _bench(p)
+                # Recorded as the failure reason, not just as a counter. Without
+                # this a run where EVERY provider 429'd fell through to the
+                # "no provider attempted" branch and reported the benches it had
+                # itself just created — describing the consequence as the cause.
+                last_err = f"{p}: 429 rate limited (benched {secs // 60}m)"
                 _note("rate_limited", p, task, f"429 — benched {secs // 60} min")
                 provider_events.appendleft({
                     "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "provider": p, "event": "rate_limited_benched",
                     "benched_minutes": secs // 60, "task": task})
+                continue
+            except DeadModel as e:
+                # No bench: the account is fine and the provider's other tiers
+                # may be on models that still exist. The (provider, model) pair
+                # is already recorded, so the skip above catches every later
+                # call without another request.
+                last_err = str(e)[:200]
+                _record_failure(p, task)
+                _note("dead_model", p, task, last_err)
+                provider_events.appendleft({
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "provider": p, "event": "model_retired",
+                    "model": e.model, "task": task})
                 continue
             except ProviderDown as e:
                 # Bench it exactly like a rate limit. Nothing this run will make
@@ -586,6 +677,7 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
     usage["failed"] += 1
     if last_err:
         _note("gave_up", "all", task, last_err)
+        return _gave_up(task, "provider_error", last_err, order, prompt)
     else:
         # Nothing was ever attempted. Name the reason per provider, and whether
         # the money or the clock is the constraint — those need opposite fixes
@@ -602,6 +694,37 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
 
 class RateLimited(Exception):
     pass
+
+
+#: (provider, model) -> the 404 body that retired it. Populated at runtime when
+#: a provider reports a model does not exist. Process-local and never expires:
+#: a retired model does not come back, and a redeploy is the correct way to pick
+#: up a corrected GROQ_MODEL anyway.
+_dead_models: dict[tuple, str] = {}
+
+
+def dead_models():
+    """{(provider, model): reason} for models a provider has told us are gone.
+
+    Surfaced in /admin/usage and at startup, because the fix is a config change
+    nobody will make while the only symptom is a repeating error line."""
+    return {f"{p}/{m}": why for (p, m), why in _dead_models.items()}
+
+
+class DeadModel(Exception):
+    """The provider says this model does not exist.
+
+    Distinct from ProviderDown (the account is the problem) and RateLimited
+    (the clock is the problem): here the KEY and the account are fine and only
+    the configured model name is wrong. Benching the provider would be the
+    wrong response — its other tiers may be on models that still exist — so
+    only the (provider, model) pair is taken out.
+    """
+
+    def __init__(self, provider, model, detail=""):
+        super().__init__(f"{provider}: model '{model}' no longer exists "
+                         f"— set a valid {provider.upper()}_MODEL. {detail}"[:300])
+        self.provider, self.model = provider, model
 
 
 class ProviderDown(Exception):
@@ -656,6 +779,15 @@ def _post_chat(url, key, body, timeout, provider, model):
             raise RateLimited()
         if r.status_code in (401, 402, 403):
             raise ProviderDown(r.status_code, r.text[:200])
+        if r.status_code == 404 and "model" in r.text.lower():
+            # A decommissioned or unavailable MODEL, not a broken provider.
+            # Permanent for this (provider, model) — no number of retries brings
+            # a retired model back — so it is recorded and skipped rather than
+            # re-attempted. Groq retired llama-3.3-70b-versatile in Aug 2026 and
+            # this path re-tried it on every single call, one wasted round trip
+            # per pacing interval, indefinitely.
+            _dead_models[key_] = r.text[:200]
+            raise DeadModel(provider, model, r.text[:200])
         if r.status_code != 400:
             if r.status_code >= 400:
                 # Carry the body: a bare status line is not a diagnosis.

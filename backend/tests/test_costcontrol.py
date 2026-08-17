@@ -1018,3 +1018,92 @@ class StarvationGateTest(_DBCase):
         llm._bench("openai", 1800)
         results = orchestrator.run_finance_pipeline(stage="fin_causal")
         self.assertNotIn("skipped", str(results["fin_causal"]))
+
+
+class DeadModelTest(_DBCase):
+    """Production, 2026-08-17: Groq retired `llama-3.3-70b-versatile` and
+    answered every call with a 404. It fell through to the generic error
+    handler, so nothing recorded that the model was gone and the next call
+    tried it again — one wasted round trip per pacing interval, indefinitely.
+
+    A retired model is permanent in a way a 429 or a 402 is not: no amount of
+    waiting brings it back, and only a config change fixes it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        config.LLM_PROVIDER = "groq"
+        # GROQ_API_KEY is not one of _DBCase's restored knobs, so save it here
+        # rather than leaving a fake key behind for every later test.
+        self._key, config.GROQ_API_KEY = config.GROQ_API_KEY, "test-key"
+        # Pacing would sleep 2.1s per retry; these tests are about routing, not
+        # rate limits, and a 10-second suite tax buys nothing.
+        self._interval = llm.MIN_INTERVAL.get(("groq", None))
+        llm.MIN_INTERVAL[("groq", None)] = 0.0
+        llm._dead_models.clear()
+
+    def tearDown(self):
+        llm._dead_models.clear()
+        config.GROQ_API_KEY = self._key
+        if self._interval is None:
+            llm.MIN_INTERVAL.pop(("groq", None), None)
+        else:
+            llm.MIN_INTERVAL[("groq", None)] = self._interval
+        super().tearDown()
+
+    class _Resp:
+        def __init__(self, code, text):
+            self.status_code, self.text = code, text
+
+        def json(self):
+            return {}
+
+    def _404(self):
+        body = ('{"error":{"message":"The model `llama-3.3-70b-versatile` does '
+                'not exist or you do not have access to it.",'
+                '"type":"invalid_request_error","code":"model_not_found"}}')
+        return _patched(llm.httpx, "post",
+                        lambda *a, **k: self._Resp(404, body))
+
+    def test_a_retired_model_is_recorded_not_just_logged(self):
+        with self._404():
+            self.assertIsNone(llm.complete_json("entities", "p"))
+        self.assertIn(("groq", config.GROQ_CHEAP_MODEL), llm._dead_models)
+        self.assertIn("groq/", " ".join(llm.dead_models()))
+
+    def test_it_is_not_attempted_again(self):
+        """The whole point. The second call must cost no request at all."""
+        with self._404():
+            llm.complete_json("entities", "p")
+        calls = {"n": 0}
+
+        def counting(*a, **k):
+            calls["n"] += 1
+            return self._Resp(404, "model not found")
+
+        with _patched(llm.httpx, "post", counting):
+            self.assertIsNone(llm.complete_json("entities", "p2"))
+        self.assertEqual(calls["n"], 0,
+                         "a model the provider has retired must never be "
+                         "requested again")
+
+    def test_the_provider_is_not_benched_for_it(self):
+        """The account is fine — only the model name is wrong. Benching groq
+        would also take out any tier pointing at a model that still exists."""
+        with self._404():
+            llm.complete_json("entities", "p")
+        self.assertNotIn("groq", llm._benched_until)
+
+    def test_the_reason_reaches_the_stage_log(self):
+        with self._404():
+            llm.complete_json("entities", "p")
+        why = llm.why_failed()
+        self.assertIn("no longer exists", why)
+        self.assertIn("GROQ_MODEL", why)
+
+    def test_a_404_that_is_not_about_a_model_is_not_treated_as_permanent(self):
+        with _patched(llm.httpx, "post",
+                      lambda *a, **k: self._Resp(404, "endpoint not found")):
+            self.assertIsNone(llm.complete_json("entities", "p"))
+        self.assertEqual(llm._dead_models, {},
+                         "only a model-not-found may disable a model")

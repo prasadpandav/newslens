@@ -670,12 +670,22 @@ function render(d){
         <td class="${cls}">${esc(r.status)}</td><td class="muted">${esc(r.detail||'')}</td></tr>`;
     }).join('') : '<tr><td colspan="4" class="muted">No runs recorded yet.</td></tr>');
 
+  // Config faults worth surfacing above the error list, because they repeat
+  // forever until an env var changes and are otherwise just noise in the feed.
+  const dead = (d.routing||{}).dead_models || {};
+  const deadHTML = Object.keys(dead).length
+    ? `<div class="err-item" style="border-left:3px solid #b04a3a">
+         <b>Model retired by provider</b>
+         <div class="mono">${Object.entries(dead).map(([k,v]) =>
+            esc(k)+' — every task routed here fails until the model env var is corrected').join('<br>')}</div>
+       </div>` : '';
+
   // Errors
   const errs = d.recent_errors||[];
-  $('#errors').innerHTML = errs.length ? errs.slice(0,12).map(e=>
+  $('#errors').innerHTML = deadHTML + (errs.length ? errs.slice(0,12).map(e=>
     `<div class="err-item"><b>${esc(e.kind||'error')}</b> · ${esc(e.provider||'')} · ${esc(e.task||'')}
       <div class="mono">${esc(e.detail||'')}</div><div class="mono" style="opacity:.6">${esc(e.time||'')}</div></div>`
-  ).join('') : '<div class="muted">No recent errors — nice.</div>';
+  ).join('') : (deadHTML ? '' : '<div class="muted">No recent errors — nice.</div>'));
 }
 
 // `stageFrom` is the ID of the <select> holding the stage — it used to be

@@ -99,7 +99,7 @@ class FinancialStoryAgent:
                      (db.now() - config.STORYTELLER_HISTORY_DAYS * 86400,)).fetchall()]
 
         new_ct = upd_ct = skipped = failed = errors = 0
-        last_error = ""
+        last_error = last_fail = ""
         for event_id, ids in by_event.items():
             if new_ct + upd_ct >= self.MAX_PER_RUN:
                 break
@@ -124,6 +124,10 @@ class FinancialStoryAgent:
                 skipped += 1
             elif r == "failed":
                 failed += 1
+                # WHY the LLM declined, not just that it did. "3 failed" was
+                # true of an exhausted quota, an empty account and a malformed
+                # answer alike, and those need different fixes.
+                last_fail = llm.why_failed()
             elif r == "new":
                 new_ct += 1
             elif r == "updated":
@@ -131,7 +135,8 @@ class FinancialStoryAgent:
         detail = (f"{new_ct} new + {upd_ct} updated finance stories over "
                   f"{len(by_event)} events ({skipped} unchanged, {failed} failed"
                   + (f", {errors} errored — last: {last_error}" if errors else "")
-                  + ")")
+                  + ")"
+                  + (f" | LLM declined: {last_fail}" if failed and last_fail else ""))
         # An error rate this high is a broken stage wearing a green badge, so it
         # is reported as one rather than hidden inside an "ok" detail string.
         db.log_run(con, "fin_stories", "error" if errors > max(1, new_ct + upd_ct)
@@ -480,15 +485,24 @@ class FinancialTrendAgent:
             "SELECT name FROM fin_trends WHERE retired_at IS NULL "
             "ORDER BY confidence DESC, updated_at DESC LIMIT 30").fetchall()]
 
-        out = llm.complete_json("fin_trend", prompt(
+        text = prompt(
             "fin_trend", n=len(rows), window=int(window_days),
             digests="\n".join(self._digest(r) for r in rows),
             graph=self._graph_text(links),
-            existing="\n".join(f"- {n}" for n in existing_names) or "(none yet)"))
+            existing="\n".join(f"- {n}" for n in existing_names) or "(none yet)")
+        out = llm.complete_json("fin_trend", text)
         if out is None:
             con.commit()
+            # "trend call failed" was filed against a dozen unrelated causes —
+            # context-length rejection, exhausted quota, an empty account,
+            # malformed JSON — every one needing a different fix. Everything
+            # known about this specific call goes in the row, because by the
+            # time anyone reads it the run is long over.
             db.log_run(con, "fin_trends", "error",
-                       f"trend call failed; kept existing set (retired {retired})")
+                       "trend call failed — " + llm.why_failed(text)
+                       + f"; inputs: {len(rows)} stories over {window_days:g}d, "
+                       f"{len(links)} graph links, {len(existing_names)} existing "
+                       f"trends; kept existing set (retired {retired})")
             return 0
 
         valid = {r["id"] for r in rows}
@@ -681,11 +695,13 @@ class FinancialForecastingAgent:
                     for r in con.execute(
                         "SELECT id, title, trend_ids FROM fin_forecasts").fetchall()]
         new_ct = upd_ct = failed = repaired = 0
+        last_fail = ""
         for t in trends:
             forecast, was_repaired = self._forecast(con, t)
             repaired += 1 if was_repaired else 0
             if forecast is None:
                 failed += 1
+                last_fail = llm.why_failed()
                 continue
             vec = _tf(forecast.title)
             match = next((e for e in existing
@@ -721,9 +737,13 @@ class FinancialForecastingAgent:
                 existing.append({"id": fid, "vec": vec, "tids": [t["id"]]})
                 new_ct += 1
             con.commit()
-        db.log_run(con, "fin_forecasts", "ok",
+        db.log_run(con, "fin_forecasts",
+                   # Every arc failing is not a healthy run, whatever the count
+                   # of new rows says.
+                   "error" if failed and not (new_ct + upd_ct) else "ok",
                    f"{new_ct} new + {upd_ct} updated forecasts over {len(trends)} arcs "
-                   f"({failed} failed, {repaired} repaired, {retired} retired)")
+                   f"({failed} failed, {repaired} repaired, {retired} retired)"
+                   + (f" | LLM declined: {last_fail}" if failed and last_fail else ""))
         return new_ct + upd_ct
 
     def _forecast(self, con, trend_row):
