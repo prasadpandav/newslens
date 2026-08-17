@@ -326,46 +326,82 @@ def _node_names(con):
                 (NAMESPACE,)).fetchall()}
 
 
-def _path_from(con, seed, deg, min_conf, max_steps):
-    """Greedy strongest-first walk from `seed`, as a list of edge rows.
+#: Neighbours explored per hop. Bounds the search at _BEAM ** max_steps paths
+#: per seed (64 at the defaults) so lookahead stays cheap on a 512MB box.
+_BEAM = 4
+
+
+def _path_score(path):
+    """(length, joint confidence) — the key a path is chosen by.
+
+    Length dominates. A two-node "chain" is a single relationship and says
+    nothing about transmission; the whole product of this stage is the hop a
+    reader could not have made themselves. Joint confidence only separates
+    paths of equal length.
+    """
+    if not path:
+        return (0, 0.0)
+    joint = 1.0
+    for row, _, _, _ in path:
+        joint *= float(row["confidence"] or 0)
+    return (len(path), joint)
+
+
+def _path_from(con, seed, deg, min_conf, max_steps, cache=None):
+    """The best directed path out of `seed`, as a list of edge rows.
 
     DIRECTED, and that is not a detail. kg.cascade walks edges both ways —
     correct for "who is exposed to this", since exposure travels back down a
     supply relationship as readily as forward. A causal chain is the other
     question: it asks what CAUSES what, so it may only follow subject -> object.
-    Walking undirected here produced chains like "Tata Motors -> HDFC Bank ->
-    RBI", which reads the actual causality exactly backwards and would have
-    been published as a prediction.
+    Walking undirected produced chains like "Tata Motors -> HDFC Bank -> RBI",
+    the actual causality exactly backwards and about to be published.
 
-    Greedy rather than exhaustive on purpose. The best-supported relationship
-    out of an entity is the one the reporting actually established, and a
-    search over every path would find chains whose links no single story
-    connects — precisely the invented cascade this design exists to avoid. It
-    also keeps the walk linear in chain length on a 512MB box.
+    LOOKAHEAD, not greed, and that is not a detail either. This took the
+    locally strongest edge at each hop, which is worthless when the edges tie —
+    and in production they nearly all do, because the extractor emits a
+    near-constant 0.6. So the tie broke on SQLite row order and the walk chose
+    dead ends: from `Iran` it took `BRICS` (nothing leads out of it) while
+    `Iran -> New Development Bank -> Egypt` sat one row away unexplored. A live
+    graph with a perfectly good chain in it produced zero.
+
+    So: a depth-bounded search over paths, keeping the longest, breaking ties
+    on joint confidence. Bounded by `_BEAM` per hop and by `max_steps`, which
+    keeps it to tens of lookups per seed — the exhaustive search this deliberately
+    is NOT would chain relationships no single story connects.
     """
-    path, node, visited = [], seed, {seed}
-    while len(path) < max_steps:
+    cache = {} if cache is None else cache
+    best = []
+
+    def onward(node):
+        """Forward neighbours, strongest first — read once per node per run."""
+        if node not in cache:
+            cache[node] = sorted(
+                ((other, row) for other, row, forward
+                 in kg.neighbours(con, node, NAMESPACE, min_conf)
+                 if forward and other),
+                key=lambda pair: -float(pair[1]["confidence"] or 0))[:_BEAM]
+        return cache[node]
+
+    def walk(node, path, visited):
+        nonlocal best
+        if len(path) >= max_steps:
+            return
         # A hub is a fine place to START (a central bank is the catalyst of half
         # the chains worth drawing) but routing THROUGH one connects two
         # companies that merely share a regulator. Same rule kg.cascade applies.
         if path and deg.get(node, 0) > kg.HUB_DEGREE:
-            break
-        best = None
-        for other, row, forward in kg.neighbours(con, node, NAMESPACE, min_conf):
-            if not forward:
-                continue        # effects run subject -> object, never back up
-            if not other or other in visited:
+            return
+        for other, row in onward(node):
+            if other in visited:
                 continue        # a chain that revisits a node is a loop, not a chain
-            conf = float(row["confidence"] or 0)
-            if best is None or conf > best[0]:
-                best = (conf, other, row, forward)
-        if best is None:
-            break
-        _, other, row, forward = best
-        path.append((row, forward, node, other))
-        visited.add(other)
-        node = other
-    return path
+            step = path + [(row, True, node, other)]
+            if _path_score(step) > _path_score(best):
+                best = step
+            walk(other, step, visited | {other})
+
+    walk(seed, [], {seed})
+    return best
 
 
 def _signature(seed, path):
@@ -387,11 +423,11 @@ def _prose_hash(path):
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
 
 
-def _build_one(con, seed, deg, names):
+def _build_one(con, seed, deg, names, cache=None):
     """One chain's STRUCTURE — everything that comes from the graph. Returns
     None when the walk is too short to be a transmission chain."""
     path = _path_from(con, seed, deg, config.FIN_CAUSAL_MIN_EDGE_CONF,
-                      max(1, config.FIN_MAX_CASCADE_HOPS))
+                      max(1, config.FIN_MAX_CASCADE_HOPS), cache)
     # Steps are NODES, so N edges give N+1 steps.
     if len(path) + 1 < max(2, config.FIN_CAUSAL_MIN_STEPS):
         return None
@@ -739,8 +775,12 @@ def build(con):
         return 0
     names = _node_names(con)
     candidates, seen_sigs = [], set()
+    # One neighbour cache for the whole run: seeds overlap heavily (the tail of
+    # one chain is often the head of another), so this turns the lookahead's
+    # repeated edge reads into one query per node.
+    cache = {}
     for seed in _seeds(con, names, deg, config.FIN_MAX_CAUSAL_CHAINS * 3):
-        chain = _build_one(con, seed, deg, names)
+        chain = _build_one(con, seed, deg, names, cache)
         if not chain or chain["signature"] in seen_sigs:
             continue
         seen_sigs.add(chain["signature"])

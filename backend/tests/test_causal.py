@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("LLM_PROVIDER", "mock")
 
 from app import config, db, llm                                     # noqa: E402
-from app.finance import causal                                      # noqa: E402
+from app.finance import causal, kg                                  # noqa: E402
 
 
 class _Graph(unittest.TestCase):
@@ -160,6 +160,80 @@ class BuildTest(_Graph):
                 self.assertNotIn("TATAMOTORS", c["signature"].split(">")[2:],
                                  "a chain must not cross a link below the floor")
         con2.close()
+
+    def test_a_dead_end_does_not_hide_a_real_path_behind_it(self):
+        """From production, 2026-08-17. The extractor emits a near-constant 0.6
+        confidence, so a greedy "take the strongest link" walk had nothing to
+        choose on and tie-broke on SQLite row order. From `Iran` it took
+        `BRICS` — which nothing leads out of — while
+        `Iran -> New Development Bank -> Egypt` sat one row away, unexplored.
+        A live graph containing a perfectly good chain produced zero.
+        """
+        for n in ("Iran", "BRICS", "NDB", "Egypt"):
+            self.node(n, n)
+        # Insert the dead end FIRST, so row order favours the wrong branch.
+        self.edge("Iran", "funds", "BRICS", 0.6, ["s1"])
+        self.edge("Iran", "borrows_from", "NDB", 0.6, ["s1"])
+        self.edge("NDB", "lends_to", "Egypt", 0.6, ["s2"])
+        self.con.commit()
+        path = causal._path_from(self.con, "Iran", kg.degrees(self.con, "finance"),
+                                 config.FIN_CAUSAL_MIN_EDGE_CONF, 3)
+        self.assertEqual([t for _, _, _, t in path], ["NDB", "Egypt"],
+                         "the longer path must win even when every edge ties")
+
+    def test_a_longer_path_beats_a_stronger_first_hop(self):
+        """Length dominates the score: one strong relationship is a fact, not a
+        transmission chain, and the hop a reader could not have made themselves
+        is the entire product here."""
+        for n in ("Seed", "Strong", "A", "B"):
+            self.node(n, n)
+        self.edge("Seed", "owns", "Strong", 0.95, ["s1"])   # dead end
+        self.edge("Seed", "supplies", "A", 0.5, ["s1"])
+        self.edge("A", "supplies", "B", 0.5, ["s2"])
+        self.con.commit()
+        path = causal._path_from(self.con, "Seed", kg.degrees(self.con, "finance"),
+                                 config.FIN_CAUSAL_MIN_EDGE_CONF, 3)
+        self.assertEqual([t for _, _, _, t in path], ["A", "B"])
+
+    def test_confidence_still_separates_paths_of_equal_length(self):
+        for n in ("S", "P", "Q", "P2", "Q2"):
+            self.node(n, n)
+        self.edge("S", "weak", "P", 0.5, ["s1"])
+        self.edge("P", "weak", "Q", 0.5, ["s1"])
+        self.edge("S", "strong", "P2", 0.9, ["s2"])
+        self.edge("P2", "strong", "Q2", 0.9, ["s2"])
+        self.con.commit()
+        path = causal._path_from(self.con, "S", kg.degrees(self.con, "finance"),
+                                 config.FIN_CAUSAL_MIN_EDGE_CONF, 3)
+        self.assertEqual([t for _, _, _, t in path], ["P2", "Q2"])
+
+    def test_the_search_stays_bounded(self):
+        """Lookahead must not become an exhaustive walk. A fan-out of 12 at
+        every hop is capped by _BEAM, not explored in full."""
+        self.node("Hub", "Hub")
+        for i in range(12):
+            self.node(f"N{i}", f"N{i}")
+            self.edge("Hub", "touches", f"N{i}", 0.5 + i / 100, ["s1"])
+            for j in range(12):
+                self.node(f"M{i}_{j}", f"M{i}_{j}")
+                self.edge(f"N{i}", "touches", f"M{i}_{j}", 0.5, ["s2"])
+        self.con.commit()
+        reads = {"n": 0}
+        real = kg.neighbours
+
+        def counted(*a, **k):
+            reads["n"] += 1
+            return real(*a, **k)
+
+        kg.neighbours = counted
+        try:
+            causal._path_from(self.con, "Hub", kg.degrees(self.con, "finance"),
+                              config.FIN_CAUSAL_MIN_EDGE_CONF, 3)
+        finally:
+            kg.neighbours = real
+        self.assertLessEqual(reads["n"], 40,
+                             f"{reads['n']} neighbour reads for one seed is a "
+                             f"scan, not a bounded search")
 
     def test_overlapping_walks_collapse_to_one_chain(self):
         """A greedy walk entering the same cascade one hop later traces the same
