@@ -48,6 +48,22 @@ def checkpoint(label):
     log.info("mem=%.0fMB | %s", rss_mb(), label)
 
 
+def release_memory():
+    """Hand freed heap back to the OS, and say how much that was.
+
+    CPython frees objects promptly, but glibc keeps the pages it got them from
+    — so after a pipeline run the process stays at the run's peak RSS, idle,
+    until the next run adds to it. malloc_trim(0) returns the free pages. A
+    no-op off glibc (macOS dev machines), and never raises: this is cleanup."""
+    before = rss_mb()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001 — not glibc, or not Linux
+        return 0.0
+    return max(0.0, before - rss_mb())
+
+
 _heartbeat_started = False
 _heartbeat_lock = threading.Lock()
 

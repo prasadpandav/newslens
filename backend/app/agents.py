@@ -1699,6 +1699,15 @@ class Storyteller:
                     continue  # nothing new since the story was last told
             elif set(ids) <= done_ids:
                 continue  # articles already covered by other stories
+            # Stop, don't churn, once no provider can answer. Providers get
+            # benched mid-stage, and every group after that point would still
+            # pay for its full-text fetches and brief before its LLM call failed.
+            # What is left is picked up by the next run.
+            gate = llm.availability("story")
+            if not gate["ready"]:
+                db.log_run(con, "storyteller", "skipped",
+                           f"stopped early: {gate['detail']}")
+                break
             arts = [con.execute("SELECT * FROM articles WHERE id=?", (i,)).fetchone()
                     for i in ids]
             arts = [a for a in arts if a]
@@ -1909,8 +1918,13 @@ class Foresight:
             "UPDATE signals SET retired_at = ? "
             "WHERE retired_at IS NULL AND updated_at < ?",
             (db.now(), db.now() - self.WINDOW_DAYS * 86400)).rowcount
+        # Commit NOW, before any LLM call. The UPDATE above opened a write
+        # transaction, and SQLite has one write lock: left open, it is held
+        # through every call below (minutes on a slow or throttled provider),
+        # and every request that writes — the traffic counter on each one —
+        # waits out the 30s busy_timeout behind it.
+        con.commit()
         if len(stories) < 4:
-            con.commit()
             db.log_run(con, "foresight", "ok",
                        f"too few stories to synthesize; pruned {pruned} stale")
             return 0

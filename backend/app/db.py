@@ -461,6 +461,18 @@ def connect():
             con.execute("ALTER TABLE stories ADD COLUMN orbit_word TEXT")
         except sqlite3.OperationalError:
             pass
+        # `articles` had no index at all, and it is the one table that is never
+        # pruned. Every pipeline read filters it by fetched_at (dedupe,
+        # entities, connections, storyteller's orphan pass), and Scout's
+        # same-source check runs `source=? AND fetched_at>?` once per candidate
+        # entry — ~600 times a run. Each of those was a full scan of a table
+        # that only grows: CPU on a fractional-CPU instance, and the whole file
+        # pulled through the page cache the host counts as this service's
+        # memory. One-time build cost on the first connect after deploy.
+        con.execute("CREATE INDEX IF NOT EXISTS articles_fetched "
+                    "ON articles(fetched_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS articles_source_fetched "
+                    "ON articles(source, fetched_at)")
         # COMMIT THE MIGRATION before flipping the flag. Without this the DDL
         # above sits in this connection's open transaction: it is visible here,
         # so a PRAGMA check passes, but no OTHER connection can see the new

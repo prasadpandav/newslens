@@ -472,6 +472,15 @@ def availability(task):
     if not order:
         return {"ready": False, "wait_seconds": None,
                 "detail": "; ".join(priced_out) or "every provider priced out"}
+    # A provider whose model for this tier has been retired will never answer
+    # it, bench or no bench — production's Groq read as "available" here while
+    # every call to it was skipped as a dead model.
+    retired = [p for p in order if (p, _model_for(p, task)) in _dead_models]
+    order = [p for p in order if p not in retired]
+    if not order:
+        return {"ready": False, "wait_seconds": None,
+                "detail": "model retired by provider: "
+                          + ", ".join(f"{p}/{_model_for(p, task)}" for p in retired)}
     now = time.time()
     waits = {p: max(0.0, _benched_until.get(p, 0) - now) for p in order}
     soonest = min(waits.values())
@@ -563,6 +572,7 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
     skipped = {}
     while attempt <= retries:
         deferred = []      # providers whose per-minute window is momentarily full
+        attempted = False  # did any provider actually get a request this pass?
         for p in order:
             dead = _dead_models.get((p, _model_for(p, task)))
             if dead:
@@ -584,6 +594,7 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
                 skipped[p] = f"per-minute window full, {wait:.0f}s to a slot"
                 continue
             skipped.pop(p, None)
+            attempted = True
             try:
                 usage["provider_attempts"][p] = usage["provider_attempts"].get(p, 0) + 1
                 _attempt.recorded = False
@@ -664,11 +675,18 @@ def complete_json(task: str, prompt: str, retries: int = 1, want: str = "object"
                 _record_failure(p, task)
                 _note("error", p, task, last_err)
                 continue
-        # Nothing was attempted because every candidate was inside its
-        # per-minute window. Wait for the soonest slot and re-run the order
+        # Nothing was attempted because every provider still in play was inside
+        # its per-minute window. Wait for the soonest slot and re-run the order
         # WITHOUT spending a retry — otherwise the non-blocking reserve above
         # would turn a momentary throttle into a dropped item.
-        if deferred and len(deferred) == len(order) and throttle_passes < MAX_THROTTLE_PASSES:
+        #
+        # "Still in play", not "every provider in the order": this used to
+        # require len(deferred) == len(order), so once the other providers were
+        # dead or benched, the one live-but-throttled provider never got waited
+        # for — each call gave up instantly with "no provider attempted". In
+        # production that was thousands of dropped calls per run while Gemini
+        # would have answered within seconds.
+        if deferred and not attempted and throttle_passes < MAX_THROTTLE_PASSES:
             throttle_passes += 1
             usage["throttle_waits"] += 1
             time.sleep(min(max(min(deferred), 0.0), 60))
@@ -727,6 +745,19 @@ class DeadModel(Exception):
         self.provider, self.model = provider, model
 
 
+def _quota_exhausted(body):
+    """True when a 429 is really "out of quota", not "slow down".
+
+    OpenAI reports an exhausted balance as 429 `insufficient_quota`, and Gemini
+    reports its per-DAY cap as 429 RESOURCE_EXHAUSTED on a PerDay quota. Both
+    look like a rate limit and both were benched for 15 minutes and retried —
+    all day — though nothing short of a top-up or midnight clears them. They
+    belong on the long ProviderDown bench, beside a 402."""
+    b = (body or "").lower()
+    return ("insufficient_quota" in b or "exceeded your current quota" in b
+            or "perday" in b.replace("_", "").replace("-", ""))
+
+
 class ProviderDown(Exception):
     """A provider failure that will NOT clear by trying again in a moment:
     no credit (402), a bad or revoked key (401), a blocked account (403).
@@ -776,6 +807,8 @@ def _post_chat(url, key, body, timeout, provider, model):
         r = httpx.post(url, headers={"Authorization": f"Bearer {key}"},
                        json=sent, timeout=timeout)
         if r.status_code == 429:
+            if _quota_exhausted(r.text):
+                raise ProviderDown(429, r.text[:200])
             raise RateLimited()
         if r.status_code in (401, 402, 403):
             raise ProviderDown(r.status_code, r.text[:200])
@@ -937,6 +970,8 @@ def _call(provider, prompt, task=None):
                                        "temperature": 0.4}},
             timeout=timeout)
         if r.status_code == 429:
+            if _quota_exhausted(r.text):
+                raise ProviderDown(429, r.text[:200])
             raise RateLimited()
         r.raise_for_status()
         data = r.json()

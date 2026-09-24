@@ -472,8 +472,13 @@ class FinancialTrendAgent:
             "UPDATE fin_trends SET retired_at=? WHERE retired_at IS NULL "
             "AND updated_at < ?",
             (db.now(), db.now() - window_days * 86400)).rowcount
+        # Commit NOW, before any LLM call. The UPDATE above opened a write
+        # transaction, and SQLite has one write lock: left open, it is held
+        # through every call below (minutes on a slow or throttled provider),
+        # and every request that writes — the traffic counter on each one —
+        # waits out the 30s busy_timeout behind it.
+        con.commit()
         if len(rows) < 3:
-            con.commit()
             db.log_run(con, "fin_trends", "ok",
                        f"too few finance stories to link ({len(rows)}); "
                        f"retired {retired}")
@@ -681,6 +686,12 @@ class FinancialForecastingAgent:
             "UPDATE fin_forecasts SET retired_at=? WHERE retired_at IS NULL "
             "AND updated_at < ?",
             (db.now(), db.now() - config.FIN_FORECAST_RETIRE_DAYS * 86400)).rowcount
+        # Commit NOW, before any LLM call. The UPDATE above opened a write
+        # transaction, and SQLite has one write lock: left open, it is held
+        # through every call below (minutes on a slow or throttled provider),
+        # and every request that writes — the traffic counter on each one —
+        # waits out the 30s busy_timeout behind it.
+        con.commit()
         trends = con.execute(
             "SELECT * FROM fin_trends WHERE retired_at IS NULL "
             "ORDER BY confidence DESC, updated_at DESC LIMIT ?",

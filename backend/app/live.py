@@ -13,6 +13,7 @@ key or a network error just means that category has no cards this cycle.
 """
 import asyncio
 import json
+import threading
 import time
 import httpx
 from . import config, db
@@ -228,6 +229,37 @@ def latest_story_marker(con):
 
 
 # ------------------------------------------------------------------ SSE
+# One snapshot per category set per interval, shared by every open stream.
+# Each connected client used to run its own two queries every 10s, on the same
+# 40-thread pool that serves page requests — so at a few hundred open streams
+# the pool was busy re-reading identical rows and pages queued behind it. The
+# data is the same for everyone with the same categories, so it is read once.
+_shared = {}
+_shared_lock = threading.Lock()
+
+
+def _shared_read(categories, max_age):
+    key = tuple(sorted(categories or ()))
+    now = time.time()
+    with _shared_lock:
+        hit = _shared.get(key)
+        if hit and now - hit[0] < max_age:
+            return hit[1], hit[2]
+    con = db.connect()
+    try:
+        cards, feed = snapshot(con, categories), latest_story_marker(con)
+    finally:
+        con.close()
+    with _shared_lock:
+        _shared[key] = (time.time(), cards, feed)
+        # Bounded: category sets are a handful of combinations in practice,
+        # but the parameter is client-supplied.
+        if len(_shared) > 64:
+            oldest = min(_shared, key=lambda k: _shared[k][0])
+            _shared.pop(oldest, None)
+    return cards, feed
+
+
 async def sse_event_stream(categories=None, interval=10, max_seconds=600):
     """Async generator yielding SSE frames. Diffs the snapshot each `interval`s and
     emits only on change; also emits a `feed-updated` event when new stories land.
@@ -240,11 +272,9 @@ async def sse_event_stream(categories=None, interval=10, max_seconds=600):
     from fastapi.concurrency import run_in_threadpool
 
     def _read():
-        con = db.connect()
-        try:
-            return snapshot(con, categories), latest_story_marker(con)
-        finally:
-            con.close()
+        # Slightly under the interval, so a client's next tick sees fresh data
+        # rather than the snapshot it was sent last time.
+        return _shared_read(categories, max(1.0, interval - 1))
 
     start = time.time()
     last_cards = last_feed = None

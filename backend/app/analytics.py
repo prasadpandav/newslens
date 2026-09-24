@@ -19,7 +19,9 @@ Two shapes of data:
            volume stays queryable forever without a row per request.
 """
 import sqlite3
+import threading
 import time
+from collections import Counter
 from urllib.parse import urlsplit
 from . import config, db
 
@@ -95,17 +97,52 @@ def record_visit(con, device, path, referrer="", country="", user_id=""):
         return False
 
 
-def bump_traffic(con, route):
-    """Increment the (day, route) request counter. UPSERT keeps it to one row."""
+# Request counts wait here and are written in one batch by flush_traffic().
+#
+# They used to be written by every request, which made every request a
+# database WRITER: it opened a connection, took SQLite's single write lock and
+# committed — so whenever the pipeline held that lock, every page load in the
+# app waited out the 30s busy_timeout behind it, even the read-only ones.
+# Counting in memory keeps requests read-only. The cost is that a crash loses
+# at most one flush interval of counts, which a traffic report does not miss.
+_pending = Counter()
+_pending_lock = threading.Lock()
+
+
+def note_traffic(route):
+    """Count one request for (today, route). No I/O — see flush_traffic."""
+    key = (day_key(), (route or "/")[:MAX_PATH])
+    with _pending_lock:
+        _pending[key] += 1
+
+
+def flush_traffic(con):
+    """Write the counts noted since the last flush, in one transaction.
+    Returns how many (day, route) rows were touched. On failure the counts are
+    put back, so a locked database delays them rather than losing them."""
+    with _pending_lock:
+        batch = dict(_pending)
+        _pending.clear()
+    if not batch:
+        return 0
     try:
-        con.execute(
-            "INSERT INTO traffic (day, route, hits) VALUES (?,?,1) "
-            "ON CONFLICT(day, route) DO UPDATE SET hits = hits + 1",
-            (day_key(), (route or "/")[:MAX_PATH]))
+        con.executemany(
+            "INSERT INTO traffic (day, route, hits) VALUES (?,?,?) "
+            "ON CONFLICT(day, route) DO UPDATE SET hits = hits + excluded.hits",
+            [(d, r, n) for (d, r), n in batch.items()])
         con.commit()
-        return True
+        return len(batch)
     except sqlite3.Error:
-        return False
+        with _pending_lock:
+            _pending.update(batch)
+        return 0
+
+
+def bump_traffic(con, route):
+    """Increment the (day, route) counter immediately. Kept for callers that
+    want a synchronous write; the request path uses note_traffic instead."""
+    note_traffic(route)
+    return flush_traffic(con) > 0
 
 
 def purge(con, retain_days=None):

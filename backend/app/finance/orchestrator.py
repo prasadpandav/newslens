@@ -93,7 +93,9 @@ def run_finance_pipeline(stage=None):
     con.close()
     fulltext.prune_stale_hosts()
     gc.collect()
-    diag.checkpoint(f"run={run_id} finance pipeline done")
+    freed = diag.release_memory()
+    diag.checkpoint(f"run={run_id} finance pipeline done "
+                    f"(returned {freed:.0f}MB to the OS)")
     llm.set_context("")
     return results
 

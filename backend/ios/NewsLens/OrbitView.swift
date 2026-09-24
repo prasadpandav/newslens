@@ -396,6 +396,18 @@ struct OrbitStoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The card's text is the article's tap target, as a headline is
+            // everywhere else in the app. The footer's two buttons sit outside
+            // it, so no link is nested in another.
+            NavigationLink(value: item) { summary }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the story")
+            footer
+        }
+    }
+
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(kicker)
                     .font(pal.mono(11.5, .medium)).kerning(1.5).textCase(.uppercase)
@@ -419,32 +431,39 @@ struct OrbitStoryCard: View {
                 .padding(.bottom, 12)
             HiddenLinkLine(links: info.hiddenLinks)
                 .padding(.bottom, 16)
-            HStack(spacing: 10) {
-                Text("\(item.readingMinutes) min · AI-written")
-                    .font(pal.mono(11, .medium)).kerning(1.2).textCase(.uppercase)
-                    .foregroundStyle(pal.faint)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 4)
-                NavigationLink(value: WhyRoute(item: item, info: info)) {
-                    Text("Why me?")
-                        .font(pal.sans(15, .medium))
-                        .foregroundStyle(pal.text)
-                        .padding(.horizontal, 18).padding(.vertical, 11)
-                        .overlay(pill.stroke(pal.hairline2, lineWidth: 1))
-                        .contentShape(pill)
-                }
-                .buttonStyle(.plain)
-                NavigationLink(value: item) {
-                    Text("Read")
-                        .font(pal.sans(15, .medium))
-                        .foregroundStyle(pal.ink)
-                        .padding(.horizontal, 22).padding(.vertical, 11)
-                        .background(pill.fill(pal.text))
-                        .contentShape(pill)
-                }
-                .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
+        // The gaps between lines are part of the target too, not just glyphs.
+        .contentShape(Rectangle())
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            Text("\(item.readingMinutes) min · AI-written")
+                .font(pal.mono(11, .medium)).kerning(1.2).textCase(.uppercase)
+                .foregroundStyle(pal.faint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 4)
+            NavigationLink(value: WhyRoute(item: item, info: info)) {
+                Text("Why me?")
+                    .font(pal.sans(15, .medium))
+                    .foregroundStyle(pal.text)
+                    .padding(.horizontal, 18).padding(.vertical, 11)
+                    .overlay(pill.stroke(pal.hairline2, lineWidth: 1))
+                    .contentShape(pill)
             }
+            .buttonStyle(.plain)
+            NavigationLink(value: item) {
+                Text("Read")
+                    .font(pal.sans(15, .medium))
+                    .foregroundStyle(pal.ink)
+                    .padding(.horizontal, 22).padding(.vertical, 11)
+                    .background(pill.fill(pal.text))
+                    .contentShape(pill)
+            }
+            .buttonStyle(.plain)
         }
     }
 

@@ -98,7 +98,11 @@ async def _no_index_api(request: Request, call_next):
 @app.middleware("http")
 async def _count_traffic(request: Request, call_next):
     """Overall traffic: one counter bump per request. Wrapped so analytics can
-    never turn into a 500 — a failed count is worth less than a served page."""
+    never turn into a 500 — a failed count is worth less than a served page.
+
+    Counted in memory and written by the `flush_traffic` job, never here: this
+    runs on the event loop for every request, and a synchronous SQLite write at
+    this point blocked the whole server whenever the pipeline held the lock."""
     response = await call_next(request)
     try:
         path = request.url.path
@@ -106,9 +110,7 @@ async def _count_traffic(request: Request, call_next):
             # Route template ("/story/{story_id}"), not the concrete path, so ids
             # don't explode the table into one row per story per day.
             route = request.scope.get("route")
-            con = db.connect()
-            analytics.bump_traffic(con, getattr(route, "path", None) or path)
-            con.close()
+            analytics.note_traffic(getattr(route, "path", None) or path)
     except Exception:
         pass
     return response
@@ -291,6 +293,11 @@ def _start():
                       id="refresh_live", replace_existing=True,
                       next_run_time=datetime.now() + timedelta(seconds=20),
                       coalesce=True, misfire_grace_time=300, max_instances=1)
+    # Request counters are noted in memory and written here in one batch, so
+    # no request ever has to take the database's write lock (see note_traffic).
+    scheduler.add_job(_flush_traffic_job, "interval", seconds=60,
+                      id="flush_traffic", replace_existing=True,
+                      coalesce=True, misfire_grace_time=60, max_instances=1)
     # Analytics retention. Daily is plenty — the window is measured in months.
     scheduler.add_job(_purge_analytics_job, "interval", hours=24,
                       id="purge_analytics", replace_existing=True,
@@ -320,6 +327,24 @@ def _start():
         diag.checkpoint("finance pipeline scheduled IN-PROCESS "
                         f"(every {config.FINANCE_INTERVAL_HOURS}h)")
     scheduler.start()
+
+
+def _flush_traffic_job():
+    con = db.connect()
+    try:
+        analytics.flush_traffic(con)
+    finally:
+        con.close()
+
+
+@app.on_event("shutdown")
+def _flush_on_shutdown():
+    # A redeploy stops the process cleanly; write what was counted since the
+    # last flush rather than dropping up to a minute of traffic every deploy.
+    try:
+        _flush_traffic_job()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _purge_analytics_job():

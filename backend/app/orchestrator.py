@@ -20,6 +20,11 @@ STAGES = ["scout", "dedupe", "entities", "trends", "connections",
           "stories", "signals"]
 
 
+#: The LLM task each stage depends on, for the pre-flight availability check.
+_STAGE_TASK = {"trends": "trend", "connections": "connection",
+               "stories": "story", "signals": "signals_unit"}
+
+
 def plan(con):
     """Planner: fetch ALL configured topics — users can always browse everything.
     Interests influence personalization and ranking, never availability."""
@@ -45,6 +50,23 @@ def run_pipeline(stage=None):
         t0 = time.time()
         diag.checkpoint(f"run={run_id} stage={s} start")
         llm.set_context(f"run={run_id} stage={s}")
+        # Same pre-flight the finance pipeline has always had: a stage that
+        # cannot reach any provider is skipped, not run into a wall. Without it
+        # a starved stories stage still fetched full text and built a brief for
+        # every event group before its LLM call failed — 27 minutes and ~5,000
+        # failed calls in one production run — and burned the quota the finance
+        # run behind it needed. scout/dedupe need no LLM; entities is exempt
+        # because the gazetteer tags articles without one.
+        task = _STAGE_TASK.get(s)
+        gate = llm.availability(task) if task else None
+        if gate and not gate["ready"]:
+            waited = ("no provider will free up on its own"
+                      if gate["wait_seconds"] is None
+                      else f"soonest provider free in {gate['wait_seconds'] / 60:.0f}m")
+            results[s] = f"skipped: {waited}"
+            db.log_run(con, s, "skipped", f"{gate['detail']} ({waited})")
+            diag.checkpoint(f"run={run_id} stage={s} skipped — {gate['detail']}")
+            continue
         try:
             if s == "scout":
                 results[s] = Scout().run(con, topics=p["topics"])
@@ -108,7 +130,8 @@ def run_pipeline(stage=None):
     # thread, so it costs nothing in request latency. See render-512mb-oom-limit.
     fulltext.prune_stale_hosts()
     gc.collect()
-    diag.checkpoint(f"run={run_id} pipeline done")
+    freed = diag.release_memory()
+    diag.checkpoint(f"run={run_id} pipeline done (returned {freed:.0f}MB to the OS)")
     llm.set_context("")   # this thread is reused by the scheduler — don't let
                           # a stale run/stage label leak onto the next job
     return results
