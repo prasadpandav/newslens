@@ -184,6 +184,89 @@ class FeedResponse(_Out):
     items: list[FeedItem] = Field(default_factory=list)
 
 
+# --------------------------------------------------------------------- orbit
+class OrbitFacet(_Out):
+    """One piece of the reader's lens."""
+    id: str = ""
+    kind: str = Field(default="", description="profession | business | micro | "
+                                              "city | interest")
+    lens: Optional[str] = Field(default=None, description="work | money | city | "
+                                                          "family, or null")
+    label: str = ""
+
+
+class OrbitLens(_Out):
+    label: str = Field(default="", description="e.g. 'Pharmacy owner, Pune'.")
+    set: bool = Field(default=False, description="False when the reader has told "
+                                                 "Descry nothing — every node is "
+                                                 "then on the wider ring.")
+    facets: list[OrbitFacet] = Field(default_factory=list)
+
+
+class OrbitNode(_Out):
+    id: str = ""
+    word: str = Field(default="", description="The one-word label drawn on the node.")
+    ring: str = Field(default="", description="direct | near | wider")
+    lenses: list[str] = Field(default_factory=list)
+    story_ids: list[str] = Field(default_factory=list)
+
+
+class OrbitLink(_Out):
+    """An AI-inferred hidden connection between two nodes (drawn dashed)."""
+    a: str = ""
+    b: str = ""
+    confidence: float = 0.0
+
+
+class OrbitExposure(_Out):
+    text: str = Field(default="", description="The reader's own words quoted "
+                                              "back: 'You told Descry …'.")
+    label: str = ""
+    facets: list[str] = Field(default_factory=list)
+
+
+class OrbitHiddenLink(_Out):
+    chain: str = ""
+    confidence: float = 0.0
+    confidence_label: str = Field(default="", description="high | medium | low")
+    title: str = ""
+    story_id: Optional[str] = Field(default=None, description="Present when the "
+                                                              "other side is in "
+                                                              "this feed.")
+    word: Optional[str] = None
+
+
+class OrbitLensUsed(_Out):
+    id: str = ""
+    label: str = ""
+
+
+class OrbitStory(_Out):
+    word: str = ""
+    ring: str = ""
+    node: str = ""
+    lenses: list[str] = Field(default_factory=list)
+    exposure: Optional[OrbitExposure] = Field(
+        default=None, description="Null on the wider ring: nothing in the lens "
+                                  "put the story there.")
+    lens_used: list[OrbitLensUsed] = Field(default_factory=list)
+    hidden_links: list[OrbitHiddenLink] = Field(default_factory=list)
+
+
+class Orbit(_Out):
+    lens: OrbitLens = Field(default_factory=OrbitLens)
+    nodes: list[OrbitNode] = Field(default_factory=list)
+    links: list[OrbitLink] = Field(default_factory=list)
+    stories: dict[str, OrbitStory] = Field(default_factory=dict)
+
+
+class OrbitResponse(_Out):
+    """`items` is exactly what `/feed` returns; `orbit` arranges the best of
+    them. Stories not in the orbit are still in `items`."""
+    items: list[FeedItem] = Field(default_factory=list)
+    orbit: Orbit = Field(default_factory=Orbit)
+
+
 # -------------------------------------------------------------- story detail
 class TrendRef(_Out):
     id: str = ""

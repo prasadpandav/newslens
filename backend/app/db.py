@@ -451,6 +451,16 @@ def connect():
         # retired rows now accumulate instead of being deleted.
         con.execute("CREATE INDEX IF NOT EXISTS signals_open "
                     "ON signals(retired_at, updated_at)")
+        # ---- the iOS orbit ----
+        # One word naming the story's subject ("Metro", "Rates", "Monsoon"),
+        # which the orbit home draws as the story's node. Written by the
+        # Storyteller in the call it already makes — no extra LLM spend. NULL
+        # on every older row, and /orbit falls back to a headline heuristic
+        # for those (see orbit.fallback_word), so there is nothing to backfill.
+        try:
+            con.execute("ALTER TABLE stories ADD COLUMN orbit_word TEXT")
+        except sqlite3.OperationalError:
+            pass
         # COMMIT THE MIGRATION before flipping the flag. Without this the DDL
         # above sits in this connection's open transaction: it is visible here,
         # so a PRAGMA check passes, but no OTHER connection can see the new

@@ -141,6 +141,30 @@ final class APIClient: ObservableObject {
         return try JSONDecoder().decode(FeedResponse.self, from: data).items
     }
 
+    /// The home screen's data: the feed plus the orbit arranging it.
+    ///
+    /// `orbit` is nil — and the home falls back to the plain list — when there
+    /// is no account yet (guests read the public `/stories`), and when the
+    /// server predates `/orbit` (a 404 there must not blank the feed, since the
+    /// app can ship before the backend deploy lands).
+    func fetchHome() async throws -> (items: [FeedItem], orbit: Orbit?) {
+        if let uid = userID {
+            do {
+                let data = try await request("orbit", query: ["user_id": uid])
+                let r = try JSONDecoder().decode(OrbitResponse.self, from: data)
+                return (r.items, r.orbit)
+            } catch let e as APIError where e.status == 404 {
+                // Either an old server without /orbit, or a lost user —
+                // fetchFeed tells them apart and heals the second.
+            } catch let e as APIError where e.status == 401 {
+                // fetchFeed heals a stale user the same way.
+            } catch is DecodingError {
+                // A shape this build does not understand: keep the list.
+            }
+        }
+        return (try await fetchFeed(), nil)
+    }
+
     /// The backend no longer knows our user. Recreate it from the saved
     /// onboarding answers — the user never notices. Only if nothing is saved
     /// do we fall back to re-running onboarding.

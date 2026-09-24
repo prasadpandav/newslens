@@ -185,6 +185,131 @@ struct Correction: Codable, Hashable {
     var heading: String { Self.headings[kind] ?? Self.headings["weakened"]! }
 }
 
+// MARK: - Orbit
+
+/// `GET /orbit`: the feed's own items plus the orbit arranging the best of
+/// them. `items` is exactly what `/feed` returns, so the list under the orbit
+/// needs no second request.
+struct OrbitResponse: Codable {
+    var items: [FeedItem]
+    var orbit: Orbit
+}
+
+struct Orbit: Codable, Hashable {
+    var lens: OrbitLens
+    var nodes: [OrbitNode]
+    var links: [OrbitLink]
+    var stories: [String: OrbitStory]
+
+    static let empty = Orbit(lens: .init(label: "", set: false, facets: []),
+                             nodes: [], links: [], stories: [:])
+}
+
+struct OrbitLens: Codable, Hashable {
+    /// "Pharmacy owner, Pune".
+    var label: String
+    /// False when the reader has told Descry nothing: every node is then on
+    /// the wider ring and the centre invites them to set a lens.
+    var set: Bool
+    var facets: [Facet]
+
+    struct Facet: Codable, Hashable {
+        var id: String
+        var kind: String
+        var lens: String?
+        var label: String
+    }
+}
+
+enum OrbitRing: String, Codable, Hashable, CaseIterable {
+    case direct, near, wider
+
+    var label: String {
+        switch self {
+        case .direct: return "Direct"
+        case .near:   return "Near"
+        case .wider:  return "Wider"
+        }
+    }
+    /// "DIRECT HIT" on the Why-me kicker; the ring's own word elsewhere.
+    var kicker: String { self == .direct ? "Direct hit" : label }
+}
+
+/// The four chips above the orbit.
+enum OrbitLensKind: String, CaseIterable, Identifiable, Hashable {
+    case work, money, city, family
+    var id: String { rawValue }
+    var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+}
+
+struct OrbitNode: Codable, Hashable, Identifiable {
+    var id: String
+    var word: String
+    var ring: OrbitRing
+    var lenses: [String]
+    var storyIDs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, word, ring, lenses
+        case storyIDs = "story_ids"
+    }
+}
+
+/// An AI-inferred hidden connection between two nodes, drawn dotted.
+struct OrbitLink: Codable, Hashable {
+    var a: String
+    var b: String
+    var confidence: Double
+}
+
+/// Why one story is where it is in the orbit.
+struct OrbitStory: Codable, Hashable {
+    var word: String
+    var ring: OrbitRing
+    var node: String
+    var lenses: [String]
+    /// The reader's own words quoted back. Nil on the wider ring — nothing in
+    /// the lens put the story there, and saying otherwise would be invented.
+    var exposure: Exposure?
+    var lensUsed: [LensUsed]
+    var hiddenLinks: [HiddenLink]
+
+    struct Exposure: Codable, Hashable {
+        var text: String
+        var label: String
+    }
+    struct LensUsed: Codable, Hashable {
+        var id: String
+        var label: String
+    }
+    struct HiddenLink: Codable, Hashable {
+        var chain: String
+        var confidence: Double
+        var confidenceLabel: String
+        var title: String
+        /// Present when the other side is in today's feed, so it can open.
+        var storyID: String?
+        var word: String?
+
+        enum CodingKeys: String, CodingKey {
+            case chain, confidence, title, word
+            case confidenceLabel = "confidence_label"
+            case storyID = "story_id"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case word, ring, node, lenses, exposure
+        case lensUsed = "lens_used"
+        case hiddenLinks = "hidden_links"
+    }
+
+    /// "City", "Work" — the first chip lens, for the card kicker.
+    var lensLabel: String? {
+        lenses.first.flatMap(OrbitLensKind.init(rawValue:))?.label
+    }
+}
+
 // MARK: - Trends
 
 struct TrendsResponse: Codable { var items: [Trend] }

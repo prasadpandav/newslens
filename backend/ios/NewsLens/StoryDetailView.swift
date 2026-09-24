@@ -627,8 +627,18 @@ struct AskAISheet: View {
     @Environment(\.palette) private var pal
 
     var story: StoryDetail?
+    /// For callers that hold a feed item rather than a loaded `StoryDetail` —
+    /// the orbit's Why-me screen. `story` wins when both are given.
+    var storyID: String? = nil
+    var storyHeadline: String? = nil
+    /// Sent as soon as the sheet opens, so a question typed into the Why-me
+    /// bar is not asked twice.
+    var firstQuestion: String? = nil
     @EnvironmentObject var api: APIClient
     @Environment(\.dismiss) private var dismiss
+
+    private var askID: String? { story?.id ?? storyID }
+    private var askHeadline: String? { story?.headline ?? storyHeadline }
 
     struct Message: Identifiable {
         let id = UUID()
@@ -707,9 +717,10 @@ struct AskAISheet: View {
             }
             .onAppear {
                 if messages.isEmpty {
-                    let intro = story.map { "I've read “\($0.headline)”. What would you like to understand?" }
+                    let intro = askHeadline.map { "I've read “\($0)”. What would you like to understand?" }
                         ?? "Ask me anything about today's news."
                     messages.append(.init(isUser: false, text: intro))
+                    if let q = firstQuestion { send(q) }
                 }
             }
         }
@@ -739,7 +750,7 @@ struct AskAISheet: View {
         thinking = true
         Task {
             do {
-                let r = try await api.ask(q, storyID: story?.id)
+                let r = try await api.ask(q, storyID: askID)
                 messages.append(.init(isUser: false, text: r.answer))
                 suggestions = r.followups ?? []
             } catch {

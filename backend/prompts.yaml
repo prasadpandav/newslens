@@ -180,6 +180,12 @@ story: |
      stake, or a sharp question — while staying strictly true to the verified claims
      below. Every factual element in the headline must appear in the claims.
      Never use generic templates like "What Just Changed and Why It Matters".
+
+  6. "orbit_word" — ONE word that names what this story is about, the way a
+     reader would label it at a glance: "Metro", "Rates", "Monsoon", "Generics",
+     "Exams", "Freight". A noun, 3-12 letters, no spaces. Prefer the concrete
+     subject over the action (not "Curbs" or "Rises"), and never a country name
+     or a generic word like "News", "Update" or "Report".
   The source material below is a MERGED BRIEF built from every outlet that covered
   this event, already de-duplicated. Use it as follows:
   - CORE FACTS are corroborated by several outlets — these are the spine of the story.
@@ -193,7 +199,7 @@ story: |
   Reply ONLY with JSON — every field above, in this shape:
   {{"headline": "...", "what_happened": "...", "why_it_matters": "...",
     "beats": [{{"label": "...", "text": "..."}}],
-    "anchors": [{{"claim": 0, "quote": "..."}}]}}
+    "anchors": [{{"claim": 0, "quote": "..."}}], "orbit_word": "..."}}
 
 entities_batch: |
   Extract from EACH of the {n} news items below. They are unrelated to each other

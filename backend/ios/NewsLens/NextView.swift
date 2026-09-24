@@ -255,7 +255,7 @@ struct NextView: View {
     }
 
     /// Bleeds to the screen edges by widening the scroll view, not by
-    /// `scrollClipDisabled()` — see the note on `BriefView.topicBar`: a pill
+    /// `scrollClipDisabled()` — see the note on `OrbitLensChips`: a pill
     /// drawn outside the scroll view's bounds is not tappable, and the tap
     /// lands on whatever is behind it.
     private var pills: some View {

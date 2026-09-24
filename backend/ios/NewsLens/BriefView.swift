@@ -1,8 +1,13 @@
 import SwiftUI
 import Combine
 
-/// Daily Brief — the redesigned home. Greeting, intelligence summary, glass topic
-/// filter, story cards with scroll-driven motion and zoom hero transitions.
+/// The home: a greeting, the orbit — today's stories as single words on rings
+/// around the reader, closest first — and, under it, either the stories on the
+/// word they tapped or, with nothing tapped, the ordinary ranked list.
+///
+/// The orbit is the personalised filter the old topic chips used to be. Which
+/// ring a story sits on is decided by the server (`GET /orbit`); a guest, or a
+/// server that predates the endpoint, gets the list alone.
 struct BriefView: View {
     @Environment(\.palette) private var pal
 
@@ -13,7 +18,14 @@ struct BriefView: View {
     @StateObject private var live = LiveStream(
         api: .shared, categories: LiveCategory.allCases.map(\.rawValue))
     @State private var items: [FeedItem] = []
-    @State private var topic = "all"
+    /// Nil until loaded, and stays nil for guests and older servers.
+    @State private var orbit: Orbit?
+    /// The node the reader tapped. Nil = the plain list.
+    @State private var selectedNode: String?
+    @State private var lensFilter: OrbitLensKind?
+    /// Personal angles worked out this session (Why me? fetches them), so the
+    /// card under the orbit shows the same line the Why-me screen does.
+    @State private var impacts: [String: String] = [:]
     @State private var loading = true
     @State private var error: String?
     @State private var showPersonalize = false
@@ -27,72 +39,58 @@ struct BriefView: View {
     @Namespace private var zoomNS
     private let refreshTick = Timer.publish(every: 90, on: .main, in: .common).autoconnect()
 
-    /// "All" first, then the user's chosen interests, then everything else.
-    ///
-    /// Deduplicated on the way out. `user_interests` is free-form storage that
-    /// can hold the same interest twice (or "All"), and two identical values in
-    /// a `ForEach(id: \.self)` give SwiftUI two views claiming one identity —
-    /// which it resolves by drawing one and hit-testing the other.
-    private var topics: [String] {
-        let all = Set(items.map { $0.topic.lowercased() })
-        var seen: Set<String> = ["all"]
-        let mine = (UserDefaults.standard.stringArray(forKey: "user_interests") ?? [])
-            .map { $0.lowercased() }
-            .filter { all.contains($0) && seen.insert($0).inserted }
-        let rest = all.subtracting(mine).sorted()
-        return ["all"] + mine + rest
-    }
-    /// Compared lowercased on both sides: the chip values are lower-cased when
-    /// the list is built, so comparing them against a raw `topic` matches only
-    /// as long as the backend keeps sending lower-case categories. It does
-    /// today; one capitalised feed key would silently empty the screen.
-    private var filtered: [FeedItem] {
-        let base = topic == "all" ? items
-                 : items.filter { $0.topic.lowercased() == topic }
-        // Local news is only local if it is YOUR city. The `local:` feeds cover
-        // several cities, so on that filter the reader's own floats to the top
-        // and the rest keep the server's order underneath — a stable partition,
-        // not a re-sort, so nothing else about the ranking changes. Stories with
-        // no place mapped stay where they are.
-        guard topic == "local", let city = myCity else { return base }
-        let mine = base.filter { $0.place?.lowercased() == city }
-        return mine + base.filter { $0.place?.lowercased() != city }
-    }
-    /// The reader's own city, lower-cased, or nil when they have not set one.
-    private var myCity: String? {
-        let c = (savedContext?.location.city ?? "").trimmingCharacters(in: .whitespaces)
-        return c.isEmpty ? nil : c.lowercased()
-    }
-    /// "Local · Thane" once the reader has told us where they are, "Local" until
-    /// then — never a city we only inferred.
-    private var localChipLabel: String {
-        let c = (savedContext?.location.city ?? "").trimmingCharacters(in: .whitespaces)
-        return c.isEmpty ? "Local" : "Local · \(c)"
-    }
-    /// Already-saved preferences, so re-opening "Personalize" edits (not resets) them.
-    private var savedContext: UserContext? {
-        guard let d = UserDefaults.standard.data(forKey: "saved_context") else { return nil }
-        return try? JSONDecoder().decode(UserContext.self, from: d)
-    }
-    /// "Monday morning" — the mockup's masthead. A weekday and a part of the
-    /// day, not "Good morning": the page is titled with when you are reading it,
-    /// which is what makes the count line beneath it mean something.
-    private var greeting: String {
-        let h = Calendar.current.component(.hour, from: .now)
-        let part = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening"
-        return "\(Date.now.formatted(.dateTime.weekday(.wide))) \(part)"
+    /// The list under the orbit. A lens chip narrows it to that lens's orbit
+    /// stories; otherwise it is the whole ranked feed, exactly as before.
+    private var listItems: [FeedItem] {
+        guard let lensFilter, let orbit else { return items }
+        return items.filter { orbit.stories[$0.id]?.lenses.contains(lensFilter.rawValue) == true }
     }
 
-    /// "14 stories · 3 changed overnight". The second half is only printed when
-    /// stories really did move — `updated_at` pulling away from `created_at` is
-    /// the Storyteller retelling a developing event, so this is a counted fact
-    /// rather than a flourish, and it disappears on a quiet day.
+    private var selected: OrbitNode? {
+        guard let id = selectedNode else { return nil }
+        return orbit?.nodes.first { $0.id == id }
+    }
+
+    /// "14 stories · 3 changed recently" — the line under the greeting when
+    /// there is no orbit to summarise.
     private var countLine: String {
-        let n = filtered.count
-        let changed = filtered.filter(\.isDeveloping).count
+        let n = items.count
+        let changed = items.filter(\.isDeveloping).count
         var line = "\(n) \(n == 1 ? "story" : "stories")"
         if changed > 0 { line += " · \(changed) changed recently" }
         return line
+    }
+
+    /// "THU 24 SEP · LENS: PHARMACY OWNER, PUNE".
+    private var dateline: String {
+        let date = Date.now.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        guard let label = orbit?.lens.label, !label.isEmpty else { return date }
+        return "\(date) · Lens: \(label)"
+    }
+
+    /// "Good morning, Meera." — first name only, and none at all for a guest.
+    private var greeting: String {
+        let h = Calendar.current.component(.hour, from: .now)
+        let part = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening"
+        let first = (api.displayName ?? "").split(separator: " ").first.map(String.init)
+        return first.map { "Good \(part), \($0)." } ?? "Good \(part)."
+    }
+
+    /// "Seven stories reach you today. Two land directly."
+    private var summary: String {
+        guard let orbit else { return countLine }
+        guard orbit.lens.set else {
+            return "\(SpelledCount.of(items.count)) stories today. Tell Descry your world "
+                 + "and the ones that touch you move to the centre."
+        }
+        let n = orbit.stories.count
+        let direct = orbit.stories.values.filter { $0.ring == .direct }.count
+        let reach = n == 1 ? "One story reaches you today."
+                           : "\(SpelledCount.of(n)) stories reach you today."
+        let land = direct == 0 ? "None land directly."
+                 : direct == 1 ? "One lands directly."
+                 : "\(SpelledCount.of(direct)) land directly."
+        return "\(reach) \(land)"
     }
 
     var body: some View {
@@ -120,11 +118,13 @@ struct BriefView: View {
                         }
                         Spacer()
                     } else {
-                        pinnedTopicBar
                         content
                     }
                 }
             }
+            // Hidden, but titled: the title is what a pushed screen's back
+            // button reads, and the Why-me screen's says "Orbit".
+            .navigationTitle("Orbit")
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showAsk) {
                 AskAISheet(story: nil).environmentObject(api).skinned()
@@ -135,13 +135,20 @@ struct BriefView: View {
             .sheet(isPresented: $showProfile) {
                 ProfileView().environmentObject(api).environmentObject(ThemeStore.shared).skinned()
             }
+            .sheet(isPresented: $showPersonalize) {
+                OnboardingView(initial: UserContext.saved) {
+                    onboarded = true
+                    showPersonalize = false
+                    Task { await load() }
+                }
+                .environmentObject(api).skinned()
+            }
             .navigationDestination(for: FeedItem.self) { item in
                 // Finance-pipeline stories share this feed with ordinary
                 // coverage, so the tap has to pick the reader that can actually
                 // render what the card promised: FinanceStoryView draws the
                 // metrics table and per-actor sentiment that StoryDetailView has
-                // no fields for. This is the navigation entry the finance reader
-                // was written for and never had.
+                // no fields for.
                 Group {
                     if item.isFinance {
                         FinanceStoryView(storyID: item.id)
@@ -150,6 +157,16 @@ struct BriefView: View {
                     }
                 }
                 .blZoomDestination(id: item.id, ns: zoomNS)
+            }
+            .navigationDestination(for: WhyRoute.self) { route in
+                WhyMeView(route: route,
+                          impact: impacts[route.item.id] ?? route.item.impactText,
+                          onImpact: { impacts[route.item.id] = $0 },
+                          onNotRelevant: {
+                              selectedNode = nil
+                              Task { await load() }
+                          },
+                          onLensChanged: { Task { await load() } })
             }
             .navigationDestination(for: Trend.self) { trend in
                 TrendDetailView(trend: trend)
@@ -174,8 +191,7 @@ struct BriefView: View {
                     // when the app was backgrounded stays #1 forever even after
                     // the backend's recency-decayed score has moved it well down
                     // the list. Resuming from background is an acceptable place
-                    // to let the list re-rank and jump scroll — the user is
-                    // arriving fresh, not mid-read.
+                    // to let the list re-rank — the user is arriving fresh.
                     Task { await load() }
                 } else {
                     live.stop()
@@ -186,58 +202,83 @@ struct BriefView: View {
             }
             // The SSE feed marker flips when new stories land → stage the banner.
             .onChange(of: live.feed?.newestID) { Task { await checkNew() } }
+            // A lens chip that hides the tapped node also closes its panel —
+            // otherwise the panel would describe a node drawn as disabled.
+            .onChange(of: lensFilter) { _, lens in
+                if let lens, let node = selected, !node.lenses.contains(lens.rawValue) {
+                    selectedNode = nil
+                }
+            }
         }
     }
 
     private var content: some View {
-      ScrollViewReader { proxy in
         ScrollView {
-            // 12, not 18. Everything above the feed is preamble; on a 390pt-wide
-            // phone the old stack pushed the first story card entirely off-screen.
-            VStack(alignment: .leading, spacing: 12) {
-                // A zero-height anchor rather than an `.id` on the live strip:
-                // the strip draws no view at all until its first SSE card
-                // arrives, and an anchor that comes and goes is not an anchor.
-                Color.clear.frame(height: 0).id(Self.feedTop)
-                LiveHeroView(stream: live, prefs: $livePrefs) {
-                    live.reconfigure(categories: livePrefs.categories)
-                }
+            // Nothing above the orbit changes height after the first paint:
+            // the summary reserves its two lines, and the live strip that
+            // materialises late lives BELOW the orbit, in the list. A node that
+            // moves under the reader's thumb opens the wrong story.
+            VStack(alignment: .leading, spacing: 0) {
                 header
-                if !newItems.isEmpty { newStoriesBanner }
-                if !onboarded { personalizeBanner }
-                // The lead story is drawn at full weight and everything after it
-                // as a rule-separated row. That is the mockup's whole feed
-                // structure: one story you are meant to read, then a list you are
-                // meant to scan — not fifteen identical cards competing.
-                if let lead = filtered.first {
-                    link(lead) { HeroStory(item: lead).blZoomSource(id: lead.id, ns: zoomNS) }
-                }
-                if filtered.count > 1 {
-                    listHead
-                    LazyVStack(spacing: 0) {
-                        ForEach(filtered.dropFirst()) { item in
-                            link(item) { StoryRow(item: item) }
+                if let orbit, !orbit.nodes.isEmpty || !orbit.lens.set {
+                    OrbitLensChips(orbit: orbit, lens: $lensFilter)
+                        .padding(.top, 16)
+                    OrbitCanvas(orbit: orbit, selected: $selectedNode, lens: lensFilter) {
+                        if orbit.lens.set {
+                            withAnimation(BL.spring) {
+                                selectedNode = nil
+                                lensFilter = nil
+                            }
+                        } else {
+                            showPersonalize = true
                         }
                     }
+                    .padding(.top, 8)
                 }
-                statsCard
+                if let node = selected, let orbit {
+                    OrbitPanel(node: node,
+                               items: node.storyIDs.compactMap { id in items.first { $0.id == id } },
+                               orbit: orbit, impacts: impacts) {
+                        withAnimation(BL.spring) { selectedNode = nil }
+                    }
+                    .padding(.top, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    list.padding(.top, orbit == nil ? 12 : 4)
+                }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 6)      // clear of the pinned filter bar's rule
-            .padding(.bottom, 40)
+            .padding(.top, 6)
+            .padding(.bottom, selectedNode == nil ? 40 : 0)
         }
         .scrollIndicators(.hidden)
-        // The filter is reachable from anywhere in the feed now, so changing it
-        // has to return you to the top. Without this you tap a chip 800pt down
-        // and the list re-renders above you — which looks like nothing happened.
-        .onChange(of: topic) {
-            withAnimation(BL.spring) { proxy.scrollTo(Self.feedTop, anchor: .top) }
-        }
-      }
     }
 
-    /// Scroll anchor for the head of the feed.
-    private static let feedTop = "feed-top"
+    /// Today's list, unchanged in form: the live strip, the lead story at full
+    /// weight, then rule-separated rows.
+    @ViewBuilder
+    private var list: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LiveHeroView(stream: live, prefs: $livePrefs) {
+                live.reconfigure(categories: livePrefs.categories)
+            }
+            if !newItems.isEmpty { newStoriesBanner }
+            if !onboarded { personalizeBanner }
+            let rows = listItems
+            if let lead = rows.first {
+                link(lead) { HeroStory(item: lead).blZoomSource(id: lead.id, ns: zoomNS) }
+            }
+            if rows.count > 1 {
+                listHead
+                LazyVStack(spacing: 0) {
+                    ForEach(rows.dropFirst()) { item in
+                        link(item) { StoryRow(item: item) }
+                    }
+                }
+            }
+            statsCard
+        }
+    }
 
     /// One story's tap target, with the dismiss action every list entry carries.
     private func link<V: View>(_ item: FeedItem, @ViewBuilder _ label: () -> V) -> some View {
@@ -259,56 +300,87 @@ struct BriefView: View {
             }
     }
 
-    /// The fixed masthead: wordmark, and the two things reachable from anywhere
-    /// — Ask, and the account. The design's phone bar carries the wordmark and
-    /// Ask; the account button is here because the five tabs it draws leave no
-    /// room for a Profile tab, and an app you cannot sign into is not a design
-    /// improvement.
+    /// The fixed masthead: the wordmark, a menu (Ask, the lens, the account),
+    /// and the reader's initial. Profile has no tab — five is already the most
+    /// a 390pt bar can label — so the account lives here, as on the web.
     private var masthead: some View {
-        HStack {
-            DescryLockup()
+        HStack(spacing: 16) {
+            Text("Descry")
+                .font(pal.serif(27, .medium))
+                .foregroundStyle(pal.text)
+                .accessibilityAddTraits(.isHeader)
             Spacer()
-            Button { showAsk = true } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "sparkle").font(.system(size: 11))
-                    Text("Ask").font(pal.sans(13))
+            Menu {
+                Button { showAsk = true } label: {
+                    Label("Ask about today's news", systemImage: "sparkle")
                 }
-                .foregroundStyle(pal.text2)
-                .padding(.horizontal, 11).padding(.vertical, 5)
-                .overlay(Capsule().stroke(pal.hairline2, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Ask about today's news")
-            Button { showProfile = true } label: {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: 18))
+                Button { showPersonalize = true } label: {
+                    Label("Edit your lens", systemImage: "scope")
+                }
+                Button { showProfile = true } label: {
+                    Label("Account & appearance", systemImage: "person.crop.circle")
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 18, weight: .regular))
                     .foregroundStyle(pal.text2)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Your account")
+            .accessibilityLabel("Menu")
+            Button { showProfile = true } label: { avatar }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Your account")
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
-        .padding(.bottom, 12)
-        .overlay(alignment: .bottom) { Rectangle().fill(pal.hairline).frame(height: 1) }
+        .padding(.bottom, 8)
     }
 
-    /// "Monday morning" over "14 stories · 3 changed recently".
+    @ViewBuilder
+    private var avatar: some View {
+        let initial = (api.displayName ?? "").trimmingCharacters(in: .whitespaces).prefix(1)
+        ZStack {
+            Circle().fill(pal.sandEdge)
+            if initial.isEmpty {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(pal.skin == .signal ? pal.ink2 : .hex(0x17150F))
+            } else {
+                Text(initial.uppercased())
+                    .font(pal.serif(19).italic())
+                    .foregroundStyle(pal.skin == .signal ? pal.ink2 : .hex(0x17150F))
+            }
+        }
+        .frame(width: 36, height: 36)
+    }
+
+    /// Dateline, greeting, and the one-sentence summary of the orbit.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(dateline)
+                .font(pal.mono(11.5, .medium))
+                .kerning(1.4)
+                .textCase(.uppercase)
+                .foregroundStyle(pal.faint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(greeting)
-                .font(pal.serif(22))
+                .font(pal.serif(31))
                 .foregroundStyle(pal.text)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HStack(alignment: .top, spacing: 6) {
                 if live.connected {
-                    Circle().fill(pal.goodFill).frame(width: 5, height: 5)
+                    Circle().fill(pal.goodFill).frame(width: 5, height: 5).padding(.top, 8)
                 }
-                Text(countLine)
-                    .font(pal.mono(13))
-                    .foregroundStyle(pal.mute)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                Text(summary)
+                    .font(pal.sans(15.5))
+                    .lineSpacing(3)
+                    .foregroundStyle(pal.text2)
+                    // Reserves both lines up front, so the chips and orbit
+                    // below never move when the summary grows or shrinks.
+                    .lineLimit(2, reservesSpace: true)
             }
         }
         .padding(.top, 6)
@@ -317,7 +389,7 @@ struct BriefView: View {
     /// The hairline-and-label rule that separates the lead story from the list.
     private var listHead: some View {
         HStack(spacing: 12) {
-            Text(topic == "all" ? "Also today" : "More in \(topic.topicLabel)")
+            Text(lensFilter.map { "More in \($0.label)" } ?? "Also today")
                 .font(pal.mono(12, .medium))
                 .kerning(1.68)
                 .textCase(.uppercase)
@@ -359,7 +431,7 @@ struct BriefView: View {
                     Text("Tell Descry your world")
                         .font(pal.serif(16, .medium))
                         .foregroundStyle(pal.sandInk)
-                    Text("Once — then every story says what it means for you.")
+                    Text("Once — then the stories that touch you move to the centre of your orbit.")
                         .font(pal.sans(14))
                         .lineSpacing(4)
                         .foregroundStyle(pal.sandText)
@@ -378,14 +450,6 @@ struct BriefView: View {
                                               topTrailingRadius: pal.r(5)))
         }
         .buttonStyle(.plain)
-        .sheet(isPresented: $showPersonalize) {
-            OnboardingView(initial: savedContext) {
-                onboarded = true
-                showPersonalize = false
-                Task { await load() }
-            }
-            .environmentObject(api).skinned()
-        }
     }
 
     // The forecasts strip that used to sit here is gone: the design gives
@@ -402,82 +466,6 @@ struct BriefView: View {
             }
         }
         return n.isEmpty ? name : n.prefix(1).capitalized + n.dropFirst()
-    }
-
-    /// The topic filter, pinned under the masthead — deliberately OUTSIDE the
-    /// feed's scroll view.
-    ///
-    /// It used to sit in the scrolling column, and that placement was the whole
-    /// of "the chips work sometimes, and when they don't the hero story opens
-    /// instead". Two separate reasons, both structural:
-    ///
-    /// 1. **Everything above it can appear from nothing.** `LiveHeroView` draws
-    ///    no view at all until its first SSE card lands, and that card arrives
-    ///    after the feed has painted — so a ~120pt strip materialises under your
-    ///    thumb a beat after the screen looks settled, and the chip row drops by
-    ///    that much. `newStoriesBanner` (90s timer) and `personalizeBanner` do
-    ///    the same. What slides into the space the chip just left is the lead
-    ///    story's `NavigationLink`, so the tap opens a story. Giving the live
-    ///    card a fixed height fixed its 18pt internal wobble but not this.
-    /// 2. **A tap that stops a decelerating scroll view is consumed by it.**
-    ///    Flick the feed, reach for a chip before it settles, and the first tap
-    ///    only halts the scroll. That is standard iOS behaviour and it reads
-    ///    exactly like "the chip didn't register".
-    ///
-    /// Out here neither can happen: nothing above it changes size, and it is not
-    /// inside the scroller that eats the tap. It also stays reachable while the
-    /// feed is scrolled, which is what a filter is for.
-    private var pinnedTopicBar: some View {
-        // One topic is not a filter — with only "All" the bar is dead chrome.
-        Group {
-            if topics.count > 1 {
-                topicBar
-                    .padding(.vertical, 9)
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(pal.hairline).frame(height: 1)
-                    }
-            }
-        }
-    }
-
-    private var topicBar: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(topics, id: \.self) { t in
-                        Button {
-                            withAnimation(BL.spring) { topic = t }
-                        } label: {
-                            // Solid ink when on, outline when off — see Chip.
-                            // The selected chip takes the ink colour rather
-                            // than the accent so the filter never competes
-                            // with a link.
-                            // "Local" alone is a promise the word cannot keep
-                            // — it means a different city to every reader — so
-                            // the chip names theirs when we know it.
-                            Chip(text: t == "all" ? "All"
-                                     : t == "local" ? localChipLabel
-                                     : t.topicLabel,
-                                 color: pal.text, filled: t == topic)
-                        }
-                        .buttonStyle(.plain)
-                        .id(t)
-                        .accessibilityAddTraits(t == topic ? [.isSelected] : [])
-                    }
-                }
-                // The page inset lives on the content, so the row itself runs
-                // edge to edge and chips scroll out under the screen edge
-                // rather than stopping short of it.
-                .padding(.horizontal, 20)
-                .padding(.vertical, 2)
-            }
-            // Tapping a chip near the right edge used to leave the selection
-            // scrolled out of sight, so the filter looked like it had done
-            // nothing.
-            .onChange(of: topic) { _, t in
-                withAnimation(BL.spring) { proxy.scrollTo(t, anchor: .center) }
-            }
-        }
     }
 
     /// The foot of the feed. Set as a line of type rather than three icons in a
@@ -501,10 +489,19 @@ struct BriefView: View {
         // from idle, so one failure often just means "still waking up".
         for attempt in 0..<2 {
             do {
-                // Only the feed now. Trends and forecasts have their own tabs
-                // and fetch their own data; asking for all three here paid for
-                // two requests per refresh that the screen never drew.
-                items = try await api.fetchFeed()
+                // The feed and the orbit arrive together (GET /orbit wraps
+                // /feed), so the orbit costs no second request.
+                let home = try await api.fetchHome()
+                items = home.items
+                OrbitHomeCache.shared.items = home.items
+                withAnimation(BL.spring) {
+                    orbit = home.orbit
+                    // A reload can drop the tapped node (read, dismissed, or
+                    // aged out); keep the selection only if it survived.
+                    if let id = selectedNode, home.orbit?.nodes.contains(where: { $0.id == id }) != true {
+                        selectedNode = nil
+                    }
+                }
                 error = nil
                 loading = false
                 newItems = []
@@ -520,9 +517,7 @@ struct BriefView: View {
 
     /// Load the hero config from the saved context (falls back to defaults).
     private func loadLivePrefs() {
-        if let data = UserDefaults.standard.data(forKey: "saved_context"),
-           let ctx = try? JSONDecoder().decode(UserContext.self, from: data),
-           let p = ctx.livePrefs {
+        if let p = UserContext.saved?.livePrefs {
             livePrefs = p
             live.reconfigure(categories: p.categories)
         }
@@ -539,6 +534,7 @@ struct BriefView: View {
         if !staged.isEmpty { withAnimation(BL.spring) { newItems = staged } }
     }
 }
+
 
 // MARK: - Story card
 //

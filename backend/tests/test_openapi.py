@@ -138,7 +138,7 @@ class ContractTest(unittest.TestCase):
     def test_every_documented_endpoint_has_a_real_schema(self):
         """The regression this whole module exists for: a 200 documented as {}
         tells a client generator nothing, which is what the consuming team hit."""
-        want = ["/feed", "/story/{story_id}", "/finance/stories",
+        want = ["/feed", "/orbit", "/story/{story_id}", "/finance/stories",
                 "/finance/story/{story_id}", "/finance/trends",
                 "/finance/forecasts", "/finance/graph",
                 "/finance/graph/{entity_name}/stories",
@@ -221,6 +221,30 @@ class ContractTest(unittest.TestCase):
                          "the topic chips filter on this — it is what puts a "
                          "finance story under the Finance chip")
         self.assertIn("metric_count", fin)
+
+    def test_orbit_wraps_the_feed(self):
+        body = self._check("/orbit?user_id=u1", wire.OrbitResponse)
+        feed = self.client.get("/feed?user_id=u1", headers=self.AUTH).json()
+        self.assertEqual([i["id"] for i in body["items"]],
+                         [i["id"] for i in feed["items"]],
+                         "/orbit must carry exactly the /feed items, in order")
+        orbit = body["orbit"]
+        self.assertFalse(set(orbit) - set(wire.Orbit.model_fields))
+        self.assertTrue(orbit["nodes"], "a non-empty feed should put something in orbit")
+        for node in orbit["nodes"]:
+            self.assertFalse(set(node) - set(wire.OrbitNode.model_fields))
+            self.assertIn(node["ring"], ("direct", "near", "wider"))
+            self.assertNotIn(" ", node["word"])
+            for sid in node["story_ids"]:
+                self.assertIn(sid, orbit["stories"])
+        for info in orbit["stories"].values():
+            self.assertFalse(set(info) - set(wire.OrbitStory.model_fields))
+        # The reader follows finance, so the finance story is inside the lens.
+        self.assertEqual(orbit["stories"]["fin1"]["ring"], "near")
+
+    def test_orbit_requires_the_readers_token(self):
+        r = self.client.get("/orbit?user_id=u1", headers={"Authorization": "Bearer nope"})
+        self.assertEqual(r.status_code, 401)
 
     def test_story_detail_serves_both_pipelines(self):
         news = self._check("/story/news1", wire.StoryDetail)

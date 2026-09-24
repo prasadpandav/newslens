@@ -14,7 +14,7 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import (config, db, diag, gazetteer, images, llm, llmcache, llmcost, live,
-               analytics, ranking, textmerge)
+               analytics, orbit, ranking, textmerge)
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
                      depth_hint, clean_beats, clean_anchors,
@@ -996,6 +996,68 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
         # story -> force edges from it, and without them it can only guess.
         it["trend_ids"] = db.uj(it["trend_ids"], [])
     return {"items": items}
+
+
+@app.get("/orbit", tags=["feed"], summary="The feed, arranged by how close it lands",
+         responses={200: {"model": wire.OrbitResponse}})
+def orbit_feed(user_id: str, authorization: str = Header("")):
+    """The iOS home: the same ranked items `/feed` returns, plus an `orbit`
+    block placing the best of them on three rings around the reader —
+    `direct` (their work or their own details), `near` (their city or
+    interests) and `wider` (outside the lens, but among the day's biggest).
+
+    Each orbit story is drawn as one word (`nodes[].word`); stories sharing a
+    word share a node. `links` are the AI-inferred hidden connections between
+    two orbit nodes. `stories` carries, per orbit story, the ring, the chip
+    lenses (work | money | city | family), the reader's own words that put it
+    there (`exposure`) and its hidden links.
+
+    A separate endpoint rather than a flag on `/feed`, so the web portal's feed
+    and its documented shape are untouched. No LLM call happens here.
+    """
+    items = feed(user_id=user_id, authorization=authorization)["items"]
+    con = db.connect()
+    try:
+        u = con.execute("SELECT context FROM users WHERE id=?", (user_id,)).fetchone()
+        ctx = db.uj(u["context"] if u else "{}")
+        # "Not relevant to me" from the Why-me screen. Indexed on user_id.
+        hidden = {r["story_id"] for r in con.execute(
+            "SELECT story_id FROM feedback WHERE user_id=? AND action='not_relevant'",
+            (user_id,)).fetchall()}
+        # Bounded by the feed's own cap of 100 ids; finance ids simply miss
+        # here and fall back to the headline heuristic for their word.
+        meta = {}
+        ids = [it["id"] for it in items]
+        for chunk in _chunks(ids):
+            for r in con.execute(
+                    "SELECT id, orbit_word, article_ids, connection_ids FROM stories "
+                    "WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk).fetchall():
+                meta[r["id"]] = {"orbit_word": r["orbit_word"],
+                                 "article_ids": db.uj(r["article_ids"], []),
+                                 "connection_ids": db.uj(r["connection_ids"], [])}
+        # Only the connections the orbit could draw. The Storyteller already
+        # filtered connection_ids to confidence >= 0.6, so these are the
+        # hidden links /story shows — looked up by primary key, never scanned.
+        cids = sorted({c for m in meta.values() for c in m["connection_ids"]})
+        conns, art_ids = {}, set()
+        for chunk in _chunks(cids):
+            for r in con.execute(
+                    "SELECT id, article_a, article_b, chain, confidence FROM connections "
+                    "WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk).fetchall():
+                conns[r["id"]] = dict(r)
+                art_ids.update((r["article_a"], r["article_b"]))
+        titles = {}
+        for chunk in _chunks(sorted(art_ids)):
+            for r in con.execute(
+                    "SELECT id, title FROM articles WHERE id IN (%s)"
+                    % ",".join("?" * len(chunk)), chunk).fetchall():
+                titles[r["id"]] = r["title"] or ""
+        for c in conns.values():
+            c["titles"] = {a: titles.get(a, "") for a in (c["article_a"], c["article_b"])}
+    finally:
+        con.close()
+    return {"items": items,
+            "orbit": orbit.build(items, ctx, meta, conns, hidden=hidden)}
 
 
 @app.get("/story/{story_id}", tags=["feed"], summary="One story, either pipeline",
@@ -2333,14 +2395,17 @@ def _retell_story(con, row, verifier):
         narrative = "\n\n".join(b["text"] for b in beats)
     con.execute(
         "UPDATE stories SET headline=?, narrative=?, why_matters=?, credibility=?, "
-        "credibility_note=?, claims=?, merge_stats=?, beats=?, anchors=? WHERE id=?",
+        "credibility_note=?, claims=?, merge_stats=?, beats=?, anchors=?, "
+        "orbit_word=COALESCE(?, orbit_word) WHERE id=?",
         (out.get("headline") or row["headline"], narrative,
          out.get("why_it_matters", ""), score, note,
          db.j({"claims": claims, "verdicts": verdicts}),
          db.j(dict(bstats or {}, kinds=verifier.source_breakdown(
              a["source"] for a in arts))),
          db.j(beats) if beats else None,
-         db.j(anchors) if anchors else None, row["id"]))
+         db.j(anchors) if anchors else None,
+         # Retelling is also how an older story gains its orbit word.
+         orbit.clean_word(out.get("orbit_word")), row["id"]))
     con.commit()
     return True
 

@@ -9,7 +9,7 @@ import math
 import re
 import time
 import yaml
-from . import config, db, gazetteer, images, llm, textmerge, fulltext
+from . import config, db, gazetteer, images, llm, orbit, textmerge, fulltext
 
 PROMPTS = yaml.safe_load(config.PROMPTS_FILE.read_text())
 
@@ -1743,6 +1743,9 @@ class Storyteller:
             why_matters = out.get("why_it_matters", "")
             beats = clean_beats(out.get("beats"), narrative)
             anchors = clean_anchors(out.get("anchors"), claims, beats)
+            # The orbit home's one-word label. Validated, never repaired: a
+            # malformed answer stores NULL and /orbit derives one instead.
+            orbit_word = orbit.clean_word(out.get("orbit_word"))
             # When beats came back well-formed they ARE the story, so `narrative`
             # becomes their joined text: everything that reads `narrative` today
             # (OG cards, SEO descriptions, the feed dek, iOS) keeps working and
@@ -1779,7 +1782,8 @@ class Storyteller:
                     "UPDATE stories SET headline=?,narrative=?,why_matters=?,credibility=?,"
                     "credibility_note=?,claims=?,article_ids=?,trend_ids=?,"
                     "connection_ids=?,updated_at=?,event_id=?,image_url=?,"
-                    "merge_stats=?,beats=?,anchors=?,place=?,topic=?"
+                    "merge_stats=?,beats=?,anchors=?,place=?,topic=?,"
+                    "orbit_word=COALESCE(?,orbit_word)"
                     + (",framing=NULL" if drop_framing else "") + " WHERE id=?",
                     (headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), db.j(ids),
@@ -1793,6 +1797,9 @@ class Storyteller:
                      # that picked the wrong beat on its first telling kept it
                      # for life, however many later articles disagreed.
                      _topic_of(arts),
+                     # A retell whose answer lacked a usable word keeps the
+                     # one the story already had rather than losing it.
+                     orbit_word,
                      mine["id"]))
                 self._record_history(con, mine["id"], event_id, score, len(ids),
                                      verdicts, bstats)
@@ -1805,15 +1812,15 @@ class Storyteller:
                     "INSERT INTO stories (id,headline,narrative,why_matters,credibility,"
                     "credibility_note,claims,topic,article_ids,trend_ids,connection_ids,"
                     "created_at,updated_at,event_id,image_url,merge_stats,beats,anchors,"
-                    "place) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "place,orbit_word) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, headline, narrative, why_matters, score, note,
                      db.j({"claims": claims, "verdicts": verdicts}), _topic_of(arts),
                      db.j(ids), db.j(sorted(evt_tids)), db.j(conn_ids),
                      db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats),
                      db.j(beats) if beats else None,
                      db.j(anchors) if anchors else None,
-                     _place_of(arts)))
+                     _place_of(arts), orbit_word))
                 self._record_history(con, sid, event_id, score, len(ids),
                                      verdicts, bstats)
                 new_ct += 1
@@ -2052,7 +2059,13 @@ class Personalizer:
             return cached["impact_text"], cached["impact_score"]
         ctx = db.uj(user_row["context"])
         impact_text, impact = "", 0
-        if personalization_relevant(ctx, story_row):
+        # The orbit places a story on the reader's inner rings when it touches
+        # their profession, line of business or their own `micro` details —
+        # lens fields personalization_relevant never looks at. Without this, a
+        # story the orbit calls a "direct hit" would be cached here as not
+        # relevant, and "What it means for you" would stay empty for good.
+        if (personalization_relevant(ctx, story_row)
+                or orbit.touches_lens(ctx, dict(story_row))):
             trend_ids = db.uj(story_row["trend_ids"], [])
             trends = [t["name"] for t in con.execute(
                 "SELECT name FROM trends WHERE id IN (%s)" % ",".join("?" * len(trend_ids)),

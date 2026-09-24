@@ -1061,7 +1061,8 @@ def _mock(task, prompt):
                 "why_it_matters": f"If it holds, this reshapes how {label.lower()} is "
                                   f"priced and who carries the cost. Watch for follow-up "
                                   f"coverage and official responses in the coming days. "
-                                  f"(Placeholder text.)"}
+                                  f"(Placeholder text.)",
+                "orbit_word": label.split()[0]}
     if task in ("signals", "signals_unit"):
         # Parse two story ids from digest lines so mock demos still work.
         ids = re.findall(r"^([0-9a-f]{12}) \|", prompt, re.M)[:3]
