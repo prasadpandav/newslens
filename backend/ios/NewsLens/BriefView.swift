@@ -834,8 +834,8 @@ struct StoryRow: View {
         .contentShape(Rectangle())
     }
 
-    /// "4 sources · 2h ago", with a rust clause appended only when there is
-    /// something true to warn about.
+    /// "4 sources · 2h ago", with an amber clause appended only when outlets
+    /// report a checked fact differently.
     ///
     /// The old row flag "only one source says this" is gone: this line already
     /// says "1 source", and printing both was the same fact twice, in the space
@@ -854,7 +854,7 @@ struct StoryRow: View {
         }()
         let warn: String? = {
             if let d = item.claimsDisputed, d > 0 {
-                return "\(d) fact\(d == 1 ? "" : "s") argued over"
+                return "\(d) fact\(d == 1 ? "" : "s") reported differently"
             }
             return nil
         }()
@@ -872,7 +872,7 @@ struct StoryRow: View {
                 if let warn {
                     Text(warn)
                         .font(pal.mono(12.5))
-                        .foregroundStyle(pal.breaking)
+                        .foregroundStyle(pal.warning)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }

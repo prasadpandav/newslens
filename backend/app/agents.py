@@ -1412,8 +1412,8 @@ def detect_correction(rows, min_drop=None):
     kind = "contested" if disputed_added > 0 else "weakened"
     if kind == "contested":
         note = (f"{disputed_added} fact{'' if disputed_added == 1 else 's'} we "
-                f"checked {'is' if disputed_added == 1 else 'are'} now argued over "
-                f"by the sources covering this.")
+                f"checked {'is' if disputed_added == 1 else 'are'} now reported "
+                f"differently by the sources covering this.")
     elif conflicts_added > 0 and not fell:
         kind = "conflicting"
         note = (f"Outlets have started reporting {conflicts_added} figure"

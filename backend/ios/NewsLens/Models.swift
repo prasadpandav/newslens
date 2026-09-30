@@ -179,7 +179,7 @@ struct Correction: Codable, Hashable {
 
     private static let headings = [
         "weakened":    "Fewer sources agree now",
-        "contested":   "A fact we checked is now argued over",
+        "contested":   "A fact we checked is now reported differently",
         "conflicting": "Outlets now report different numbers",
     ]
     var heading: String { Self.headings[kind] ?? Self.headings["weakened"]! }

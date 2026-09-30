@@ -8,13 +8,20 @@ import SwiftUI
 // reproduce every worked example in them (21 → Almost no proof, 58 → Some
 // sources agree, 79 and 82 → Most sources agree, 94 → Nearly all sources agree).
 //
+// The bottom two words changed on 2026-10-01 (thresholds did not). They
+// misstated what a low score means: below 55 it is almost always "one or two
+// outlets so far", not a conflict ("Sources disagree") and not a falsehood
+// ("Almost no proof"). Most of the feed scores there, so every card read as a
+// warning. Real conflicts are flagged separately, from disputed facts. The low
+// bands take the new `.quiet` tone, grey rather than red.
+//
 // This is a deliberate duplicate of the web portal's `FX.BANDS`. Two clients
 // reading one number and printing different sentences for it would be worse
 // than the duplication, so the values are kept identical and this comment says
 // where the other copy lives: `web/index.html`, `const FX`.
 
 struct AgreementBand {
-    enum Tone { case good, mid, bad }
+    enum Tone { case good, mid, bad, quiet }
 
     let name: String
     /// How many of the five pips are lit.
@@ -25,8 +32,8 @@ struct AgreementBand {
         (85, .init(name: "Nearly all sources agree", lit: 5, tone: .good)),
         (70, .init(name: "Most sources agree",       lit: 4, tone: .good)),
         (55, .init(name: "Some sources agree",       lit: 3, tone: .mid)),
-        (40, .init(name: "Sources disagree",         lit: 2, tone: .mid)),
-        (-1, .init(name: "Almost no proof",          lit: 1, tone: .bad)),
+        (40, .init(name: "Few sources so far",       lit: 2, tone: .quiet)),
+        (-1, .init(name: "Awaiting more sources",    lit: 1, tone: .quiet)),
     ]
 
     static func of(_ credibility: Double) -> AgreementBand {
@@ -140,9 +147,9 @@ extension EvidenceCarrying {
     /// timing. Returns nil when there is nothing true to say.
     var rowFlag: (text: String, calm: Bool)? {
         if let d = claimsDisputed, d > 0 {
-            return ("\(d) fact\(d == 1 ? "" : "s") argued over", false)
+            return ("\(d) fact\(d == 1 ? "" : "s") reported differently", false)
         }
-        if sourceCount == 1 { return ("only one source says this", false) }
+        if sourceCount == 1 { return ("single source so far", true) }
         if isDeveloping, let u = updatedAt {
             return ("updated \(Ago.short(u))", true)
         }
@@ -270,11 +277,11 @@ struct SourceMix {
 
 // MARK: - Where a trend is in its life
 
-/// "Strengthening · 6 weeks", "Sources disagree · 4 weeks", "Newly forming ·
+/// "Strengthening · 6 weeks", "Reports differ · 4 weeks", "Newly forming ·
 /// 9 days" — all from real timestamps and real counts, never a label anyone
 /// assigned. Ported from the web portal's `Trends.status`.
 struct TrendStatus {
-    enum Kind { case new, split, strong, fading }
+    enum Kind { case new, split, thin, strong, fading }
     let kind: Kind
     let word: String
     let note: String
@@ -282,7 +289,8 @@ struct TrendStatus {
     var tone: AgreementBand.Tone {
         switch kind {
         case .strong: return .good
-        case .split:  return .bad
+        case .split:  return .mid
+        case .thin:   return .quiet
         default:      return .mid
         }
     }
@@ -311,10 +319,11 @@ struct TrendStatus {
         // claims came back contested, or the mean agreement is low.
         let disagree = t.disagree ?? 0, agree = t.agree ?? 0
         if disagree > 0, Double(disagree) >= Double(agree) * 0.5 {
-            return .init(kind: .split, word: "Sources disagree", note: wk)
+            return .init(kind: .split, word: "Reports differ", note: wk)
         }
+        // Low agreement across its stories means thin reporting, not a split.
         if let c = t.credibility, c < 55 {
-            return .init(kind: .split, word: "Sources disagree", note: wk)
+            return .init(kind: .thin, word: "Few sources so far", note: wk)
         }
         return .init(kind: .strong, word: "Strengthening",
                      note: weeks == nil ? "running now" : "\(wk) running")
@@ -396,15 +405,16 @@ enum Ago {
 
 /// One checked claim, as the margin prints it.
 ///
-/// The mockups' own labels, verbatim. Nothing in the reader says verified,
-/// corroborated or disputed — "We could not check this" is the honest third
-/// state, and it says whose failing it is.
+/// Nothing in the reader says verified, corroborated or disputed. "Not
+/// confirmed yet" is the honest third state: no second source has backed the
+/// claim, which is not the same as the claim being wrong (it used to read "We
+/// could not check this", in red). Same words as the web's margin TONE map.
 /// `nonisolated` because the model layer builds these: `StoryDetail.proofNotes`
 /// is a plain computed property on a Codable struct, and this target compiles
 /// with main-actor isolation by default, which would otherwise make a value
 /// type's initialiser unreachable from it.
 nonisolated struct ProofNote: Identifiable {
-    enum Tone { case ok, mid, bad }
+    enum Tone { case ok, mid, quiet }
 
     let id = UUID()
     let label: String
@@ -417,9 +427,9 @@ nonisolated struct ProofNote: Identifiable {
         if v.contains("corrob") {
             label = "Checked — true"; tone = .ok
         } else if v.contains("disput") {
-            label = "Sources disagree"; tone = .mid
+            label = "Reports differ"; tone = .mid
         } else {
-            label = "We could not check this"; tone = .bad
+            label = "Not confirmed yet"; tone = .quiet
         }
         claim = verdict.claim
         note = verdict.note
@@ -427,16 +437,16 @@ nonisolated struct ProofNote: Identifiable {
 
     func color(_ pal: Palette) -> Color {
         switch tone {
-        case .ok:  return pal.trust
-        case .mid: return pal.warning
-        case .bad: return pal.breaking
+        case .ok:    return pal.trust
+        case .mid:   return pal.warning
+        case .quiet: return pal.text3
         }
     }
     func tick(_ pal: Palette) -> Color {
         switch tone {
-        case .ok:  return pal.goodFill
-        case .mid: return pal.midFill
-        case .bad: return pal.badFill
+        case .ok:    return pal.goodFill
+        case .mid:   return pal.midFill
+        case .quiet: return pal.faint
         }
     }
 }

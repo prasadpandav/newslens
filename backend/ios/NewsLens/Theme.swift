@@ -139,9 +139,10 @@ struct Palette {
     /// agree" in the colour of "Most".
     func credColor(_ score: Double) -> Color {
         switch AgreementBand.of(score).tone {
-        case .good: return trust
-        case .mid:  return warning
-        case .bad:  return breaking
+        case .good:  return trust
+        case .mid:   return warning
+        case .bad:   return breaking
+        case .quiet: return text3
         }
     }
 
@@ -149,9 +150,10 @@ struct Palette {
     /// `credColor`, which is why the two exist.
     func credFill(_ score: Double) -> Color {
         switch AgreementBand.of(score).tone {
-        case .good: return goodFill
-        case .mid:  return midFill
-        case .bad:  return badFill
+        case .good:  return goodFill
+        case .mid:   return midFill
+        case .bad:   return badFill
+        case .quiet: return faint
         }
     }
 

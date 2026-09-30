@@ -4124,6 +4124,12 @@
       --pip: var(--bad)
     }
 
+    /* Not enough reporting yet: said plainly, in grey rather than red. */
+    .fx-quiet {
+      color: var(--mute, var(--text-3));
+      --pip: var(--mute, var(--text-3))
+    }
+
     .fx-tier {
       font: 500 11.5px var(--sans)
     }
@@ -4594,6 +4600,10 @@
 
     .fx-flag.calm {
       color: var(--mute)
+    }
+
+    .fx-flag.mid {
+      color: var(--mid-ink)
     }
 
     .fx-readbtn {
@@ -5424,6 +5434,10 @@
 
     .rx-note.bad .tick {
       background: var(--bad)
+    }
+
+    .rx-note.quiet .v {
+      color: var(--mute)
     }
 
     .rx-note .v {
@@ -9944,12 +9958,21 @@
          -> Nearly all agree."  Those were exactly the words we were printing.
          Thresholds are unchanged and reproduce every worked example in the
          mockups: 21 -> Almost no proof, 58 -> Some sources agree,
-         82 and 79 -> Most sources agree, 94 -> Nearly all sources agree. */
+         82 and 79 -> Most sources agree, 94 -> Nearly all sources agree.
+
+         The bottom two words changed on 2026-10-01 (thresholds did not). They
+         misstated what a low score means. The score measures how much independent
+         reporting backs a story; below 55 that is almost always "one or two
+         outlets so far", not a conflict ("Sources disagree") and not a falsehood
+         ("Almost no proof"). Most of the feed scores there, so every card read as
+         a warning. Real conflicts are flagged separately, from disputed facts.
+         The low bands are grey, not red: not enough reporting yet is information,
+         not an alarm. iOS AgreementBand carries the same words. */
       BANDS: [{ min: 85, name: 'Nearly all sources agree', pips: 5, tone: 'fx-good' },
       { min: 70, name: 'Most sources agree', pips: 4, tone: 'fx-good' },
       { min: 55, name: 'Some sources agree', pips: 3, tone: 'fx-mid' },
-      { min: 40, name: 'Sources disagree', pips: 2, tone: 'fx-mid' },
-      { min: -1, name: 'Almost no proof', pips: 1, tone: 'fx-bad' }],
+      { min: 40, name: 'Few sources so far', pips: 2, tone: 'fx-quiet' },
+      { min: -1, name: 'Awaiting more sources', pips: 1, tone: 'fx-quiet' }],
       band(c) { c = Math.round(c || 0); return this.BANDS.find(b => c >= b.min); },
       pips(b) {
         return `<span class="fx-pips ${b.tone}" aria-hidden="true">`
@@ -9977,7 +10000,7 @@
          observe OUR corroboration falling; we cannot see a publisher withdraw
          anything, and the two are not the same claim. */
       CORR: {
-        weakened: 'Fewer sources agree now', contested: 'A fact we checked is now argued over',
+        weakened: 'Fewer sources agree now', contested: 'A fact we checked is now reported differently',
         conflicting: 'Outlets now report different numbers'
       },
       correction(s, long) {
@@ -10551,11 +10574,11 @@
         const stats = [`<div class="fx-stat"><span class="fx-lbl">How many sources agree</span>
       <div class="v">${FX.scale(s, true)}</div></div>`];
         if (s.claims_verified != null || s.claims_disputed != null) {
-          // "6 true / 2 with no proof yet" — never "verified/unproven/disputed".
+          // "6 true / 2 not confirmed yet" — never "verified/unproven/disputed".
           const lines = [];
           if (s.claims_verified) lines.push(`<b>${s.claims_verified} true</b>`);
-          if (s.claims_disputed) lines.push(`${s.claims_disputed} argued over`);
-          if (s.claims_unverified) lines.push(`${s.claims_unverified} with no proof yet`);
+          if (s.claims_disputed) lines.push(`${s.claims_disputed} reported differently`);
+          if (s.claims_unverified) lines.push(`${s.claims_unverified} not confirmed yet`);
           if (!lines.length) lines.push('none checked yet');
           stats.push(`<div class="fx-stat"><span class="fx-lbl">Facts we checked</span>
       <div class="v"><span>${lines.join('<br>')}</span></div></div>`);
@@ -10621,8 +10644,10 @@
         // The design's row flag is a verdict fact ("1 disputed claim", "single
         // anonymous source") in rust, or a calm grey note when it is only timing.
         let flag = '', calm = '';
-        if (s.claims_disputed) flag = `${s.claims_disputed} fact${s.claims_disputed === 1 ? '' : 's'} argued over`;
-        else if (s.source_count === 1) flag = 'only one source says this';
+        if (s.claims_disputed) { flag = `${s.claims_disputed} fact${s.claims_disputed === 1 ? '' : 's'} reported differently`; calm = ' mid'; }
+        // Below 55 the scale already says "Few sources so far" / "Awaiting more
+        // sources"; repeating "single source" there is the same fact twice.
+        else if (s.source_count === 1 && FX.band(s.credibility).tone !== 'fx-quiet') { flag = 'single source so far'; calm = ' calm'; }
         else if (FX.developing(s)) { flag = 'updated ' + FX.ago(s.updated_at); calm = ' calm'; }
         return `<a class="fx-row${s.image_url ? '' : ' noimg'}" href="/story/${esc(s.id)}">
     <div>
@@ -11232,9 +11257,9 @@
           if (why) beats.push({ id: 'why', label: 'Why it matters', body: paraHTML(why) });
         }
         if (disputed.length) beats.push({
-          id: 'disputed', label: 'What people argue over',
+          id: 'disputed', label: 'Where reports differ',
           body: disputed.map(v => `<div class="rx-claim">
-      <div class="v ${/disput/i.test(v.verdict) ? 'fx-mid' : 'fx-bad'}">${/disput/i.test(v.verdict) ? 'Sources disagree' : 'We could not check this'}</div>
+      <div class="v ${/disput/i.test(v.verdict) ? 'fx-mid' : 'fx-quiet'}">${/disput/i.test(v.verdict) ? 'Reports differ' : 'Not confirmed yet'}</div>
       <p>${esc(v.claim || '')}</p>${v.note ? `<div class="n">${esc(v.note)}</div>` : ''}</div>`).join('')
         });
         // The only derived beat whose content is real prose rather than a list, so it
@@ -11274,11 +11299,13 @@
         // NOT ruled to a specific line — nothing anchors a claim to a sentence yet,
         // and drawing a rule to the wrong line would be a lie about our own evidence.
         // The mockups' own margin labels, verbatim. Nothing in the reader says
-        // verified, corroborated or disputed — "we could not check this" is the
-        // honest third state and says whose failing it is.
+        // verified, corroborated or disputed. "Not confirmed yet" is the honest
+        // third state: no second source has backed the claim, which is not the
+        // same as the claim being wrong (it used to read "We could not check
+        // this", in red). Same words as iOS ProofNote.
         const TONE = {
-          corroborated: ['ok', 'Checked — true'], disputed: ['mid', 'Sources disagree'],
-          unverified: ['bad', 'We could not check this']
+          corroborated: ['ok', 'Checked — true'], disputed: ['mid', 'Reports differ'],
+          unverified: ['quiet', 'Not confirmed yet']
         };
         const notes = verdicts.map(v => {
           const key = /corrob/i.test(v.verdict || '') ? 'corroborated'
@@ -11751,9 +11778,10 @@
         // Disagreement leads when the sources really are split — either the claims
         // came back contested, or the mean agreement across its stories is low.
         if ((t.disagree || 0) > 0 && (t.disagree || 0) >= (t.agree || 0) * 0.5)
-          return { key: 'split', word: 'Sources disagree', note: wk, tone: 'fx-bad' };
+          return { key: 'split', word: 'Reports differ', note: wk, tone: 'fx-mid' };
+        // Low agreement across its stories means thin reporting, not a split.
         if (t.credibility != null && t.credibility < 55)
-          return { key: 'split', word: 'Sources disagree', note: wk, tone: 'fx-bad' };
+          return { key: 'thin', word: 'Few sources so far', note: wk, tone: 'fx-quiet' };
         return {
           key: 'strong', word: 'Strengthening',
           note: weeks == null ? 'running now' : wk + ' running', tone: 'fx-good'
@@ -11893,7 +11921,7 @@
         if (t.story_count) facts.push(['Stories behind it', t.story_count]);
         if (t.article_count) facts.push(['Independent sources', t.article_count]);
         if (t.agree != null || t.disagree != null)
-          facts.push(['Facts agreed / argued over', `${t.agree || 0} / ${t.disagree || 0}`]);
+          facts.push(['Facts agreed / reported differently', `${t.agree || 0} / ${t.disagree || 0}`]);
         if (t.weakened_count) facts.push(['Since weakened', t.weakened_count]);
         return `<article class="tx-card"><div class="in">
       <div>
@@ -13831,7 +13859,7 @@
         <div class="dx-stat"><span class="fx-lbl">Stories behind it</span>
           <span class="v">${t.story_count || 0}</span>
           <span class="s">${t.agree != null
-            ? `${t.agree} fact${t.agree === 1 ? '' : 's'} agreed · ${t.disagree || 0} argued over`
+            ? `${t.agree} fact${t.agree === 1 ? '' : 's'} agreed · ${t.disagree || 0} reported differently`
             : 'none of their facts checked yet'}</span></div>
         <div class="dx-stat"><span class="fx-lbl">Where it comes from</span>
           <span class="v">${t.article_count || 0} <small>sources</small></span>
@@ -13858,7 +13886,7 @@
               ${against.slice(0, 3).map(x => `<div class="dx-against">
                 <h3 class="t"><a href="/story/${esc(x.id)}">${esc(x.headline || '')}</a></h3>
                 <p>${esc(x.credibility_note || '')}${x.claims_disputed
-                ? `${x.credibility_note ? ' · ' : ''}${x.claims_disputed} fact${x.claims_disputed === 1 ? '' : 's'} argued over`
+                ? `${x.credibility_note ? ' · ' : ''}${x.claims_disputed} fact${x.claims_disputed === 1 ? '' : 's'} reported differently`
                 : ''}</p></div>`).join('')}
               <div class="dx-read"><b>Our honest read</b>${against.length >= stories.length / 2
               ? 'The sources are genuinely split on this one. Treat the direction as open.'

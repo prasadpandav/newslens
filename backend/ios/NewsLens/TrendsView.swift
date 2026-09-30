@@ -411,16 +411,18 @@ struct TrendCard: View {
 
     private func tone(_ t: AgreementBand.Tone) -> Color {
         switch t {
-        case .good: return pal.trust
-        case .mid:  return pal.warning
-        case .bad:  return pal.breaking
+        case .good:  return pal.trust
+        case .mid:   return pal.warning
+        case .bad:   return pal.breaking
+        case .quiet: return pal.text3
         }
     }
     private func fill(_ t: AgreementBand.Tone) -> Color {
         switch t {
-        case .good: return pal.goodFill
-        case .mid:  return pal.midFill
-        case .bad:  return pal.badFill
+        case .good:  return pal.goodFill
+        case .mid:   return pal.midFill
+        case .bad:   return pal.badFill
+        case .quiet: return pal.faint
         }
     }
 

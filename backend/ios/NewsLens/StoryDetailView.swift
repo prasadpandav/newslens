@@ -442,7 +442,7 @@ enum Marked {
     /// Quiet by design. Every sentence used to get a tint, an underline and a
     /// coloured number, and a well-sourced story read as a page of highlighter.
     /// Now a claim gets a small superscript number (a `descry://note/<n>` link
-    /// that opens the margin at that note), and only "Sources disagree" also
+    /// that opens the margin at that note), and only "Reports differ" also
     /// gets a dotted underline, because that is the one a reader should notice
     /// before reaching the margin. "Checked — true" needs no alarm, and "could
     /// not check" is a gap in our work, not a warning about the sentence.
