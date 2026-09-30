@@ -8586,6 +8586,468 @@
         margin-top: 20px
       }
     }
+
+    /* ================= Buttons inside .fx =================
+       `.fx button { padding:0; border:0 }` is (0,1,1) and beats any single
+       class, so these pills and tool buttons rendered as bare text with no
+       border or padding, at every width (the Predictions "All" pill collapsed
+       to a 15px dot). Restated under .fx to win. */
+    .fx .causal-pill {
+      padding: 8px 18px;
+      border: 1px solid var(--rule-2);
+      border-radius: 20px;
+      background: var(--card)
+    }
+
+    .fx .causal-pill.on {
+      background: var(--sand-head, #A67C2E);
+      border-color: var(--sand-head, #A67C2E)
+    }
+
+    .fx .kg-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--rule-2);
+      border-radius: 6px;
+      background: var(--paper)
+    }
+
+    /* ================= Orbit (home) =================
+       The iOS home's orbit, drawn from the same GET /orbit payload: rings for
+       direct / near / wider, one word per story cluster, the reader at the
+       centre. Nodes and labels are real buttons over an SVG of rings and links,
+       so they take focus and have proper tap areas. The box has a fixed height
+       from the first frame, so nothing below it moves when it fills in. */
+    .orb {
+      margin: 4px 0 18px
+    }
+
+    .orb-lenses {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      margin: 0 -18px 6px;
+      padding: 2px 18px
+    }
+
+    .orb-lenses::-webkit-scrollbar {
+      display: none
+    }
+
+    .fx .orb-lens {
+      flex: none;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 8px 13px;
+      min-height: 36px;
+      border-radius: 100px;
+      background: var(--card);
+      border: 1px solid var(--rule-2);
+      font: 400 13.5px var(--sans);
+      color: var(--ink-2)
+    }
+
+    .fx .orb-lens .n {
+      font: 400 11.5px var(--mono);
+      opacity: .6
+    }
+
+    .fx .orb-lens.on {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: var(--paper);
+      font-weight: 500
+    }
+
+    .orb-canvas {
+      position: relative;
+      height: 340px;
+      max-width: 520px;
+      margin: 0 auto;
+      touch-action: manipulation
+    }
+
+    .orb-canvas svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none
+    }
+
+    .orb-ring {
+      fill: none;
+      stroke: var(--rule-2)
+    }
+
+    .orb-core {
+      fill: var(--card);
+      stroke: rgb(from var(--sand-head, #A67C2E) r g b / .45)
+    }
+
+    .orb-link {
+      stroke: var(--sand-head, #A67C2E);
+      stroke-width: 1.2;
+      stroke-dasharray: 1.5 4.5;
+      stroke-linecap: round;
+      opacity: .6
+    }
+
+    .orb-link.dim {
+      opacity: .15
+    }
+
+    .orb-ringlbl {
+      font: 500 9.5px var(--mono);
+      letter-spacing: .14em;
+      fill: var(--mute);
+      text-anchor: middle
+    }
+
+    .fx .orb-node,
+    .fx .orb-word {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center
+    }
+
+    .fx .orb-node {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%
+    }
+
+    .orb-node i {
+      display: block;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--ink-2)
+    }
+
+    .orb-node.direct i {
+      width: 20px;
+      height: 20px;
+      background: var(--sand-head, #A67C2E)
+    }
+
+    .orb-node.wider i {
+      background: var(--paper);
+      box-shadow: inset 0 0 0 1.5px var(--ink-2)
+    }
+
+    .orb-node.on i {
+      outline: 1.5px solid var(--ink);
+      outline-offset: 4px
+    }
+
+    .fx .orb-word {
+      width: 88px;
+      height: 24px;
+      font: 400 12.5px var(--sans);
+      color: var(--ink-2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis
+    }
+
+    .fx .orb-word.l {
+      justify-items: start;
+      transform: translate(0, -50%)
+    }
+
+    .fx .orb-word.r {
+      justify-items: end;
+      transform: translate(-100%, -50%)
+    }
+
+    .fx .orb-word.on {
+      color: var(--ink);
+      font-weight: 600
+    }
+
+    .orb-node.dim,
+    .orb-word.dim {
+      opacity: .22;
+      pointer-events: none
+    }
+
+    .fx .orb-you {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: var(--sand-head, #A67C2E);
+      color: #fff;
+      font: italic 400 17px var(--serif)
+    }
+
+    .fx .orb-you.set-lens {
+      font: 500 11px var(--sans)
+    }
+
+    .orb-panel {
+      border-top: 1px solid var(--rule);
+      padding-top: 14px
+    }
+
+    .orb-panel-head {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 6px
+    }
+
+    .orb-panel-head h2 {
+      font: 400 26px/1.2 var(--serif);
+      color: var(--ink);
+      margin: 0
+    }
+
+    .orb-panel-head .k {
+      font: 500 10.5px var(--mono);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--mute)
+    }
+
+    .fx .orb-close {
+      margin-left: auto;
+      min-width: 40px;
+      min-height: 40px;
+      font-size: 16px;
+      color: var(--mute)
+    }
+
+    .orb-why {
+      font: 400 13px/1.5 var(--sans);
+      color: var(--sand-head, #A67C2E);
+      margin: -4px 0 4px
+    }
+
+    /* The topic filter as a row above the list. Desktop keeps it in the
+       left column; below 860px that column collapses behind "Your interests &
+       filters", which hid the topics, so they move here instead. */
+    .fx-topicrow {
+      display: none
+    }
+
+    @media (max-width:860px) {
+      .fx-topicrow {
+        display: flex;
+        gap: 7px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        margin: 2px -18px 16px;
+        padding: 2px 18px
+      }
+
+      .fx-topicrow::-webkit-scrollbar {
+        display: none
+      }
+
+      .fx-topicrow .fx-topic {
+        flex: none;
+        min-height: 36px
+      }
+
+      .fx-side .fx-topics-block {
+        display: none
+      }
+    }
+
+    /* ================= Phones =================
+       Everything below was measured at 360-412px in headless Chrome: elements
+       that overlapped, ran off the edge, or were too small to tap. */
+    @media (max-width:760px) {
+
+      /* Nav: logo left, then theme, search and account as compact controls.
+         The full search label, the account name and a Sign out button used to
+         share one 390px row, overlapping each other and running off the edge.
+         Sign out is on the profile page. */
+      nav {
+        padding: 10px 16px;
+        gap: 10px
+      }
+
+      .modetoggle {
+        margin-left: auto
+      }
+
+      .searchbtn {
+        margin-left: 0;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        justify-content: center;
+        border-radius: 50%;
+        flex: none
+      }
+
+      .searchbtn .sb-txt {
+        display: none
+      }
+
+      .account .acct-name,
+      .account .btn {
+        display: none
+      }
+
+      nav #account {
+        margin: 0 !important;
+        flex: none
+      }
+
+      nav .logo {
+        padding: 10px 0
+      }
+
+      .modetoggle {
+        padding: 7px 0
+      }
+
+      .col-toggle {
+        min-height: 44px
+      }
+
+      .welcomebar .wb-x {
+        min-width: 40px;
+        min-height: 40px
+      }
+
+      /* Back links and one-line text actions were 15-17px tall. */
+      .rx-back,
+      .dx-back {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px
+      }
+
+      .fx .go,
+      .tx-more,
+      .pg-act,
+      .px-link,
+      .rx-link,
+      .fx button.px-link,
+      .fx button.rx-link,
+      .rx button.go {
+        display: inline-block;
+        padding-top: 10px;
+        padding-bottom: 10px
+      }
+
+      .kg-search input {
+        min-height: 32px
+      }
+
+      .account .avatar {
+        width: 32px;
+        height: 32px
+      }
+
+      .acct-link {
+        padding: 4px
+      }
+
+      .nav-signin {
+        display: inline-flex;
+        align-items: center;
+        height: 36px;
+        padding: 0 14px;
+        border-radius: 100px;
+        border: 1px solid var(--border-2);
+        font: 500 13px var(--sans);
+        color: var(--text);
+        white-space: nowrap
+      }
+
+      /* Bottom bar: the links were only 19px tall. The whole bar height is the
+         tap target now. */
+      .tabbar {
+        padding: 0 2px env(safe-area-inset-bottom)
+      }
+
+      .tabbar a {
+        padding: 15px 1px;
+        font-size: 11px
+      }
+
+      /* Room for the tab bar AND the Ask button below the last line. */
+      body {
+        padding-bottom: calc(128px + env(safe-area-inset-bottom))
+      }
+
+      /* Welcome banner: a row of copy and a 240px sign-in button squeezed
+         the copy into a one-word column. Stack them. */
+      .welcomebar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px
+      }
+
+      .welcomebar .wb-actions {
+        justify-content: space-between
+      }
+
+      /* Story bar: back link, thread name, agreement, Save and Copy link in one
+         row ran 21px past the screen. Keep the controls and drop the rest. */
+      .rx-bar {
+        padding: 0 14px;
+        gap: 8px
+      }
+
+      .rx-bar .rx-vr,
+      .rx-bar .rx-thread,
+      .rx-bar .rx-dev {
+        display: none
+      }
+
+      .rx-bar .r {
+        gap: 6px;
+        min-width: 0
+      }
+
+      .rx-pill,
+      .rx button.rx-pill {
+        padding: 5px 10px !important;
+        min-height: 32px
+      }
+
+      .rx-bar .rx-pill .fx-tier {
+        display: none
+      }
+
+      /* Connections toolbar: search and five buttons in one row ran past the
+         edge. Search takes its own line. */
+      .kg-toolbar {
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        gap: 10px
+      }
+
+      .kg-search {
+        flex: 1 1 100%;
+        max-width: none
+      }
+
+      .kg-actions {
+        flex-wrap: wrap;
+        gap: 6px
+      }
+
+      .fx .kg-btn {
+        min-height: 34px
+      }
+
+      .orb-canvas {
+        height: 330px
+      }
     }
   </style>
 </head>
@@ -8636,7 +9098,7 @@
         <circle cx="11" cy="11" r="7" />
         <path d="m20 20-3.5-3.5" />
       </svg>
-      Ask or search anything <kbd>⌘K</kbd>
+      <span class="sb-txt">Ask or search anything</span> <kbd>⌘K</kbd>
     </button>
     <span id="offline" class="offline hidden">demo data — backend offline</span>
     <div id="account" class="account"></div>
@@ -9278,7 +9740,11 @@
       switch (act) {
         case 'dismiss-welcome': localStorage.setItem('bl_welcome_dismissed', '1');
           { const b = $('#welcomebar'); if (b) b.remove(); } break;
-        case 'topic': S.topic = el.dataset.topic; Brief.render(); break;
+        case 'topic': S.topic = el.dataset.topic; Orbit.sel = null; Orbit.lens = null; Brief.render(); break;
+        case 'orb-node': Orbit.sel = Orbit.sel === el.dataset.id ? null : el.dataset.id; Brief.render(); break;
+        case 'orb-close': Orbit.sel = null; Brief.render(); break;
+        case 'orb-lens': Orbit.setLens(el.dataset.lens || null); Brief.render(); break;
+        case 'orb-you': Orbit.sel = null; Orbit.lens = null; Brief.render(); break;
         case 'feedmode': S.feedmode = el.dataset.mode; Brief.render(); break;
         // Redesigned feed. Clicking the active option clears it (back to ranked
         // order) — the mockup shows these as a preference, not a mode you're stuck in.
@@ -9354,9 +9820,15 @@
       if (_loadingStories) return _loadingStories;
       _loadingStories = (async function () {
         try {
+          // Signed in: /orbit, which is /feed plus the orbit arranged from it,
+          // so the orbit costs no second request. An older server without it
+          // falls back to /feed, then /stories, exactly as before.
           const st = S.creds
-            ? await api('/feed?user_id=' + S.creds.user_id).catch(() => api('/stories?limit=100'))
+            ? await api('/orbit?user_id=' + S.creds.user_id)
+              .catch(() => api('/feed?user_id=' + S.creds.user_id))
+              .catch(() => api('/stories?limit=100'))
             : await api('/stories?limit=30');
+          S.orbit = (S.creds && st && st.orbit) || null;
           const items = (st && (st.items || st.stories || (Array.isArray(st) ? st : null))) || [];
           if (items.length) {
             S.stories = items;
@@ -9719,6 +10191,157 @@
       }
     }
 
+
+    /* ================= Orbit =================
+       The iOS home's orbit on the web, from the same GET /orbit payload
+       (backend/app/orbit.py decides every ring). Today's stories as one word
+       each on three rings around the reader: direct, near, wider. Tapping a
+       word swaps the list below for that word's stories; tapping it again, or
+       ✕, brings the list back. The layout mirrors OrbitCanvas in
+       ios/NewsLens/OrbitView.swift so the two read as the same object. */
+    const Orbit = {
+      sel: null,         // selected node id
+      lens: null,        // 'work' | 'money' | 'city' | 'family' | null
+      RINGS: ['direct', 'near', 'wider'],
+      RADII: { direct: .146, near: .272, wider: .397 },
+      START: { direct: -60, near: -116, wider: 200 },
+      LENSES: ['work', 'money', 'city', 'family'],
+      label(r) { return r === 'direct' ? 'Direct' : r === 'near' ? 'Near' : 'Wider'; },
+
+      visible(mode) {
+        const o = S.orbit;
+        return !!(o && S.topic === 'all' && !mode && (o.nodes.length || !o.lens.set));
+      },
+      selected() {
+        const o = S.orbit;
+        const n = o && this.sel && o.nodes.find(x => x.id === this.sel);
+        if (!n) this.sel = null;          // a reload can drop the tapped node
+        return n || null;
+      },
+      inLens(storyId) {
+        const st = S.orbit && S.orbit.stories[storyId];
+        return !!(st && (st.lenses || []).includes(this.lens));
+      },
+      nodeLit(n) { return !this.lens || (n.lenses || []).includes(this.lens); },
+      setLens(l) {
+        this.lens = this.lens === l ? null : l;
+        const n = this.selected();
+        if (n && !this.nodeLit(n)) this.sel = null;   // don't describe a dimmed node
+      },
+      count(l) {
+        const st = Object.values((S.orbit && S.orbit.stories) || {});
+        return l ? st.filter(x => (x.lenses || []).includes(l)).length : st.length;
+      },
+
+      html() {
+        const o = S.orbit;
+        const chip = l => `<button class="orb-lens${this.lens === l ? ' on' : ''}" data-act="orb-lens"
+          data-lens="${l || ''}" aria-pressed="${this.lens === l}">${l ? l[0].toUpperCase() + l.slice(1) : 'All'}<span class="n">${this.count(l)}</span></button>`;
+        const lenses = o.lens.set
+          ? `<div class="orb-lenses" role="group" aria-label="Lens">${chip(null)}${this.LENSES.filter(l => this.count(l)).map(chip).join('')}</div>` : '';
+        return `<section class="orb" aria-label="Your orbit">${lenses}<div class="orb-canvas" id="orb-canvas"></div></section>`;
+      },
+
+      /* Positions are computed from the canvas's real size, so this runs after
+         the markup is in the page, and again on resize. */
+      layout() {
+        const el = document.getElementById('orb-canvas'), o = S.orbit;
+        if (!el || !o) return;
+        const W = el.clientWidth, H = el.clientHeight;
+        // The wider ring plus its labels must fit the fixed height.
+        const w = Math.min(W, 430, (H - 56) / (2 * this.RADII.wider));
+        const cx = W / 2, cy = H / 2, pos = {};
+        for (const ring of this.RINGS) {
+          const nodes = o.nodes.filter(n => n.ring === ring);
+          if (!nodes.length) continue;
+          const r = w * this.RADII[ring], step = 360 / nodes.length;
+          // Keep nodes off the ring's label at 6 o'clock.
+          const clear = Math.min(60, (42 / r) * 180 / Math.PI);
+          nodes.forEach((n, i) => {
+            let deg = this.START[ring] + step * i;
+            const norm = ((deg % 360) + 360) % 360;
+            if (Math.abs(norm - 90) < clear) deg += (norm < 90 ? -1 : 1) * (clear - Math.abs(norm - 90));
+            const a = deg * Math.PI / 180;
+            pos[n.id] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), a };
+          });
+        }
+        const sel = this.selected();
+        const lit = id => { const n = o.nodes.find(x => x.id === id); return n && this.nodeLit(n); };
+        const svg = [`<svg aria-hidden="true">`];
+        for (const ring of ['wider', 'near']) svg.push(`<circle class="orb-ring" cx="${cx}" cy="${cy}" r="${w * this.RADII[ring]}"/>`);
+        svg.push(`<circle class="orb-core" cx="${cx}" cy="${cy}" r="${w * this.RADII.direct}"/>`);
+        for (const l of o.links || []) {
+          const a = pos[l.a], b = pos[l.b]; if (!a || !b) continue;
+          svg.push(`<line class="orb-link${lit(l.a) && lit(l.b) ? '' : ' dim'}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
+        }
+        for (const ring of this.RINGS) svg.push(`<text class="orb-ringlbl" x="${cx}" y="${cy + w * this.RADII[ring] - 8}">${this.label(ring).toUpperCase()}</text>`);
+        svg.push('</svg>');
+        const parts = [svg.join('')];
+        // Words are placed direct ring first, each at the first candidate spot
+        // that does not overlap a word already placed or any dot. Without this a
+        // direct-ring word beside its dot could sit on top of a near-ring word
+        // below its own dot ("Generic" over "Assembly" at 390px).
+        const measure = this._measure || (this._measure = document.createElement('canvas').getContext('2d'));
+        measure.font = '400 12.5px "IBM Plex Sans", system-ui, sans-serif';
+        const boxes = o.nodes.filter(n => pos[n.id]).map(n => {
+          const p = pos[n.id], r = (n.ring === 'direct' ? 20 : 14) / 2 + 2;
+          return { x1: p.x - r, y1: p.y - r, x2: p.x + r, y2: p.y + r };
+        });
+        const hits = b => boxes.some(q => b.x1 < q.x2 && b.x2 > q.x1 && b.y1 < q.y2 && b.y2 > q.y1);
+        const order = [...o.nodes].sort((a, b) => this.RINGS.indexOf(a.ring) - this.RINGS.indexOf(b.ring));
+        for (const n of order) {
+          const p = pos[n.id]; if (!p) continue;
+          const d = n.ring === 'direct' ? 20 : 14, on = sel && sel.id === n.id;
+          const cls = `${n.ring}${on ? ' on' : ''}${this.nodeLit(n) ? '' : ' dim'}`;
+          const k = n.story_ids.length;
+          parts.push(`<button class="orb-node ${cls}" style="left:${p.x}px;top:${p.y}px" data-act="orb-node" data-id="${esc(n.id)}"
+            aria-pressed="${!!on}" aria-label="${esc(n.word)}, ${this.label(n.ring)}, ${k} ${k === 1 ? 'story' : 'stories'}"><i></i></button>`);
+          const tw = Math.min(88, measure.measureText(n.word).width + 4), th = 16, g = d / 2 + 6;
+          // Candidates as [left edge, centre y]. Direct-ring words prefer the
+          // side away from the centre, as on iOS; the rest prefer below.
+          const below = [p.x - tw / 2, p.y + g + th / 2], above = [p.x - tw / 2, p.y - g - th / 2];
+          const right = [p.x + g, p.y], left = [p.x - g - tw, p.y];
+          const c = Math.cos(p.a), sn = Math.sin(p.a);
+          const pref = n.ring !== 'direct' ? [below, above, right, left]
+            : Math.abs(c) > .45 ? (c > 0 ? [right, below, above, left] : [left, below, above, right])
+              : sn < 0 ? [above, right, left, below] : [below, right, left, above];
+          let spot = pref[0];
+          for (const cand of pref) {
+            const b = { x1: cand[0], y1: cand[1] - th / 2, x2: cand[0] + tw, y2: cand[1] + th / 2 };
+            if (!hits(b)) { spot = cand; break; }
+          }
+          boxes.push({ x1: spot[0], y1: spot[1] - th / 2, x2: spot[0] + tw, y2: spot[1] + th / 2 });
+          parts.push(`<button class="orb-word l ${cls}" style="left:${spot[0]}px;top:${spot[1]}px;width:${Math.ceil(tw)}px" data-act="orb-node"
+            data-id="${esc(n.id)}" tabindex="-1" aria-hidden="true">${esc(n.word)}</button>`);
+        }
+        parts.push(o.lens.set
+          ? `<button class="orb-you" data-act="orb-you" aria-label="You — show all stories">You</button>`
+          : `<button class="orb-you set-lens" data-act="personalize" aria-label="Set your lens">Set lens</button>`);
+        el.innerHTML = parts.join('');
+      },
+
+      /* What replaces the list while a word is selected: that word's stories,
+         each with the line from the reader's own lens that put it there. */
+      panelHTML(isIn) {
+        const n = this.selected(), o = S.orbit;
+        const stories = n.story_ids.map(id => S.stories.find(x => x.id === id)).filter(Boolean);
+        const k = stories.length;
+        return `<section class="orb-panel" aria-label="${esc(n.word)} stories">
+          <div class="orb-panel-head"><h2>${esc(n.word)}</h2>
+            <span class="k">${this.label(n.ring)} · ${k} ${k === 1 ? 'story' : 'stories'}</span>
+            <button class="orb-close" data-act="orb-close" aria-label="Back to all stories">✕</button></div>
+          ${stories.map(s => {
+            const why = o.stories[s.id] && o.stories[s.id].exposure;
+            return (why && why.text ? `<p class="orb-why">${esc(why.text)}</p>` : '') + Brief.row(s, isIn);
+          }).join('')}
+        </section>`;
+      }
+    };
+    addEventListener('resize', (() => {
+      let t = 0;
+      return () => { clearTimeout(t); t = setTimeout(() => Orbit.layout(), 120); };
+    })());
+
     /* ================= Feed (home / landing) ================= */
     const Brief = {
       async render() {
@@ -9765,6 +10388,16 @@
         const diff = fxDiff(S.stories);
         const mode = FX.SORTS[S.fxsort] ? S.fxsort : '';
         if (mode) list = FX.SORTS[mode].apply(list);
+        const topicBtns = topics.map(t =>
+          `<button class="fx-topic${t === S.topic ? ' on' : ''}" data-act="topic"
+            data-topic="${esc(t)}" aria-pressed="${t === S.topic}"
+            >${esc(t === 'all' ? 'All'
+            : t === 'local' && myCity() ? 'Local · ' + myCity()
+              : topicLabel(t))}</button>`).join('');
+        // The orbit is a map of the whole day, so it shows on "All" with no
+        // sort applied (as on iOS). Its lens chip narrows the list below it.
+        const orbitOn = Orbit.visible(mode);
+        if (orbitOn && Orbit.lens) list = list.filter(s => Orbit.inLens(s.id));
         // "Affects me directly" needs a configured lens before it can mean anything.
         const unlock = mode === 'foryou' && !lensed;
         const hero = unlock ? null : list[0];
@@ -9792,14 +10425,9 @@
         <span>Your interests &amp; filters</span><span class="chev" aria-hidden="true">▾</span>
       </button>
       <div class="col-body">
-      ${topics.length > 2 ? `<div>
+      ${topics.length > 2 ? `<div class="fx-topics-block">
         <span class="fx-lbl">Topics</span>
-        <div class="fx-topics">${topics.map(t =>
-          `<button class="fx-topic${t === S.topic ? ' on' : ''}" data-act="topic"
-            data-topic="${esc(t)}" aria-pressed="${t === S.topic}"
-            >${esc(t === 'all' ? 'All'
-            : t === 'local' && myCity() ? 'Local · ' + myCity()
-              : topicLabel(t))}</button>`).join('')}</div>
+        <div class="fx-topics">${topicBtns}</div>
       </div>` : ''}
 
       <div class="${topics.length > 2 ? 'fx-sect' : ''}">
@@ -9850,7 +10478,9 @@
           } · <span id="freshness"></span></span>
       </div>
       <div id="newbanner"></div>
-      ${unlock ? forYouUnlockHTML()
+      ${topics.length > 2 ? `<div class="fx-topicrow" role="group" aria-label="Topics">${topicBtns}</div>` : ''}
+      ${orbitOn ? Orbit.html() : ''}
+      ${orbitOn && Orbit.selected() ? Orbit.panelHTML(isIn) : unlock ? forYouUnlockHTML()
             : hero ? this.hero(hero, lensed, isIn) + (rest.length ? `
           <div class="fx-listhead"><span class="fx-lbl">${lensed ? 'Also matches your interests' : 'Also today'}</span><span class="rule"></span></div>
           ${rest.map(s => this.row(s, isIn)).join('')}` : '')
@@ -9906,6 +10536,7 @@
 
   </div></div>`;
         if (!isIn) Auth.renderInto($('#wb-signin'));
+        if (orbitOn) Orbit.layout();
         LiveHero.mount();
         Feed.startFreshness();
         $('#fab').classList.remove('hidden');
@@ -14205,6 +14836,9 @@
 
     const Auth = {
       ready: false,
+      watch: (() => { setTimeout(() => {
+        try { Auth.phone.addEventListener('change', () => Auth.render()); } catch (e) { }
+      }); })(),
       init() {
         if (this.ready) { this.render(); return; }
         const configured = GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith('YOUR_');
@@ -14224,10 +14858,16 @@
           el.innerHTML = `<a class="acct-link" href="/profile" title="Your profile">` +
             `${pic}<span class="acct-name">${nm}</span></a>` +
             `<button class="btn ghost sm" onclick="Auth.signout()">Sign out</button>`;
+        } else if (Auth.phone.matches) {
+          // Google's button is 240px wide and cannot shrink; in a phone's nav it
+          // overlapped the search control and ran off the screen. The profile
+          // page carries the full button.
+          el.innerHTML = '<a class="nav-signin" href="/profile">Sign in</a>';
         } else {
           Auth.renderInto(el);
         }
       },
+      phone: matchMedia('(max-width:760px)'),
       // Render a sign-in control into any element: the official Google button when
       // configured+loaded, otherwise a visible fallback that explains what's missing.
       renderInto(el) {
