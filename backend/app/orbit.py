@@ -186,7 +186,11 @@ def lens_label(ctx):
 
 
 def _story_words(story):
-    text = " ".join(str(story.get(k) or "") for k in ("headline", "topic", "place"))
+    text = " ".join(str(story.get(k) or "") for k in ("headline", "place"))
+    # The topic with its parent beat, so "You follow technology" still lands
+    # on a story filed under ai. Inline: orbit imports nothing from the app.
+    t = str(story.get("topic") or "").lower()
+    text += " " + t + (" technology" if t == "ai" else "")
     # The first part of the narrative only: a lens term buried in paragraph six
     # is a passing mention, not the story landing on the reader.
     text += " " + str(story.get("narrative") or "")[:700]

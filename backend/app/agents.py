@@ -9,7 +9,7 @@ import math
 import re
 import time
 import yaml
-from . import config, db, gazetteer, images, llm, orbit, textmerge, fulltext
+from . import config, db, gazetteer, images, llm, orbit, textmerge, fulltext, topics
 
 PROMPTS = yaml.safe_load(config.PROMPTS_FILE.read_text())
 
@@ -273,7 +273,10 @@ class Scout:
                             "INSERT INTO articles (id,url,title,summary,source,topic,"
                             "published,entities,fetched_at,image_url,image_width,"
                             "image_height,place) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (db.new_id(), link, title, summary, source, topic,
+                            (db.new_id(), link, title, summary, source,
+                             # AI coverage mostly arrives via general tech
+                             # feeds; a plainly-AI title is filed under ai.
+                             topics.refine(topic, title),
                              pub, "", db.now(), img, iw, ih,
                              # From the FEED url, not the article's: a city feed
                              # is what tells us the coverage area, and the
@@ -281,7 +284,17 @@ class Scout:
                              place_for_url(url)))
                         added += 1
                     except Exception:
-                        pass  # duplicate url
+                        # Duplicate url. If this copy came through a narrower
+                        # beat's feed (an `ai` feed) and the stored one is
+                        # under its parent, the narrower beat wins: the same
+                        # TechCrunch URL is in both its AI and main feeds, and
+                        # the main feed is read first.
+                        if topic in topics.PARENT:
+                            try:
+                                con.execute("UPDATE articles SET topic=? WHERE url=? AND topic=?",
+                                            (topic, link, topics.PARENT[topic]))
+                            except Exception:  # noqa: BLE001 — never lose the feed over it
+                                pass
                 con.commit()   # per feed — see the note in Storyteller.run: one
                                # commit at the end would hold the write lock
                                # across every remaining feed's HTTP fetch
@@ -1805,7 +1818,7 @@ class Storyteller:
                      # It was the one field the update left alone, so a story
                      # that picked the wrong beat on its first telling kept it
                      # for life, however many later articles disagreed.
-                     _topic_of(arts),
+                     topics.refine(_topic_of(arts), headline),
                      # A retell whose answer lacked a usable word keeps the
                      # one the story already had rather than losing it.
                      orbit_word,
@@ -1824,7 +1837,8 @@ class Storyteller:
                     "place,orbit_word) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, headline, narrative, why_matters, score, note,
-                     db.j({"claims": claims, "verdicts": verdicts}), _topic_of(arts),
+                     db.j({"claims": claims, "verdicts": verdicts}),
+                     topics.refine(_topic_of(arts), headline),
                      db.j(ids), db.j(sorted(evt_tids)), db.j(conn_ids),
                      db.now(), db.now(), event_id, images.best_of(arts), db.j(bstats),
                      db.j(beats) if beats else None,
@@ -2050,10 +2064,11 @@ def personalization_relevant(ctx, story):
     # ("city", "region", "country") and tagged nearly every story.
     loc_words = {w for v in ctx.get("location", {}).values()
                  for w in re.findall(r"[a-z]{3,}", str(v).lower())}
-    text = (story["headline"] + " " + story["narrative"] + " " + story["topic"]).lower()
+    text = (story["headline"] + " " + story["narrative"] + " "
+            + topics.with_parent(story["topic"])).lower()
     words = set(re.findall(r"[a-z0-9]{2,}", text))
     return bool(
-        story["topic"].lower() in interests
+        topics.matches(story["topic"], interests)
         or any(_phrase_in(i, words) for i in interests)
         or (loc_words & words))
 

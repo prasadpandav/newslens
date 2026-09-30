@@ -3,7 +3,7 @@ logs every stage. Re-runnable: each stage skips work already done."""
 import gc
 import time
 import uuid
-from . import db, diag, fulltext, gazetteer, llm, llmcache
+from . import db, diag, fulltext, gazetteer, llm, llmcache, topics
 from .agents import (Scout, Deduper, EntityTagger, TrendLinker, MicroTrendDetector,
                      ConnectionFinder, Verifier, Storyteller, Foresight)
 
@@ -46,6 +46,15 @@ def run_pipeline(stage=None):
     # which stage was in progress and how big the process had gotten.
     run_id = uuid.uuid4().hex[:8]
     diag.checkpoint(f"run={run_id} pipeline start stages={stages}")
+    # Re-file recent AI coverage stored under technology/science before this
+    # rule existed. Idempotent; a no-op once the catalogue is consistent.
+    try:
+        moved = topics.backfill(con)
+        if any(moved):
+            db.log_run(con, "topics", "ok", f"re-filed {moved[0]} articles, "
+                       f"{moved[1]} stories under ai")
+    except Exception as e:  # noqa: BLE001 — never block the pipeline on this
+        diag.checkpoint(f"run={run_id} topics backfill failed: {e}")
     for s in stages:
         t0 = time.time()
         diag.checkpoint(f"run={run_id} stage={s} start")

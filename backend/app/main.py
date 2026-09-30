@@ -15,7 +15,7 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import (config, db, diag, gazetteer, images, llm, llmcache, llmcost, live,
-               analytics, orbit, pages, ranking, textmerge)
+               analytics, orbit, pages, ranking, textmerge, topics)
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
                      depth_hint, clean_beats, clean_anchors,
@@ -1000,7 +1000,8 @@ def feed(user_id: str, sort: str = "recent", since: float = 0.0,
             # the full relevance test personalization_relevant() runs: that one
             # regexes every headline and narrative, and this path sorts up to
             # 1000 rows on every feed request.
-            if interests and (it["topic"] or "").lower() in interests:
+            # topics.matches: an `ai` story counts for a Technology follower.
+            if interests and topics.matches(it["topic"], interests):
                 base *= config.RANK_INTEREST_BOOST
             # Then corroboration — the number the card actually prints. Without
             # this a story scored 10 and a story scored 98 ranked identically
@@ -2337,7 +2338,7 @@ def admin_fix_topics(token: str = "", authorization: str = Header("")):
         arts = [con.execute("SELECT topic FROM articles WHERE id=?", (i,)).fetchone()
                 for i in ids]
         arts = [a for a in arts if a]
-        want = _topic_of(arts)
+        want = topics.refine(_topic_of(arts), s["headline"])
         if want and want != (s["topic"] or ""):
             con.execute("UPDATE stories SET topic=? WHERE id=?", (want, s["id"]))
             changed += 1
