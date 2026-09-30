@@ -1,5 +1,6 @@
 """FastAPI app: the API the iOS client talks to."""
 import gc
+import gzip
 import os
 import secrets
 import threading
@@ -14,7 +15,7 @@ from fastapi.responses import (StreamingResponse, HTMLResponse, PlainTextRespons
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from . import (config, db, diag, gazetteer, images, llm, llmcache, llmcost, live,
-               analytics, orbit, ranking, textmerge)
+               analytics, orbit, pages, ranking, textmerge)
 from .agents import (prompt, _dedupe_trends, linkify, story_refs, Verifier,
                      Personalizer, personalization_relevant, verdict_counts,
                      depth_hint, clean_beats, clean_anchors,
@@ -87,10 +88,14 @@ async def _no_index_api(request: Request, call_next):
 
     robots.txt here has to stay permissive — Google's renderer fetches this host
     to see any article text on the portal at all. `noindex` as a header does the
-    other half of the job: crawl it freely, never rank it. Two exemptions:
-    /sitemap.xml (Google refuses to read a noindex sitemap) and /robots.txt."""
+    other half of the job: crawl it freely, never rank it. Exemptions: the
+    sitemaps (Google refuses to read a noindex sitemap), /robots.txt, and the
+    /page/ routes, which the web host proxies onto descry.in as the real article
+    pages. Each of those sets its own robots meta tag."""
     response = await call_next(request)
-    if request.url.path not in ("/sitemap.xml", "/robots.txt"):
+    path = request.url.path
+    if (path not in ("/sitemap.xml", "/news-sitemap.xml", "/robots.txt")
+            and not path.startswith("/page/")):
         response.headers["X-Robots-Tag"] = "noindex"
     return response
 
@@ -1802,6 +1807,108 @@ def og_signal(signal_id: str):
     return _og_page(g["title"], _clip(g["prediction"]), f"signal/{signal_id}")
 
 
+# ------------------------------------------ Server-rendered pages (indexable)
+def _latest_stories(con, n=11):
+    return [dict(r) for r in con.execute(
+        "SELECT id, headline FROM stories ORDER BY created_at DESC LIMIT ?", (n,))]
+
+
+def _html_page(request, head_body, status=200):
+    """Assemble a /page/ response. Compressed here because the app shell is
+    ~500KB of HTML and this API has no compression middleware (adding one
+    globally risks buffering the SSE streams). The CDN may keep a page for five
+    minutes, which is also how often the pipeline can change it."""
+    head, body = head_body
+    doc = pages.assemble(pages.shell(), head, body, config.WEB_BASE_URL).encode()
+    headers = {"Cache-Control": "public, max-age=0, s-maxage=300",
+               "Vary": "Accept-Encoding"}
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        doc = gzip.compress(doc, compresslevel=6)
+        headers["Content-Encoding"] = "gzip"
+    return Response(doc, status_code=status, media_type="text/html; charset=utf-8",
+                    headers=headers)
+
+
+@app.get("/page/story/{story_id}", include_in_schema=False)
+def page_story(story_id: str, request: Request):
+    """descry.in/story/<id>, rendered on the server. Built from the signed-out
+    GET /story payload, so a crawler sees exactly what a guest reader does."""
+    try:
+        s = story(story_id, user_id="", authorization="")
+    except HTTPException as e:
+        if e.status_code != 404:
+            raise
+        return _html_page(request, pages.missing_page("story", f"/story/{story_id}"), 404)
+    con = db.connect()
+    try:
+        row = con.execute("SELECT updated_at FROM stories WHERE id=?", (story_id,)).fetchone()
+        s = {**s, "updated_at": row["updated_at"] if row else None}
+        more = _latest_stories(con)
+    finally:
+        con.close()
+    return _html_page(request, pages.story_page(s, more, config.WEB_BASE_URL))
+
+
+@app.get("/page/trend/{trend_id}", include_in_schema=False)
+def page_trend(trend_id: str, request: Request):
+    try:
+        t = trend_detail(trend_id)
+    except HTTPException as e:
+        if e.status_code != 404:
+            raise
+        return _html_page(request, pages.missing_page("trend", f"/trend/{trend_id}"), 404)
+    con = db.connect()
+    try:
+        more = _latest_stories(con)
+    finally:
+        con.close()
+    return _html_page(request, pages.trend_page(t, more, config.WEB_BASE_URL))
+
+
+@app.get("/page/signal/{signal_id}", include_in_schema=False)
+def page_signal(signal_id: str, request: Request):
+    try:
+        g = signal_detail(signal_id, user_id="", authorization="")
+    except HTTPException as e:
+        if e.status_code != 404:
+            raise
+        return _html_page(request, pages.missing_page("forecast", f"/signal/{signal_id}"), 404)
+    con = db.connect()
+    try:
+        more = _latest_stories(con)
+    finally:
+        con.close()
+    return _html_page(request, pages.signal_page(g, more, config.WEB_BASE_URL))
+
+
+@app.get("/news-sitemap.xml")
+def news_sitemap():
+    """Google News sitemap: stories from the last two days only, which is all
+    the format allows (and up to 1,000 of them). It is how a news site's new
+    articles get picked up within minutes rather than on the next full crawl."""
+    base = config.WEB_BASE_URL
+    con = db.connect()
+    rows = con.execute(
+        "SELECT id, headline, created_at FROM stories WHERE created_at >= ? "
+        "ORDER BY created_at DESC LIMIT 1000", (time.time() - 2 * 86400,)).fetchall()
+    con.close()
+    items = []
+    for r in rows:
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(r["created_at"]))
+        items.append(
+            f"<url><loc>{html.escape(base + '/story/' + r['id'])}</loc><news:news>"
+            "<news:publication><news:name>Descry</news:name>"
+            "<news:language>en</news:language></news:publication>"
+            f"<news:publication_date>{stamp}</news:publication_date>"
+            f"<news:title>{html.escape(r['headline'] or '')}</news:title>"
+            "</news:news></url>")
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+           'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">'
+           + "".join(items) + "</urlset>")
+    return Response(xml, media_type="application/xml")
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots(request: Request):
     """The API's own robots — deliberately permissive, which is not the same as
@@ -1823,8 +1930,8 @@ def sitemap():
     """URLs on the WEB domain, not this one. A sitemap exists to tell Google
     which pages to index; pointing it at the API host got the bridge pages
     crawled and left the actual article pages undiscovered. Served from
-    www.descry.in via a rewrite (see render.yaml), which is also what makes
-    listing www.descry.in URLs here legitimate.
+    descry.in via a rewrite (see web/_redirects), and named in descry.in's
+    robots.txt, which is what makes listing descry.in URLs here legitimate.
 
     lastmod is the real story timestamp — for a news site it is the difference
     between "recrawl this, it changed" and "we'll get to it"."""
@@ -3007,6 +3114,18 @@ def finance_graph(entity: str = "", hops: int = 2, limit: int = 40):
                 "ORDER BY confidence DESC, updated_at DESC LIMIT ?",
                 (min(int(limit or 60), 120),)).fetchall()
             edges = [dict(r) for r in rows]
+            # Every link's two ends must be in `top`. The nodes are chosen by
+            # mentions and the links by confidence, so most links pointed at
+            # nodes that were never sent (60 of 64 in production). A graph
+            # library cannot draw an edge to a missing node: the web page threw,
+            # and showed its built-in demo network instead of this one.
+            have = {n["id"] for n in top}
+            need = sorted({e for l in edges for e in (l["from_entity"], l["to_entity"])} - have)
+            if need:
+                top += [dict(r) for r in con.execute(
+                    "SELECT id, name, type, ticker, mentions FROM fin_kg_nodes "
+                    "WHERE namespace='finance' AND id IN (%s)" % ",".join("?" * len(need)),
+                    need).fetchall()]
             return {"stats": stats, "top": top, "links": edges}
         seed = fin_kg.tk.canonical(entity)
         links = fin_kg.cascade(con, [seed], max_hops=max(1, min(int(hops or 2), 4)),

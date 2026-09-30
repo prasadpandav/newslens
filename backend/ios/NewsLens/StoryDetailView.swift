@@ -26,6 +26,8 @@ struct StoryDetailView: View {
     @State private var showForYou = false
     @State private var showAsk = false
     @State private var proofOpen = false
+    /// The note a footnote tap asked for; the margin scrolls to it.
+    @State private var proofFocus: Int?
     @State private var toastMsg: String?
     /// Furthest point reached, not current position: scrolling back up to
     /// re-read a paragraph is not un-reading it.
@@ -174,7 +176,7 @@ struct StoryDetailView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 HStack { Spacer(); askButton }
-                ProofMargin(story: s, open: $proofOpen)
+                ProofMargin(story: s, open: $proofOpen, focus: $proofFocus)
             }
         }
     }
@@ -249,6 +251,16 @@ struct StoryDetailView: View {
                 .font(pal.serif(17.5, .light))
                 .lineSpacing(7)
                 .foregroundStyle(idx == 0 ? pal.text : pal.text2)
+                .tint(pal.faint)
+                .environment(\.openURL, OpenURLAction { url in
+                    guard url.scheme == "descry", url.host == "note",
+                          let n = Int(url.lastPathComponent) else { return .systemAction }
+                    withAnimation(BL.spring) {
+                        proofFocus = n
+                        proofOpen = true
+                    }
+                    return .handled
+                })
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 14)
         }
@@ -425,8 +437,15 @@ struct StoryDetailView: View {
 // MARK: - Marking a claim to its line
 
 enum Marked {
-    /// Prose with the sentences the writer produced for a checked claim tinted
-    /// and numbered to their note in the margin.
+    /// Prose with each checked claim footnoted to its note in the margin.
+    ///
+    /// Quiet by design. Every sentence used to get a tint, an underline and a
+    /// coloured number, and a well-sourced story read as a page of highlighter.
+    /// Now a claim gets a small superscript number (a `descry://note/<n>` link
+    /// that opens the margin at that note), and only "Sources disagree" also
+    /// gets a dotted underline, because that is the one a reader should notice
+    /// before reaching the margin. "Checked — true" needs no alarm, and "could
+    /// not check" is a gap in our work, not a warning about the sentence.
     ///
     /// The anchor is an exact string match, never a fuzzy one: `anchors` carries
     /// the sentence the writer actually wrote for that claim, verified
@@ -444,14 +463,18 @@ enum Marked {
             guard quote.count >= 24, anchor.claim >= 0, anchor.claim < notes.count,
                   let range = out.range(of: quote) else { continue }
             let note = notes[anchor.claim]
-            out[range].backgroundColor = note.tick(pal).opacity(0.16)
-            out[range].underlineStyle = .single
+            if note.tone == .mid {
+                out[range].underlineStyle = Text.LineStyle(
+                    pattern: .dot, color: note.color(pal).opacity(0.55))
+            }
 
-            // The marker points at the note's number in the margin.
-            var marker = AttributedString(" \(anchor.claim + 1)")
-            marker.font = pal.mono(12, .medium)
-            marker.baselineOffset = 7
-            marker.foregroundColor = note.color(pal)
+            // A thin space, then the number. The link's colour comes from the
+            // Text's tint, so every marker reads as a footnote rather than a
+            // verdict; the verdict is spelled out in the margin.
+            var marker = AttributedString("\u{2009}\(anchor.claim + 1)")
+            marker.font = pal.mono(10.5, .medium)
+            marker.baselineOffset = 6
+            marker.link = URL(string: "descry://note/\(anchor.claim)")
             out.insert(marker, at: range.upperBound)
         }
         return out
@@ -470,6 +493,8 @@ enum Marked {
 struct ProofMargin: View {
     let story: StoryDetail
     @Binding var open: Bool
+    /// Set by a footnote tap in the prose: the margin opens scrolled to it.
+    @Binding var focus: Int?
     @Environment(\.palette) private var pal
     @State private var drag: CGFloat = 0
 
@@ -531,6 +556,7 @@ struct ProofMargin: View {
     }
 
     private var detail: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if notes.isEmpty {
@@ -541,7 +567,7 @@ struct ProofMargin: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     ForEach(Array(notes.enumerated()), id: \.element.id) { idx, note in
-                        proofNote(idx: idx, note: note)
+                        proofNote(idx: idx, note: note).id(idx)
                     }
                 }
                 if let sources = story.sources, !sources.isEmpty {
@@ -562,6 +588,21 @@ struct ProofMargin: View {
         }
         .scrollIndicators(.hidden)
         .frame(maxHeight: 380)
+        // Both: a tap that opens the margin creates this view (onAppear), and a
+        // second tap while it is open only changes the value (onChange).
+        .onAppear { scroll(proxy) }
+        .onChange(of: focus) { scroll(proxy) }
+        }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy) {
+        guard let n = focus else { return }
+        focus = nil
+        // Next runloop turn: on the opening tap the notes have not been laid
+        // out yet, and scrollTo on an unplaced id does nothing.
+        DispatchQueue.main.async {
+            withAnimation(BL.spring) { proxy.scrollTo(n, anchor: .top) }
+        }
     }
 
     private func proofNote(idx: Int, note: ProofNote) -> some View {

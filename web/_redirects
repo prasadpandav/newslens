@@ -52,4 +52,20 @@
 /t/*  https://newslens-rmv6.onrender.com/t/:splat  200
 /g/*  https://newslens-rmv6.onrender.com/g/:splat  200
 
+# ------------------------------------------------------ server-rendered pages
+# The indexable pages. Without these, every /story/<id> is the same empty
+# index.html until JavaScript runs, and a crawler that does not wait for it sees
+# one generic page at every URL. The API returns the SAME app with this page's
+# title, description, canonical, structured data and article text already in it
+# (backend/app/pages.py), and a real 404 for anything that no longer exists.
+# Also first-match-wins, so these must stay above the catch-all.
+/story/*   https://newslens-rmv6.onrender.com/page/story/:splat   200
+/trend/*   https://newslens-rmv6.onrender.com/page/trend/:splat   200
+/signal/*  https://newslens-rmv6.onrender.com/page/signal/:splat  200
+
+# The sitemaps, on the site's own domain. robots.txt names the API-host copies,
+# which work without these rules; these make the conventional URLs work too.
+/sitemap.xml       https://newslens-rmv6.onrender.com/sitemap.xml       200
+/news-sitemap.xml  https://newslens-rmv6.onrender.com/news-sitemap.xml  200
+
 /*    /index.html   200

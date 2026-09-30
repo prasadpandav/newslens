@@ -19,12 +19,15 @@
      this correctly (config.OG_IMAGE_URL) — this is the one on the static
      shell itself, which is what a crawler sees on the homepage or on any path
      the SPA rewrite catches before a bridge redirect lands it here. -->
-  <meta property="og:image" content="https://www.descry.in/og.png">
+  <meta property="og:image" content="https://descry.in/og.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="color-scheme" content="light dark">
-  <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <!-- The font files themselves come from gstatic; without this the connection
+     to it only starts once the stylesheet has arrived. -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Archivo and the italic Newsreader axis are here for the Journal/Signal skins
      (see the :root[data-skin] blocks): Archivo carries every uppercase label and
      Signal's 900-weight headlines, and Journal sets dek/meta/edition lines in
@@ -38,8 +41,9 @@
     rel="stylesheet">
   <!-- Google Identity Services (Sign in with Google) -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <!-- Cytoscape.js for interactive Knowledge Graph / Story Network -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <!-- Cytoscape.js (the Connections graph) is loaded on first use by
+     GraphPage.initCytoscape, not here: as a plain <script> in <head> it blocked
+     the first paint of every page for a library only one page uses. -->
   <style>
     /* Brand tagline on the landing hero */
     .tagline {
@@ -58,6 +62,22 @@
       align-items: center;
       gap: 8px;
       margin-left: 10px
+    }
+
+    /* Reserve the sign-in button's height before Google's script draws it. The
+       slot is empty for the first ~100ms and then 40px tall, and that growth
+       pushed every page down 4px after it had painted: a layout shift on every
+       URL, measured in headless Chrome. */
+    nav #account {
+      min-height: 40px
+    }
+
+    /* #view is empty until the route renders into it, so the footer used to
+       paint right under the nav and then jump a screen down: most of the home
+       page's layout shift. Holding the view at screen height keeps the footer
+       below the fold from the first frame. */
+    main#view {
+      min-height: calc(100vh - var(--navh, 69px))
     }
 
     .account .avatar {
@@ -7663,13 +7683,13 @@
       background: #C8B98F
     }
 
-    .ob-left h1 {
+    .ob-left h2 {
       margin: 0 0 18px;
       font: 300 52px/1.06 var(--serif);
       letter-spacing: -.015em
     }
 
-    .ob-left h1 em {
+    .ob-left h2 em {
       font-style: italic;
       color: #C8B98F
     }
@@ -7916,7 +7936,7 @@
         display: none
       }
 
-      .ob-left h1 {
+      .ob-left h2 {
         font-size: 30px;
         margin-bottom: 10px
       }
@@ -8687,7 +8707,9 @@
           </svg><span>Descry</span></div>
         <div>
           <div class="ob-rings" aria-hidden="true"><i><i><b></b></i></i></div>
-          <h1>Understand the news,<br><em>not just read it.</em></h1>
+          <!-- h2, not h1: this dialog sits (invisibly) in every page, and its
+             heading must not compete with the page's own one. -->
+          <h2>Understand the news,<br><em>not just read it.</em></h2>
           <p>Every story comes with its proof attached — who reported it, how many
             of them agree, and what nobody can prove yet. Tell us a little and we
             will also tell you what it means for <em>you</em>.</p>
@@ -9135,6 +9157,32 @@
       }
     };
 
+    /* A page the server already rendered (the web host proxies /story, /trend
+       and /signal to the API's /page/ routes, see web/_redirects) arrives with
+       the real article inside #view and data-ssr naming its path. The route
+       adopts it once, instead of painting a skeleton over content the reader
+       can already see, then replaces it with the full version. */
+    /* One <script> per URL, however many callers ask for it. */
+    const _scripts = {};
+    function loadScript(src) {
+      return _scripts[src] || (_scripts[src] = new Promise((ok, fail) => {
+        const el = document.createElement('script');
+        el.src = src; el.async = true;
+        el.onload = ok;
+        el.onerror = () => { delete _scripts[src]; el.remove(); fail(new Error('load ' + src)); };
+        document.head.appendChild(el);
+      }));
+    }
+
+    const SSR = {
+      holds(path) {
+        const v = $('#view');
+        if (!v || v.dataset.ssr !== path) return false;
+        delete v.dataset.ssr;
+        return true;
+      }
+    };
+
     function route() {
       // Arrived via a hash or a legacy /s/<id> share link? Put the canonical path in
       // the address bar first, so what the reader copies is what search sees.
@@ -9142,7 +9190,7 @@
       if (location.hash || /^\/(s|t|g)\//.test(location.pathname)) {
         history.replaceState(null, '', p);
       }
-      const isHome = p === '/' || p.startsWith('/brief');
+      const isHome = p === '/' || p === '/index.html' || p.startsWith('/brief');
       // Detail pages belong to the tab they were opened from: a trend detail is
       // still Trends, and a forecast detail is still What's Next. Without this the
       // whole nav goes dark the moment you open one, and the reader loses their
@@ -9167,7 +9215,16 @@
       if (p.startsWith('/saved')) return Saved.render();
       if (p.startsWith('/read')) return ReadPage.render();
       if (p.startsWith('/profile')) return Profile.render();
-      Brief.render();            // the feed is the landing page
+      if (isHome) return Brief.render();     // the feed is the landing page
+      // Anything else is not a page. It used to render the feed, which gave every
+      // mistyped or stale URL a 200 copy of the home page: a "soft 404" to Google,
+      // and duplicate content competing with the real home page.
+      SEO.set({ title: 'Page not found · Descry', path: p, robots: 'noindex,follow' });
+      $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
+      <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
+        <h1 style="font:400 26px/1.3 var(--serif);color:var(--ink);margin:0 0 10px">Page not found</h1>
+        There is nothing at this address.<br><br>
+        <a class="btn primary" href="/">Today's stories</a></div></div>`;
     }
     addEventListener('popstate', route);
     addEventListener('hashchange', route);       // legacy #/... links still land right
@@ -10357,7 +10414,9 @@
       },
       getYouMayLikeStories(s) {
         if (!s) return [];
-        const pool = [...(S.stories || []), ...(DEMO.stories || [])];
+        // Demo stories only in demo mode. Mixed into a live pool they were
+        // recommended next to real news as if they had happened.
+        const pool = [...(S.stories || []), ...(S.online ? [] : (DEMO.stories || []))];
         const currentId = s.id;
 
         const storyEntities = new Set((s.entities || []).map(e => String(e.id || e.name || e).toLowerCase()));
@@ -10429,38 +10488,33 @@
         return scored.slice(0, 4);
       },
       async _render(id) {
-        // Fast local lookup first (0ms paint!)
-        const pool = [...(S.stories || []), ...(DEMO.stories || [])];
-        let base = pool.find(x => x && (x.id === id || String(x.id).toLowerCase() === String(id).toLowerCase())) ||
-                   pool.find(x => x && (x.headline || '').toLowerCase().includes(String(id).toLowerCase())) ||
-                   DEMO.stories.find(x => x && x.id === id) ||
-                   pool[0];
-
-        let s = base ? DEMO.detail(base) : null;
-
-        if (s) {
-          // Render instant story content in 0ms!
-          this._renderContent(id, s);
-          // Asynchronously fetch live updates in background with tight 1200ms timeout
-          if (S.online) {
-            api('/story/' + id + (S.creds ? `?user_id=${S.creds.user_id}` : ''), { timeout: 1200 })
-              .then(live => { if (live && live.headline) this._renderContent(id, live); })
-              .catch(() => {});
-          }
-          return;
-        }
-
-        $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
-        let err = null;
-        try { s = await api('/story/' + id + (S.creds ? `?user_id=${S.creds.user_id}` : ''), { timeout: 1500 }); }
+        // Real data only. This used to paint DEMO.detail() of whatever feed item
+        // it could find first (pool[0] when the story was not in the feed), with
+        // made-up fact-check verdicts and placeholder sources, and only replace it
+        // if the API answered within 1.2s. A slow API therefore showed readers,
+        // and Google, the wrong story under this URL with invented evidence.
+        // A server-rendered page (data-ssr) is already the real article, so it
+        // stays on screen while the full version loads instead of a skeleton.
+        const ssr = SSR.holds('/story/' + id);
+        if (!ssr) $('#view').innerHTML = `<div class="wrap reader"><div class="skel" style="height:300px"></div></div>`;
+        let s = null, err = null;
+        const q = S.creds ? `?user_id=${S.creds.user_id}` : '';
+        try { s = await api('/story/' + id + q, { timeout: 15000 }); }
         catch (e) { err = e; }
-
-        if (!s && base) {
-          s = DEMO.detail(base);
+        if (!s && err && err.status === 401 && q) {
+          try { s = await api('/story/' + id, { timeout: 15000 }); err = null; } catch (e2) { err = e2; }
         }
-
+        // Demo stories exist only in demo mode, and only under their own ids.
+        if (!s && !S.online) {
+          const demo = DEMO.stories.find(x => x.id === id);
+          if (demo) s = DEMO.detail(demo);
+        }
         if (!s) {
           const gone = err && err.status === 404;
+          // Couldn't reach the API, but the server already rendered the story:
+          // leave the reader with it rather than replacing it with an error.
+          if (ssr && !gone) return;
+          SEO.set({ title: 'Story no longer available · Descry', path: '/story/' + id, robots: 'noindex,follow' });
           $('#view').innerHTML = `<div class="wrap" style="text-align:center;padding-top:60px">
       <div class="glass" style="display:inline-block;padding:36px 44px;color:var(--text-2)">
         ${gone ? 'This story is no longer available — stories rotate out after 7 days.'
@@ -10716,7 +10770,7 @@
 
       ${s.image_url ? `<aside class="rx-pin">
         <span class="fx-lbl">Pinned to this beat</span>
-        <figure><img src="${esc(s.image_url)}" alt="" decoding="async" referrerpolicy="no-referrer">
+        <figure><img src="${esc(s.image_url)}" alt="${esc(s.headline)}" decoding="async" referrerpolicy="no-referrer">
           <figcaption>Photo via the outlets listed under “Where this came from”.</figcaption></figure>
       </aside>`: ''}
 
@@ -11348,6 +11402,8 @@
                 <button class="kg-pill" data-cat="geography" onclick="GraphPage.filterCategory('geography', this)">Geographies &amp; Hubs</button>
               </div>
 
+              <div id="kg-note" hidden style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--rule-2);border-radius:6px;font:400 12.5px/1.5 var(--sans);color:var(--ink-2);background:var(--card);"></div>
+
               <div class="kg-toolbar">
                 <div class="kg-search">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--mute);flex-shrink:0;">
@@ -11394,31 +11450,14 @@
                     <span class="kg-kicker">SCHOLAR'S MARGINALIA</span>
                     <h3 style="margin:0 0 8px;font:300 20px/1.2 var(--serif);color:var(--ink);">Inspect Any Connection</h3>
                     <p style="margin:0 0 16px;font:400 13px/1.6 var(--sans);color:var(--mute);">
-                      Click any entity, trend, or line in the network to inspect its economic supply chains, regulatory oversight, and corroborated news stories.
+                      Click any entity, trend, or line in the network to inspect its links and the stories that mention it.
                     </p>
                     <div class="kg-section-title">Key Nodes to Explore</div>
-                    <div style="display:flex;flex-direction:column;gap:6px;">
-                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('Reserve Bank of India')">
-                        <div class="kg-rel-tgt">Reserve Bank of India</div>
-                        <div class="kg-rel-pred">Banking regulation, liquidity rules &amp; monetary policy</div>
-                        <div class="kg-rel-meta">24 story mentions · 6 network links</div>
-                      </div>
-                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('HDFC Bank')">
-                        <div class="kg-rel-tgt">HDFC Bank</div>
-                        <div class="kg-rel-pred">Corporate syndicated loans &amp; retail credit leader</div>
-                        <div class="kg-rel-meta">18 story mentions · 5 network links</div>
-                      </div>
-                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('TSMC')">
-                        <div class="kg-rel-tgt">TSMC</div>
-                        <div class="kg-rel-pred">Semiconductor silicon foundry &amp; fab licensing</div>
-                        <div class="kg-rel-meta">19 story mentions · 4 network links</div>
-                      </div>
-                      <div class="kg-rel-card" onclick="GraphPage.focusEntity('Semiconductor Supply Realignment')">
-                        <div class="kg-rel-tgt">Semiconductor Supply Realignment</div>
-                        <div class="kg-rel-pred">Export controls shifting assembly &amp; testing to India</div>
-                        <div class="kg-rel-meta">Mined Macro Trend · Velocity 8.0</div>
-                      </div>
-                    </div>
+                    <!-- Filled by renderKeyNodes() from the graph that actually
+                         loaded. These were four hand-written cards with made-up
+                         counts ("24 story mentions · 6 network links") shown to
+                         every reader whatever the data said. -->
+                    <div id="kg-key-nodes" style="display:flex;flex-direction:column;gap:6px;"></div>
                   </div>
 
                   <div id="kg-inspector-selected" style="display:none;"></div>
@@ -11441,48 +11480,86 @@
         }
       },
 
+      /* Real data only. This used to draw DEMO_GRAPH first, an invented
+         network of 14 companies and regulators with made-up relationships,
+         confidences and mention counts, and to replace it only if the API
+         answered within 1.2s. On a slow connection a reader was shown fiction
+         as today's economic web. The sample network is now used only in demo
+         mode (the feed itself could not be loaded), and says so. */
       async loadData() {
-        // Render built-in financial knowledge web instantly (0ms!)
-        let data = JSON.parse(JSON.stringify(this.DEMO_GRAPH));
-        this._buildGraphData(data);
-
-        // Fetch backend updates in background with tight 1200ms timeout
-        if (S.online) {
-          try {
-            const resp = await api('/finance/graph?limit=80', { timeout: 1200 });
-            if (resp && resp.top && resp.top.length > 0 && resp.links && resp.links.length > 0) {
-              this._buildGraphData(resp);
-            }
-          } catch (e) {
-            console.warn('Backend graph timeout, using instant knowledge web');
-          }
+        this._note('');
+        this._canvasMessage('Loading the network…');
+        let resp = null;
+        try { resp = await api('/finance/graph?limit=80', { timeout: 15000 }); } catch (e) { }
+        if (!document.getElementById('cy-graph')) return;      // navigated away
+        if (resp) {
+          this._buildGraphData({ stats: resp.stats || null, top: resp.top || [], links: resp.links || [] });
+          return;
         }
+        if (!S.online) {
+          this._note('Sample network. The server can\'t be reached, so this is illustrative data, not today\'s.');
+          this._buildGraphData(JSON.parse(JSON.stringify(this.DEMO_GRAPH)));
+          return;
+        }
+        this._canvasMessage('Couldn\'t load the network just now.', true);
+        const keys = document.getElementById('kg-key-nodes');
+        if (keys) keys.innerHTML = '';
+      },
+
+      _note(text) {
+        const el = document.getElementById('kg-note');
+        if (!el) return;
+        el.textContent = text;
+        el.hidden = !text;
+      },
+
+      /* A message in place of the graph: loading, empty, or failed (with retry). */
+      _canvasMessage(text, retry) {
+        const el = document.getElementById('cy-graph');
+        if (!el) return;
+        if (this.cy) { try { this.cy.destroy(); } catch (e) { } this.cy = null; }
+        el.innerHTML = `<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;font:400 13.5px/1.6 var(--sans);color:var(--mute);">
+          <div>${esc(text)}${retry ? '<br><br><button class="kg-btn" onclick="GraphPage.loadData()">Try again</button>' : ''}</div></div>`;
       },
 
       _buildGraphData(data) {
+        // A link whose end is not a node cannot be drawn: Cytoscape throws and
+        // nothing renders. The API now sends every endpoint, but an older API
+        // or a pruned node must still leave a working graph, so any missing
+        // end is added as a bare node with no counts.
+        const known = new Set((data.top || []).map(n => n.id));
+        (data.links || []).forEach(l => [l.from_entity, l.to_entity].forEach(id => {
+          if (id && !known.has(id)) { known.add(id); data.top.push({ id, name: id, type: '', ticker: '', mentions: null }); }
+        }));
 
         // Dynamically enrich with Macro Trends & Forecast Signals from the live feed
         if (S.trends && S.trends.length > 0) {
           S.trends.forEach(t => {
             const trendName = cleanName(t.name || t.id);
             if (!data.top.some(n => n.id === trendName)) {
+              // Only what the trend carries. The velocity used to be invented
+              // when missing (article_count x 1.2, else 5.0), and so were the
+              // mention counts here and on the sector nodes below.
               data.top.push({
                 id: trendName,
                 name: trendName,
                 type: 'trend',
-                ticker: `VELOCITY: ${t.velocity || (t.article_count ? t.article_count * 1.2 : 5.0).toFixed(1)}`,
-                mentions: t.story_count || t.article_count || 6
+                ticker: typeof t.velocity === 'number' ? `VELOCITY: ${t.velocity.toFixed(1)}` : '',
+                mentions: typeof t.story_count === 'number' ? t.story_count : null
               });
               (t.sectors || []).forEach(sec => {
                 const secName = topicLabel(sec) + ' Sector';
                 if (!data.top.some(n => n.id === secName)) {
-                  data.top.push({ id: secName, name: secName, type: 'sector', ticker: 'SECTOR INDEX', mentions: 8 });
+                  data.top.push({ id: secName, name: secName, type: 'sector', ticker: '', mentions: null });
                 }
+                // The trend names this sector; that is the whole relationship.
+                // It used to read "accelerates structural capital & demand in"
+                // at a fixed 88% confidence, neither of which came from anywhere.
                 data.links.push({
                   from_entity: trendName,
                   to_entity: secName,
-                  mechanism: 'accelerates structural capital & demand in',
-                  confidence: 0.88,
+                  mechanism: 'trend lists this sector',
+                  confidence: null,
                   order: 1
                 });
               });
@@ -11498,19 +11575,21 @@
                 id: sigTitle,
                 name: sigTitle,
                 type: 'signal',
-                ticker: `HORIZON: ${sg.horizon || '1-2 quarters'}`,
-                mentions: (sg.stories || []).length || 4
+                ticker: sg.horizon ? `HORIZON: ${sg.horizon}` : '',
+                mentions: typeof sg.story_count === 'number' ? sg.story_count : null
               });
               (sg.affected || []).forEach(aff => {
                 const affName = topicLabel(aff) + ' Sector';
                 if (!data.top.some(n => n.id === affName)) {
-                  data.top.push({ id: affName, name: affName, type: 'sector', ticker: 'AFFECTED AREA', mentions: 6 });
+                  data.top.push({ id: affName, name: affName, type: 'sector', ticker: '', mentions: null });
                 }
+                // No confidence: the forecast's own likelihood is not the
+                // strength of this link, and 0.78 was a made-up default.
                 data.links.push({
                   from_entity: sigTitle,
                   to_entity: affName,
-                  mechanism: 'cascades price & supply pressure into',
-                  confidence: sg.confidence || 0.78,
+                  mechanism: 'forecast names this as affected',
+                  confidence: null,
                   order: 1
                 });
               });
@@ -11519,14 +11598,81 @@
         }
 
         this.cachedData = data;
+        this.renderKeyNodes(data);
+        if (!(data.top || []).length) {
+          this._canvasMessage('No connections have been mapped yet. They appear as the finance pipeline reads the news.');
+          this.renderConnectionsTable();
+          return;
+        }
         this.initCytoscape(data);
         this.renderConnectionsTable();
       },
 
+      TYPE_LABELS: { organization: 'Company', regulator: 'Regulator', sector: 'Sector', geography: 'Geography', trend: 'Trend', signal: 'Forecast' },
+
+      /* The panel's starting suggestions, from the graph that loaded: the
+         most-mentioned entities with their real mention and link counts, then
+         the fastest-moving trend. Counts that are not known are not shown. */
+      renderKeyNodes(data) {
+        const el = document.getElementById('kg-key-nodes');
+        if (!el) return;
+        const links = new Map();
+        (data.links || []).forEach(l => {
+          links.set(l.from_entity, (links.get(l.from_entity) || 0) + 1);
+          links.set(l.to_entity, (links.get(l.to_entity) || 0) + 1);
+        });
+        const plural = (n, w) => `${n} ${n === 1 ? w : w === 'story' ? 'stories' : w + 's'}`;
+        const cards = (data.top || [])
+          .filter(n => !['trend', 'signal'].includes(n.type) && typeof n.mentions === 'number')
+          .sort((a, b) => b.mentions - a.mentions || (links.get(b.id) || 0) - (links.get(a.id) || 0))
+          .slice(0, 3)
+          .map(n => ({
+            id: n.id, name: n.name || n.id,
+            sub: (this.TYPE_LABELS[n.type] || 'Entity') + (n.ticker ? ' · ' + n.ticker : ''),
+            meta: plural(n.mentions, 'mention') + ' · ' + plural(links.get(n.id) || 0, 'link')
+          }));
+        const trend = (S.trends || []).filter(t => typeof t.velocity === 'number')
+          .sort((a, b) => b.velocity - a.velocity)[0];
+        if (trend) {
+          const name = cleanName(trend.name || trend.id);
+          if ((data.top || []).some(n => n.id === name)) {
+            cards.push({
+              id: name, name, sub: 'Trend',
+              meta: `Velocity ${trend.velocity.toFixed(1)}`
+                + (typeof trend.story_count === 'number' ? ' · ' + plural(trend.story_count, 'story') : '')
+            });
+          }
+        }
+        el.innerHTML = cards.length ? cards.map(c => `
+          <div class="kg-rel-card" data-ent="${esc(c.id)}">
+            <div class="kg-rel-tgt">${esc(c.name)}</div>
+            <div class="kg-rel-pred">${esc(c.sub)}</div>
+            <div class="kg-rel-meta">${esc(c.meta)}</div>
+          </div>`).join('')
+          : `<p style="font:400 12px var(--sans);color:var(--mute);margin:0;">Nothing mapped yet.</p>`;
+        el.querySelectorAll('[data-ent]').forEach(c => { c.onclick = () => this.focusEntity(c.dataset.ent); });
+      },
+
       initCytoscape(data) {
         const container = document.getElementById('cy-graph');
-        if (!container || typeof cytoscape === 'undefined') return;
+        if (!container) return;
+        if (typeof cytoscape === 'undefined') {
+          // First visit to the graph: fetch the library, then draw, provided the
+          // reader is still looking at the same graph container.
+          loadScript('https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js')
+            .then(() => {
+              if (document.getElementById('cy-graph') !== container) return;
+              this.initCytoscape(data);
+              // The table reads the nodes initCytoscape just built; it was
+              // drawn before the library arrived and showed "0 Nodes".
+              this.renderConnectionsTable();
+            })
+            .catch(() => toast("Couldn't load the graph — check your connection"));
+          return;
+        }
 
+        if (this.cy) { try { this.cy.destroy(); } catch (e) { } this.cy = null; }
+        container.innerHTML = '';
         this.allNodes.clear();
         this.allEdges = data.links || [];
 
@@ -11582,8 +11728,8 @@
         const nodeCountEl = document.getElementById('kg-stat-nodes');
         const edgeCountEl = document.getElementById('kg-stat-edges');
         const hubsEl = document.getElementById('kg-stat-hubs');
-        if (nodeCountEl) nodeCountEl.textContent = (data.top ? data.top.length : 14);
-        if (edgeCountEl) edgeCountEl.textContent = (data.links ? data.links.length : 18);
+        if (nodeCountEl) nodeCountEl.textContent = (data.top || []).length;
+        if (edgeCountEl) edgeCountEl.textContent = (data.links || []).length;
         if (hubsEl && data.stats && data.stats.hubs) {
           hubsEl.innerHTML = data.stats.hubs.slice(0, 5).map(h =>
             `<div style="margin-bottom:3px;"><strong>${h.node}</strong> (${h.degree} links)</div>`
@@ -11601,6 +11747,7 @@
         const colEdgeHigh = isDark ? '#7AA884' : '#3F6B4A';
         const colEdgeMid = isDark ? '#D2A54F' : '#A9741C';
         const colEdgeLow = isDark ? '#C87F6A' : '#9B3F30';
+        const colEdgeNone = isDark ? '#6F6A60' : '#A8A195';   // no confidence score
 
         const elements = [];
 
@@ -11631,7 +11778,7 @@
               source: link.from_entity,
               target: link.to_entity,
               mechanism: link.mechanism || 'connected to',
-              confidence: link.confidence || 0.6,
+              confidence: typeof link.confidence === 'number' ? link.confidence : null,
               order: link.order || 1
             }
           });
@@ -11708,16 +11855,16 @@
                 'target-arrow-shape': 'triangle',
                 'arrow-scale': 1.2,
                 'line-color': (ele) => {
-                  const c = ele.data('confidence') || 0.6;
-                  return c >= 0.75 ? colEdgeHigh : c >= 0.45 ? colEdgeMid : colEdgeLow;
+                  const c = ele.data('confidence');
+                  return c == null ? colEdgeNone : c >= 0.75 ? colEdgeHigh : c >= 0.45 ? colEdgeMid : colEdgeLow;
                 },
                 'target-arrow-color': (ele) => {
-                  const c = ele.data('confidence') || 0.6;
-                  return c >= 0.75 ? colEdgeHigh : c >= 0.45 ? colEdgeMid : colEdgeLow;
+                  const c = ele.data('confidence');
+                  return c == null ? colEdgeNone : c >= 0.75 ? colEdgeHigh : c >= 0.45 ? colEdgeMid : colEdgeLow;
                 },
                 'width': (ele) => {
-                  const c = ele.data('confidence') || 0.6;
-                  return 1.4 + c * 2.2;
+                  const c = ele.data('confidence');
+                  return c == null ? 1.4 : 1.4 + c * 2.2;
                 },
                 'opacity': 0.65,
                 'cursor': 'pointer'
@@ -11805,7 +11952,9 @@
         syns.forEach(s => tokens.add(s.toLowerCase()));
 
         // 2. Pool candidate stories from live feed & demo archive
-        const pool = [...(S.stories || []), ...(DEMO.stories || [])];
+        // Demo stories only in demo mode. Mixed into a live pool they were
+        // recommended next to real news as if they had happened.
+        const pool = [...(S.stories || []), ...(S.online ? [] : (DEMO.stories || []))];
         const seenIds = new Set();
         const scored = [];
 
@@ -11838,12 +11987,31 @@
 
         scored.sort((a, b) => b.score - a.score);
 
-        if (scored.length > 0) {
-          return scored.slice(0, 4).map(x => x.story);
-        }
+        // Only stories that actually match. This used to fall back to the top
+        // three stories of the day, so every entity appeared to have "related
+        // stories" (and every link "corroborating" ones) whether any existed.
+        return scored.slice(0, 4).map(x => x.story);
+      },
 
-        // Guaranteed fallback: return top active stories so related stories is never empty
-        return pool.slice(0, 3);
+      /* Story cards for the panel. The score is shown only when the story has
+         one; a missing score used to print as "75/100". */
+      storyCards(stories, empty) {
+        if (!stories.length) return `<p style="font:400 12px var(--sans);color:var(--mute);margin:0;">${esc(empty)}</p>`;
+        return stories.slice(0, 4).map(st => `
+          <a href="/story/${esc(st.id)}" class="kg-story-card" onclick="event.preventDefault();Nav.go('/story/${esc(st.id)}');">
+            <h4>${esc(st.headline)}</h4>
+            <div style="display:flex;justify-content:space-between;margin-top:4px;">
+              <span>${typeof st.credibility === 'number' ? `Agreement ${Math.round(st.credibility)}/100` : ''}</span>
+              <span>Read story →</span>
+            </div>
+          </a>`).join('');
+      },
+
+      /* "Confidence 82%", or an honest blank for links that have no score. */
+      confLine(c) {
+        if (typeof c !== 'number') return { text: 'No confidence score', tone: 'var(--mute)' };
+        const pct = Math.round(c * 100);
+        return { text: `Confidence ${pct}%`, tone: pct >= 75 ? 'var(--good-ink)' : pct >= 50 ? 'var(--mid-ink)' : 'var(--bad-ink)' };
       },
 
       async handleNodeTap(node) {
@@ -11877,15 +12045,16 @@
           relHtml = connectedEdges.map(link => {
             const isSource = link.from_entity === entityId;
             const otherEntity = isSource ? link.to_entity : link.from_entity;
-            const confPct = Math.round((link.confidence || 0.6) * 100);
-            const confWord = confPct >= 75 ? 'Nearly all agree' : confPct >= 50 ? 'Most agree' : 'Sources disagree';
-            const confTone = confPct >= 75 ? 'var(--good-ink)' : confPct >= 50 ? 'var(--mid-ink)' : 'var(--bad-ink)';
+            // The model's confidence in the extracted link. It used to be
+            // labelled "Nearly all agree / Most agree / Sources disagree", as if
+            // it counted outlets, and defaulted to 60% when there was none.
+            const conf = this.confLine(link.confidence);
             return `
               <div class="kg-rel-card" onclick="GraphPage.focusEntity('${otherEntity.replace(/'/g, "\\'")}')">
                 <div class="kg-rel-tgt">${isSource ? '→ ' : '← '} ${otherEntity}</div>
                 <div class="kg-rel-pred">${link.mechanism}</div>
                 <div class="kg-rel-meta" style="display:flex;justify-content:space-between;">
-                  <span style="color:${confTone};font-weight:500;">${confWord} · ${confPct}%</span>
+                  <span style="color:${conf.tone};font-weight:500;">${conf.text}</span>
                   <span>Hop: ${link.order || 1}</span>
                 </div>
               </div>
@@ -11895,15 +12064,7 @@
           relHtml = `<p style="font:400 12px var(--sans);color:var(--mute);">No direct supply-chain or regulatory links indexed yet.</p>`;
         }
 
-        const renderStoriesCards = (stories) => stories.map(st => `
-          <a href="/story/${st.id}" class="kg-story-card" onclick="event.preventDefault();Nav.go('/story/${st.id}');">
-            <h4>${st.headline}</h4>
-            <div style="display:flex;justify-content:space-between;margin-top:4px;">
-              <span>Score: ${Math.round(st.credibility || 75)}/100</span>
-              <span>Read story →</span>
-            </div>
-          </a>
-        `).join('');
+        const renderStoriesCards = (stories) => this.storyCards(stories, 'No story in today\'s feed mentions this yet.');
 
         // Find matching macro trends & forecast signals for this node
         const matchingTrends = (S.trends || []).filter(t => {
@@ -11918,11 +12079,14 @@
           return hay.includes(entityId.toLowerCase()) || hay.includes(entName);
         }).slice(0, 2);
 
-        const infData = entity.influence || (this.nodeInfluence && this.nodeInfluence.get(entityId)) || { direct: connectedEdges.length, indirect: 2, score: connectedEdges.length * 2 };
-        const centralityPct = Math.min(100, Math.max(15, Math.round((infData.score / (this.maxInfluence || 10)) * 100)));
+        // Computed from the loaded graph. The fallback used to invent a 2nd-hop
+        // reach of 2, and centrality had a 15% floor, so every node looked
+        // somewhat central however isolated it was.
+        const infData = entity.influence || (this.nodeInfluence && this.nodeInfluence.get(entityId)) || { direct: connectedEdges.length, indirect: 0, score: 0 };
+        const centralityPct = Math.min(100, Math.max(0, Math.round((infData.score / (this.maxInfluence || 1)) * 100)));
 
         sel.innerHTML = `
-          <span class="kg-kicker">VERIFIED ENTITY RECEIPT</span>
+          <span class="kg-kicker">ENTITY</span>
           <h2 class="kg-ent-name">${entity.name || entity.id}</h2>
           <span class="kg-ent-type">${entity.type || 'organization'}${entity.ticker ? ' · ' + entity.ticker : ''}</span>
 
@@ -11966,8 +12130,8 @@
                 <a href="/trend/${tr.id}" class="kg-story-card" style="border-left:3px solid #A67C2E;" onclick="event.preventDefault();Nav.go('/trend/${tr.id}');">
                   <h4>${cleanName(tr.name)}</h4>
                   <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--mute);">
-                    <span>Velocity: ${(tr.velocity || 5.0).toFixed(1)}</span>
-                    <span>${tr.story_count || tr.article_count || 4} stories</span>
+                    <span>${typeof tr.velocity === 'number' ? 'Velocity: ' + tr.velocity.toFixed(1) : ''}</span>
+                    <span>${typeof tr.story_count === 'number' ? tr.story_count + (tr.story_count === 1 ? ' story' : ' stories') : ''}</span>
                   </div>
                 </a>
               `).join('')}
@@ -11978,11 +12142,11 @@
             <div class="kg-section-title">Forward Forecast Cascades</div>
             <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
               ${matchingSignals.map(sg => `
-                <a href="/next" class="kg-story-card" style="border-left:3px solid #6C589C;" onclick="event.preventDefault();Nav.go('/next');">
+                <a href="${sg.id ? '/signal/' + esc(sg.id) : '/next'}" class="kg-story-card" style="border-left:3px solid #6C589C;" onclick="event.preventDefault();Nav.go('${sg.id ? '/signal/' + esc(sg.id) : '/next'}');">
                   <h4>${sg.title || sg.prediction}</h4>
                   <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--mute);">
-                    <span>Horizon: ${sg.horizon || '1-2 quarters'}</span>
-                    <span>Likelihood: ${Math.round((sg.confidence || 0.6) * 100)}%</span>
+                    <span>${sg.horizon ? 'Horizon: ' + esc(sg.horizon) : ''}</span>
+                    <span>${typeof sg.confidence === 'number' ? 'Likelihood: ' + Math.round(sg.confidence * 100) + '%' : ''}</span>
                   </div>
                 </a>
               `).join('')}
@@ -12012,7 +12176,7 @@
         const source = edge.source().data('name');
         const target = edge.target().data('name');
         const mech = edge.data('mechanism');
-        const conf = Math.round((edge.data('confidence') || 0.6) * 100);
+        const conf = this.confLine(edge.data('confidence'));
 
         this.cy.elements().removeClass('highlight').addClass('faded');
         edge.removeClass('faded').addClass('highlight');
@@ -12040,21 +12204,13 @@
           }
         });
 
-        const renderStoriesCards = (stories) => stories.slice(0, 4).map(st => `
-          <a href="/story/${st.id}" class="kg-story-card" onclick="event.preventDefault();Nav.go('/story/${st.id}');">
-            <h4>${st.headline}</h4>
-            <div style="display:flex;justify-content:space-between;margin-top:4px;">
-              <span>Score: ${Math.round(st.credibility || 75)}/100</span>
-              <span>Read story →</span>
-            </div>
-          </a>
-        `).join('');
+        const renderStoriesCards = (stories) => this.storyCards(stories, 'No story in today\'s feed mentions either side yet.');
 
         sel.style.display = 'block';
         sel.innerHTML = `
           <span class="kg-kicker">ECONOMIC RELATIONSHIP LINK</span>
           <h2 class="kg-ent-name" style="font-size:20px;">${source} → ${target}</h2>
-          <span class="kg-ent-type" style="background:var(--sand);color:var(--sand-head);">Confidence: ${conf}%</span>
+          <span class="kg-ent-type" style="background:var(--sand);color:var(--sand-head);">${conf.text}</span>
           <p style="margin:12px 0 16px;font:400 13.5px/1.6 var(--sans);color:var(--ink-2);background:var(--card);padding:12px;border:1px solid var(--rule-2);border-radius:6px;">
             <strong>Mechanism:</strong> ${mech}
           </p>
@@ -12063,7 +12219,9 @@
             <button class="kg-btn" style="flex:1;" onclick="GraphPage.focusEntity('${target.replace(/'/g, "\\'")}')">Inspect ${target}</button>
           </div>
 
-          <div class="kg-section-title">Corroborating Stories (${uniqueJoint.length})</div>
+          <!-- Stories that mention either entity, matched on text. They were
+               headed "Corroborating Stories", which they are not. -->
+          <div class="kg-section-title">Stories mentioning either side (${Math.min(uniqueJoint.length, 4)})</div>
           <div id="kg-edge-stories-list" style="display:flex;flex-direction:column;gap:6px;">
             ${renderStoriesCards(uniqueJoint)}
           </div>
@@ -12184,7 +12342,8 @@
         if (links.length === 0) { wrap.innerHTML = ''; return; }
 
         const confBadge = (c) => {
-          const pct = Math.round((c || 0) * 100);
+          if (typeof c !== 'number') return '<span style="color:var(--mute);">—</span>';
+          const pct = Math.round(c * 100);
           const cls = c >= 0.75 ? 'conf-high' : c >= 0.45 ? 'conf-mid' : 'conf-low';
           return `<span class="kg-badge ${cls}">${pct}%</span>`;
         };
@@ -12194,10 +12353,7 @@
           return node ? (node.type || 'entity') : 'entity';
         };
 
-        const typeLabel = (t) => {
-          const labels = { organization: 'Company', regulator: 'Regulator', sector: 'Sector', geography: 'Geography', trend: 'Trend', signal: 'Forecast' };
-          return labels[t] || 'Entity';
-        };
+        const typeLabel = (t) => this.TYPE_LABELS[t] || 'Entity';
 
         // 1. DYNAMIC NODE SIZING HIERARCHY TABLE
         const maxScore = this.maxInfluence || 1;
@@ -12217,14 +12373,10 @@
                 <div style="font:400 10px var(--mono);color:var(--mute);margin-top:2px;">${typeStr}</div>
               </td>
               <td style="text-align:center;">
-                <a href="javascript:void(0)" onclick="GraphPage.showHopStories('${entNameEsc}', 1)"
-                   style="font:600 13px var(--mono);color:var(--indigo,#2E4A7D);text-decoration:underline;text-underline-offset:2px;"
-                   title="Click to view stories linked to 1st-hop direct connections">${inf.direct}</a>
+                <span style="font:600 13px var(--mono);color:var(--indigo,#2E4A7D);">${inf.direct}</span>
               </td>
               <td style="text-align:center;">
-                <a href="javascript:void(0)" onclick="GraphPage.showHopStories('${entNameEsc}', 2)"
-                   style="font:600 13px var(--mono);color:var(--sand-head,#A67C2E);text-decoration:underline;text-underline-offset:2px;"
-                   title="Click to view stories linked to 2nd-hop ripple reach">${inf.indirect}</a>
+                <span style="font:600 13px var(--mono);color:var(--sand-head,#A67C2E);">${inf.indirect}</span>
               </td>
               <td style="text-align:center;font:600 13px var(--mono);color:var(--sand-head,#A67C2E);">${inf.score.toFixed(1)}</td>
             </tr>
@@ -12983,9 +13135,11 @@
     const TrendPage = {
       sort: 'best',
       async render(id) {
-        $('#view').innerHTML = `<div class="fx"><div class="dx-wrap"><div class="skel" style="height:320px"></div></div></div>`;
-        let t = null;
-        try { t = await api('/trend/' + id); } catch (e) { }
+        const ssr = SSR.holds('/trend/' + id);
+        if (!ssr) $('#view').innerHTML = `<div class="fx"><div class="dx-wrap"><div class="skel" style="height:320px"></div></div></div>`;
+        let t = null, err = null;
+        try { t = await api('/trend/' + id); } catch (e) { err = e; }
+        if (!t && ssr && !(err && err.status === 404)) return;   // keep the server's copy
         if (!t) {
           SEO.set({
             title: 'Trend no longer available · Descry', path: '/trend/' + id,
@@ -13199,9 +13353,11 @@
        is all real, and is what this page is built from. */
     const SignalPage = {
       async render(id) {
-        $('#view').innerHTML = `<div class="fx"><div class="dx-wrap"><div class="skel" style="height:320px"></div></div></div>`;
-        let g = null;
-        try { g = await api(withUser('/signal/' + id)); } catch (e) { }
+        const ssr = SSR.holds('/signal/' + id);
+        if (!ssr) $('#view').innerHTML = `<div class="fx"><div class="dx-wrap"><div class="skel" style="height:320px"></div></div></div>`;
+        let g = null, err = null;
+        try { g = await api(withUser('/signal/' + id)); } catch (e) { err = e; }
+        if (!g && ssr && !(err && err.status === 404)) return;   // keep the server's copy
         if (!g) {
           SEO.set({
             title: 'Forecast no longer available · Descry',

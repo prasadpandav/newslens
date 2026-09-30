@@ -263,8 +263,11 @@ ALLOWED_ORIGINS = [o.strip() for o in
                    os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 
 # Public URL of the static web SPA — where the crawler-facing OG routes (/s /t /g)
-# redirect human visitors, and the base for sitemap links.
-WEB_BASE_URL = os.environ.get("WEB_BASE_URL", "https://descry.onrender.com").rstrip("/")
+# redirect human visitors, and the base for sitemap links and every canonical.
+# It must be the host that answers 200, not one that redirects: descry.in is the
+# live host and www.descry.in 301s to it, so a www value here puts a redirect
+# behind every sitemap entry and every canonical tag.
+WEB_BASE_URL = os.environ.get("WEB_BASE_URL", "https://descry.in").rstrip("/")
 # 1200x630 preview image for social/OG cards. Replace the placeholder with a real
 # hosted PNG. Blank = omit og:image.
 OG_IMAGE_URL = os.environ.get("OG_IMAGE_URL", f"{WEB_BASE_URL}/og.png")

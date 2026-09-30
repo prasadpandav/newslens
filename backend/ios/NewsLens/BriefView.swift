@@ -5,9 +5,11 @@ import Combine
 /// around the reader, closest first — and, under it, either the stories on the
 /// word they tapped or, with nothing tapped, the ordinary ranked list.
 ///
-/// The orbit is the personalised filter the old topic chips used to be. Which
-/// ring a story sits on is decided by the server (`GET /orbit`); a guest, or a
-/// server that predates the endpoint, gets the list alone.
+/// The topic chips pinned under the masthead sit above both. "All" is the
+/// orbit and the ranked list; any other topic (Finance, AI…) steps the orbit
+/// aside and shows that section's list, as the home did before the orbit.
+/// Which ring a story sits on is decided by the server (`GET /orbit`); a guest,
+/// or a server that predates the endpoint, gets the list alone.
 struct BriefView: View {
     @Environment(\.palette) private var pal
 
@@ -23,6 +25,8 @@ struct BriefView: View {
     /// The node the reader tapped. Nil = the plain list.
     @State private var selectedNode: String?
     @State private var lensFilter: OrbitLensKind?
+    /// The section chip. "all" = the orbit and the whole list.
+    @State private var topic = "all"
     /// Personal angles worked out this session (Why me? fetches them), so the
     /// card under the orbit shows the same line the Why-me screen does.
     @State private var impacts: [String: String] = [:]
@@ -39,12 +43,58 @@ struct BriefView: View {
     @Namespace private var zoomNS
     private let refreshTick = Timer.publish(every: 90, on: .main, in: .common).autoconnect()
 
-    /// The list under the orbit. A lens chip narrows it to that lens's orbit
-    /// stories; otherwise it is the whole ranked feed, exactly as before.
+    /// The list under the orbit. A section chip narrows it to that topic; a
+    /// lens chip to that lens's orbit stories; otherwise it is the whole ranked
+    /// feed.
     private var listItems: [FeedItem] {
+        if topic != "all" { return topicItems }
         guard let lensFilter, let orbit else { return items }
         return items.filter { orbit.stories[$0.id]?.lenses.contains(lensFilter.rawValue) == true }
     }
+
+    /// "All" first, then the reader's chosen interests, then everything else.
+    ///
+    /// Deduplicated on the way out. `user_interests` is free-form storage that
+    /// can hold the same interest twice (or "All"), and two identical values in
+    /// a `ForEach(id: \.self)` give SwiftUI two views claiming one identity,
+    /// which it resolves by drawing one and hit-testing the other.
+    private var topics: [String] {
+        let all = Set(items.map { $0.topic.lowercased() })
+        var seen: Set<String> = ["all"]
+        let mine = (UserDefaults.standard.stringArray(forKey: "user_interests") ?? [])
+            .map { $0.lowercased() }
+            .filter { all.contains($0) && seen.insert($0).inserted }
+        let rest = all.subtracting(mine).sorted()
+        return ["all"] + mine + rest
+    }
+
+    /// Compared lowercased on both sides: one capitalised feed key from the
+    /// backend would otherwise silently empty the screen.
+    private var topicItems: [FeedItem] {
+        let base = items.filter { $0.topic.lowercased() == topic }
+        // Local news is only local if it is YOUR city. The `local:` feeds cover
+        // several cities, so the reader's own floats to the top and the rest
+        // keep the server's order underneath: a stable partition, not a re-sort.
+        guard topic == "local", let city = myCity else { return base }
+        let mine = base.filter { $0.place?.lowercased() == city }
+        return mine + base.filter { $0.place?.lowercased() != city }
+    }
+
+    private var myCity: String? {
+        let c = (UserContext.saved?.location.city ?? "").trimmingCharacters(in: .whitespaces)
+        return c.isEmpty ? nil : c.lowercased()
+    }
+
+    /// "Local · Thane" once the reader has told us where they are, "Local"
+    /// until then, never a city we only inferred.
+    private var localChipLabel: String {
+        let c = (UserContext.saved?.location.city ?? "").trimmingCharacters(in: .whitespaces)
+        return c.isEmpty ? "Local" : "Local · \(c)"
+    }
+
+    /// The orbit is drawn only on "All": it is a map of the whole day, and a
+    /// map of one section of it would be mostly empty rings.
+    private var showsOrbit: Bool { topic == "all" }
 
     private var selected: OrbitNode? {
         guard let id = selectedNode else { return nil }
@@ -54,9 +104,11 @@ struct BriefView: View {
     /// "14 stories · 3 changed recently" — the line under the greeting when
     /// there is no orbit to summarise.
     private var countLine: String {
-        let n = items.count
-        let changed = items.filter(\.isDeveloping).count
+        let rows = topic == "all" ? items : topicItems
+        let n = rows.count
+        let changed = rows.filter(\.isDeveloping).count
         var line = "\(n) \(n == 1 ? "story" : "stories")"
+        if topic != "all" { line += " in \(topic == "local" ? localChipLabel : topic.topicLabel)" }
         if changed > 0 { line += " · \(changed) changed recently" }
         return line
     }
@@ -78,7 +130,7 @@ struct BriefView: View {
 
     /// "Seven stories reach you today. Two land directly."
     private var summary: String {
-        guard let orbit else { return countLine }
+        guard showsOrbit, let orbit else { return countLine }
         guard orbit.lens.set else {
             return "\(SpelledCount.of(items.count)) stories today. Tell Descry your world "
                  + "and the ones that touch you move to the centre."
@@ -118,6 +170,7 @@ struct BriefView: View {
                         }
                         Spacer()
                     } else {
+                        pinnedTopicBar
                         content
                     }
                 }
@@ -204,6 +257,12 @@ struct BriefView: View {
             .onChange(of: live.feed?.newestID) { Task { await checkNew() } }
             // A lens chip that hides the tapped node also closes its panel —
             // otherwise the panel would describe a node drawn as disabled.
+            // Leaving "All" puts the orbit away, so nothing tapped on it
+            // should still be in force when the reader comes back.
+            .onChange(of: topic) {
+                selectedNode = nil
+                lensFilter = nil
+            }
             .onChange(of: lensFilter) { _, lens in
                 if let lens, let node = selected, !node.lenses.contains(lens.rawValue) {
                     selectedNode = nil
@@ -213,14 +272,16 @@ struct BriefView: View {
     }
 
     private var content: some View {
+      ScrollViewReader { proxy in
         ScrollView {
             // Nothing above the orbit changes height after the first paint:
             // the summary reserves its two lines, and the live strip that
             // materialises late lives BELOW the orbit, in the list. A node that
             // moves under the reader's thumb opens the wrong story.
             VStack(alignment: .leading, spacing: 0) {
+                Color.clear.frame(height: 0).id(Self.feedTop)
                 header
-                if let orbit, !orbit.nodes.isEmpty || !orbit.lens.set {
+                if showsOrbit, let orbit, !orbit.nodes.isEmpty || !orbit.lens.set {
                     OrbitLensChips(orbit: orbit, lens: $lensFilter)
                         .padding(.top, 16)
                     OrbitCanvas(orbit: orbit, selected: $selectedNode, lens: lensFilter) {
@@ -235,7 +296,7 @@ struct BriefView: View {
                     }
                     .padding(.top, 8)
                 }
-                if let node = selected, let orbit {
+                if showsOrbit, let node = selected, let orbit {
                     OrbitPanel(node: node,
                                items: node.storyIDs.compactMap { id in items.first { $0.id == id } },
                                orbit: orbit, impacts: impacts) {
@@ -244,7 +305,7 @@ struct BriefView: View {
                     .padding(.top, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
-                    list.padding(.top, orbit == nil ? 12 : 4)
+                    list.padding(.top, showsOrbit && orbit != nil ? 4 : 12)
                 }
             }
             .padding(.horizontal, 20)
@@ -252,6 +313,70 @@ struct BriefView: View {
             .padding(.bottom, selectedNode == nil ? 40 : 0)
         }
         .scrollIndicators(.hidden)
+        // The chips stay reachable from anywhere in the feed, so changing one
+        // has to return you to the top. Otherwise the list re-renders above
+        // you and it looks like nothing happened.
+        .onChange(of: topic) {
+            withAnimation(BL.spring) { proxy.scrollTo(Self.feedTop, anchor: .top) }
+        }
+      }
+    }
+
+    private static let feedTop = "feed-top"
+
+    /// The section filter, pinned under the masthead, deliberately OUTSIDE the
+    /// feed's scroll view, for two reasons:
+    ///
+    /// 1. Views above a chip row that appear late (the live strip, the "N new"
+    ///    banner) push it down under the reader's thumb, and the tap lands on
+    ///    whatever slid into its place.
+    /// 2. A tap that stops a decelerating scroll view is consumed by it, which
+    ///    reads exactly like "the chip didn't register".
+    ///
+    /// Out here neither can happen, and it stays reachable while scrolled.
+    private var pinnedTopicBar: some View {
+        // One topic is not a filter: with only "All" the bar is dead chrome.
+        Group {
+            if topics.count > 1 {
+                topicBar
+                    .padding(.vertical, 9)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(pal.hairline).frame(height: 1)
+                    }
+            }
+        }
+    }
+
+    private var topicBar: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(topics, id: \.self) { t in
+                        Button {
+                            withAnimation(BL.spring) { topic = t }
+                        } label: {
+                            // Outline, filling with ink when on. The orbit's
+                            // lens chips are the filled grey kind, so the two
+                            // rows never read as one control.
+                            Chip(text: t == "all" ? "All"
+                                     : t == "local" ? localChipLabel
+                                     : t.topicLabel,
+                                 color: pal.text, filled: t == topic)
+                        }
+                        .buttonStyle(.plain)
+                        .id(t)
+                        .accessibilityAddTraits(t == topic ? [.isSelected] : [])
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 2)
+            }
+            // A chip near the right edge would otherwise be selected out of
+            // sight, and the filter would look like it had done nothing.
+            .onChange(of: topic) { _, t in
+                withAnimation(BL.spring) { proxy.scrollTo(t, anchor: .center) }
+            }
+        }
     }
 
     /// Today's list, unchanged in form: the live strip, the lead story at full
@@ -389,7 +514,8 @@ struct BriefView: View {
     /// The hairline-and-label rule that separates the lead story from the list.
     private var listHead: some View {
         HStack(spacing: 12) {
-            Text(lensFilter.map { "More in \($0.label)" } ?? "Also today")
+            Text(topic != "all" ? "More in \(topic == "local" ? "Local" : topic.topicLabel)"
+                 : lensFilter.map { "More in \($0.label)" } ?? "Also today")
                 .font(pal.mono(12, .medium))
                 .kerning(1.68)
                 .textCase(.uppercase)
@@ -500,6 +626,12 @@ struct BriefView: View {
                     // aged out); keep the selection only if it survived.
                     if let id = selectedNode, home.orbit?.nodes.contains(where: { $0.id == id }) != true {
                         selectedNode = nil
+                    }
+                    // Same for the section chip: a topic with nothing left in
+                    // it has no chip, and an empty list under no chip is a
+                    // dead end.
+                    if topic != "all", !home.items.contains(where: { $0.topic.lowercased() == topic }) {
+                        topic = "all"
                     }
                 }
                 error = nil

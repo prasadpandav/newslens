@@ -14,8 +14,10 @@ final class APIClient: ObservableObject {
     var baseURL = URL(string: UserDefaults.standard.string(forKey: "apiBase") ?? "")
         ?? URL(string: defaultBase)!
 
-    // Public web portal — used for share links. Set to your static site URL.
-    var webBaseURL = "https://www.descry.in"
+    // Public web portal — used for share links. The apex, not www: www 301s to
+    // it, and a shared link that redirects loses some unfurlers and adds a hop
+    // for every crawler that follows it.
+    var webBaseURL = "https://descry.in"
 
     /// Short share links, identical to what the web portal's "Copy link" makes:
     /// `https://<web domain>/s/<id>`.
